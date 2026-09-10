@@ -5,22 +5,25 @@
 // Same auth pattern as api/admin/bookings.js: every request needs the
 // X-Admin-Password header, rate-limited per IP.
 //
+// Every day has exactly 4 fixed slots (SHIFT_SLOTS in api/_reminders.js):
+// two for an actor, two for an actress. The admin panel always shows all
+// 4 rows for every visible day — there's no open-ended "add a shift" list,
+// just filling in (or clearing) one of the 4 slots.
+//
 // GET  ?from=<ISO date>&days=<n>
-//   Returns { shifts: { '<ISO date>': [ {id,start,end,actorUsername}, ... ] },
+//   Returns { shifts: { '<ISO date>': { 'actor-1': {start,end,actorUsername}, ... } },
 //             actors: { '<username>': { displayName, registered: bool } } }
 //   for `days` consecutive dates starting at `from` (default 14, max 31).
+//   A day with nothing filled in simply has {} — missing slots aren't sent.
 //   `actors` only exposes displayName/registered — never the chat id.
 //
 // POST body.action:
-//   { action:'addShift', dateISO, start, end, actorUsername }
-//       Appends a shift to that date (start/end "HH:MM", end after start).
-//       No overlap check against other shifts on purpose — a real actor
-//       could legitimately be listed for a stand-in slot; the admin is
-//       trusted to enter it sensibly.
-//   { action:'deleteShift', dateISO, shiftId }
-//       Removes one shift from that date.
+//   { action:'setSlot', dateISO, slot, start, end, actorUsername }
+//       Fills in one of the 4 slots for that date (slot must be one of
+//       SHIFT_SLOTS). Send start/end/actorUsername all empty to CLEAR that
+//       slot instead (removes it from that date's schedule).
 
-import { getShiftsForDate, saveShiftsForDate, getActorsMap } from '../_reminders.js';
+import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS } from '../_reminders.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 
 function checkAuth(req) {
@@ -96,47 +99,39 @@ export default async function handler(req, res) {
     }
     body = body || {};
 
-    if (body.action === 'addShift') {
+    if (body.action === 'setSlot') {
       const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const slot = typeof body.slot === 'string' ? body.slot : '';
+      if (!cleanDateISO || !SHIFT_SLOTS.includes(slot)) {
+        return res.status(400).json({ error: 'Некорректная дата или смена.' });
+      }
+
       const cleanStart = isValidHHMM(body.start) ? body.start : '';
       const cleanEnd = isValidHHMM(body.end) ? body.end : '';
       const cleanActor = typeof body.actorUsername === 'string'
         ? body.actorUsername.trim().replace(/^@/, '').toLowerCase().slice(0, 40)
         : '';
 
-      if (!cleanDateISO || !cleanStart || !cleanEnd || !cleanActor) {
-        return res.status(400).json({ error: 'Заполните дату, время начала/конца и актёра.' });
+      const shiftsMap = await getShiftsForDate(cleanDateISO);
+
+      // All three fields blank → clear this slot instead of setting it.
+      if (!cleanStart && !cleanEnd && !cleanActor) {
+        delete shiftsMap[slot];
+        await saveShiftsForDate(cleanDateISO, shiftsMap);
+        return res.status(200).json({ ok: true, shifts: shiftsMap });
+      }
+
+      if (!cleanStart || !cleanEnd || !cleanActor) {
+        return res.status(400).json({ error: 'Заполните время начала, конца и username — или очистите все три поля, чтобы убрать смену.' });
       }
       if (cleanEnd <= cleanStart) {
         return res.status(400).json({ error: 'Время окончания должно быть позже начала.' });
       }
 
-      const shifts = await getShiftsForDate(cleanDateISO);
-      const shift = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        start: cleanStart,
-        end: cleanEnd,
-        actorUsername: cleanActor,
-      };
-      shifts.push(shift);
-      shifts.sort((a, b) => a.start.localeCompare(b.start));
-      await saveShiftsForDate(cleanDateISO, shifts);
+      shiftsMap[slot] = { start: cleanStart, end: cleanEnd, actorUsername: cleanActor };
+      await saveShiftsForDate(cleanDateISO, shiftsMap);
 
-      return res.status(200).json({ ok: true, shifts });
-    }
-
-    if (body.action === 'deleteShift') {
-      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
-      const shiftId = typeof body.shiftId === 'string' ? body.shiftId : '';
-      if (!cleanDateISO || !shiftId) {
-        return res.status(400).json({ error: 'Укажите дату и смену.' });
-      }
-
-      const shifts = await getShiftsForDate(cleanDateISO);
-      const next = shifts.filter((s) => s.id !== shiftId);
-      await saveShiftsForDate(cleanDateISO, next);
-
-      return res.status(200).json({ ok: true, shifts: next });
+      return res.status(200).json({ ok: true, shifts: shiftsMap });
     }
 
     return res.status(400).json({ error: 'Неизвестное действие.' });

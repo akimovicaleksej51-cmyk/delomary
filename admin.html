@@ -312,30 +312,30 @@
   .shift-day{padding:14px 0; border-top:1px solid #2a2a2a;}
   .shift-day:first-child{border-top:none; padding-top:4px;}
   .shift-day-heading{font-weight:800; font-size:13.5px; letter-spacing:.03em; margin-bottom:10px;}
-  .shift-list{display:flex; flex-direction:column; gap:6px; margin-bottom:10px;}
-  .shift-chip{
-    display:flex; align-items:center; justify-content:space-between; gap:10px;
-    background:var(--black-3); border:1px solid #2a2a2a; border-radius:8px;
-    padding:8px 10px; font-size:13.5px;
+  /* Exactly 4 fixed rows per day: 2 "Актёр" + 2 "Актриса" — no open-ended
+     add/remove list, just fill in or clear one of the 4. */
+  .shift-slot-row{
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    padding:6px 0;
   }
-  .shift-actor-status{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; margin-left:8px;}
-  .shift-actor-status.ok{color:#199e70;}
-  .shift-actor-status.warn{color:var(--ochre-bright);}
-  .shift-delete{
-    background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px;
-    padding:2px 6px; border-radius:6px; flex-shrink:0;
+  .shift-slot-label{
+    flex:0 0 84px; font-size:12px; font-weight:800; text-transform:uppercase;
+    letter-spacing:.03em; padding:5px 8px; border-radius:6px; text-align:center;
   }
-  .shift-delete:hover{color:var(--danger-bright); background:#2a2a2a;}
-  .shift-empty-note{color:var(--muted); font-size:13px; margin:0 0 10px;}
-  .shift-add-row{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
-  .shift-add-row input[type="time"], .shift-add-row input[type="text"]{
+  .shift-slot-label.role-actor{background:rgba(91,155,213,.18); color:var(--info-bright);}
+  .shift-slot-label.role-actress{background:rgba(245,197,24,.16); color:var(--ochre-bright);}
+  .shift-slot-row input[type="time"], .shift-slot-row input[type="text"]{
     background:var(--black-3); color:var(--paper); border:1px solid #2a2a2a; border-radius:8px;
     padding:8px 10px; font-size:13.5px; font-family:var(--sans);
   }
-  .shift-add-row input[type="time"]{flex:0 0 auto; width:110px;}
-  .shift-add-row input[type="text"]{flex:1 1 140px; min-width:110px;}
-  .shift-add-row .shift-dash{color:var(--muted);}
-  .shift-add-row .btn-secondary{padding:8px 14px; font-size:13px; flex:0 0 auto;}
+  .shift-slot-row input[type="time"]{flex:0 0 auto; width:110px;}
+  .shift-slot-row input[type="text"]{flex:1 1 140px; min-width:110px;}
+  .shift-slot-row .shift-dash{color:var(--muted);}
+  .shift-slot-row .shift-slot-save{padding:8px 14px; font-size:13px; flex:0 0 auto;}
+  .shift-actor-status{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; flex:0 0 100%; margin:-2px 0 2px 92px;}
+  .shift-actor-status.ok{color:#199e70;}
+  .shift-actor-status.warn{color:var(--ochre-bright);}
+  .shift-actor-status:empty{display:none;}
 
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
@@ -1929,7 +1929,17 @@
   const shiftsMsg = document.getElementById('shiftsMsg');
   const SHIFTS_WINDOW_DAYS = 7;
   let shiftsWeekStart = null; // ISO date the visible 7-day window starts at
-  let shiftsData = {};   // { '2026-09-16': [{id,start,end,actorUsername}, ...] }
+  // Every day has exactly 4 fixed slots — 2 for an actor, 2 for an actress
+  // — matching SHIFT_SLOTS in api/_reminders.js. The panel always renders
+  // all 4 rows per visible day; filling in or clearing one is a single
+  // "setSlot" call, there's no separate add/remove list to manage.
+  const SHIFT_SLOT_DEFS = [
+    { id: 'actor-1', label: 'Актёр 1', role: 'actor' },
+    { id: 'actor-2', label: 'Актёр 2', role: 'actor' },
+    { id: 'actress-1', label: 'Актриса 1', role: 'actress' },
+    { id: 'actress-2', label: 'Актриса 2', role: 'actress' },
+  ];
+  let shiftsData = {};   // { '2026-09-16': { 'actor-1': {start,end,actorUsername}, ... } }
   let shiftsActors = {}; // { 'ivan_actor': {displayName, registered} }
 
   function shiftsWeekDates(){
@@ -1954,39 +1964,36 @@
     shiftsWeekLabel.textContent = `${formatDateHeading(dates[0])} — ${formatDateHeading(dates[dates.length - 1])}`;
 
     shiftsDaysList.innerHTML = dates.map(dateISO => {
-      const shifts = shiftsData[dateISO] || [];
-      const rows = shifts.length
-        ? shifts.map(s => {
-            const actor = shiftsActors[s.actorUsername];
-            const registered = actor && actor.registered;
-            const statusHtml = registered
-              ? '<span class="shift-actor-status ok">подключён</span>'
-              : '<span class="shift-actor-status warn">ждём /start</span>';
-            return `<div class="shift-chip">
-                <span>${escapeHtml(s.start)}–${escapeHtml(s.end)} · @${escapeHtml(s.actorUsername)}${statusHtml}</span>
-                <button type="button" class="shift-delete" data-date="${dateISO}" data-id="${escapeHtml(s.id)}" aria-label="Удалить смену">✕</button>
-              </div>`;
-          }).join('')
-        : '<p class="shift-empty-note">Смен пока нет.</p>';
+      const daySlots = shiftsData[dateISO] || {};
+
+      const rows = SHIFT_SLOT_DEFS.map(def => {
+        const s = daySlots[def.id] || {};
+        const actor = s.actorUsername ? shiftsActors[s.actorUsername] : null;
+        let statusHtml = '';
+        if (s.actorUsername){
+          statusHtml = actor && actor.registered
+            ? '<span class="shift-actor-status ok">подключён</span>'
+            : '<span class="shift-actor-status warn">ждём /start</span>';
+        }
+        return `<div class="shift-slot-row" data-date="${dateISO}" data-slot="${def.id}">
+            <span class="shift-slot-label role-${def.role}">${def.label}</span>
+            <input type="time" class="shift-slot-start" step="900" value="${escapeHtml(s.start || '')}">
+            <span class="shift-dash">–</span>
+            <input type="time" class="shift-slot-end" step="900" value="${escapeHtml(s.end || '')}">
+            <input type="text" class="shift-slot-actor" placeholder="username" list="knownActorsList" value="${escapeHtml(s.actorUsername || '')}">
+            <button type="button" class="btn-secondary shift-slot-save">Сохранить</button>
+            ${statusHtml}
+          </div>`;
+      }).join('');
 
       return `<div class="shift-day">
           <div class="shift-day-heading">${formatDateHeading(dateISO)}</div>
-          <div class="shift-list">${rows}</div>
-          <div class="shift-add-row">
-            <input type="time" class="shift-start" step="900" value="11:00">
-            <span class="shift-dash">–</span>
-            <input type="time" class="shift-end" step="900" value="17:00">
-            <input type="text" class="shift-actor" placeholder="username актёра" list="knownActorsList">
-            <button type="button" class="btn-secondary shift-add-btn" data-date="${dateISO}">Добавить</button>
-          </div>
+          ${rows}
         </div>`;
     }).join('');
 
-    shiftsDaysList.querySelectorAll('.shift-delete').forEach(btn => {
-      btn.addEventListener('click', () => deleteShift(btn.dataset.date, btn.dataset.id));
-    });
-    shiftsDaysList.querySelectorAll('.shift-add-btn').forEach(btn => {
-      btn.addEventListener('click', () => addShiftFromRow(btn));
+    shiftsDaysList.querySelectorAll('.shift-slot-save').forEach(btn => {
+      btn.addEventListener('click', () => saveShiftSlot(btn));
     });
   }
 
@@ -2011,15 +2018,19 @@
     }
   }
 
-  async function addShiftFromRow(btn){
-    const dateISO = btn.dataset.date;
-    const row = btn.closest('.shift-add-row');
-    const start = row.querySelector('.shift-start').value;
-    const end = row.querySelector('.shift-end').value;
-    const actorUsername = row.querySelector('.shift-actor').value.trim().replace(/^@/, '');
+  // Saves (or, if all three fields are left blank, clears) one of the 4
+  // fixed slots for a day.
+  async function saveShiftSlot(btn){
+    const row = btn.closest('.shift-slot-row');
+    const dateISO = row.dataset.date;
+    const slot = row.dataset.slot;
+    const start = row.querySelector('.shift-slot-start').value;
+    const end = row.querySelector('.shift-slot-end').value;
+    const actorUsername = row.querySelector('.shift-slot-actor').value.trim().replace(/^@/, '');
 
-    if (!start || !end || !actorUsername){
-      shiftsMsg.textContent = 'Заполните время начала, конца и username актёра.';
+    const allBlank = !start && !end && !actorUsername;
+    if (!allBlank && (!start || !end || !actorUsername)){
+      shiftsMsg.textContent = 'Заполните время начала, конца и username — или очистите все три поля, чтобы убрать смену.';
       shiftsMsg.className = 'modal-msg err';
       return;
     }
@@ -2029,11 +2040,11 @@
     try{
       const res = await fetch('/api/admin/shifts', {
         method:'POST', headers: authHeaders(),
-        body: JSON.stringify({ action:'addShift', dateISO, start, end, actorUsername })
+        body: JSON.stringify({ action:'setSlot', dateISO, slot, start, end, actorUsername })
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){
-        shiftsMsg.textContent = out.error || 'Не удалось добавить смену.';
+        shiftsMsg.textContent = out.error || 'Не удалось сохранить смену.';
         shiftsMsg.className = 'modal-msg err';
         return;
       }
@@ -2044,26 +2055,6 @@
       shiftsMsg.className = 'modal-msg err';
     } finally {
       btn.disabled = false;
-    }
-  }
-
-  async function deleteShift(dateISO, shiftId){
-    try{
-      const res = await fetch('/api/admin/shifts', {
-        method:'POST', headers: authHeaders(),
-        body: JSON.stringify({ action:'deleteShift', dateISO, shiftId })
-      });
-      const out = await res.json().catch(() => ({}));
-      if (!res.ok){
-        shiftsMsg.textContent = out.error || 'Не удалось удалить смену.';
-        shiftsMsg.className = 'modal-msg err';
-        return;
-      }
-      shiftsData[dateISO] = out.shifts;
-      renderShiftsDays();
-    } catch(err){
-      shiftsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
-      shiftsMsg.className = 'modal-msg err';
     }
   }
 

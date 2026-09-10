@@ -8,9 +8,12 @@
 // api/telegram-webhook.js and api/cron/reminders-sweep.js.
 //
 // ── Data model ──────────────────────────────────────────────────────────
-//   shifts:<ISO date>   STRING, JSON array of shifts for that date:
-//                        [{ id, start:'10:00', end:'16:00',
-//                           actorUsername:'ivan_actor' }, ...]
+//   shifts:<ISO date>   STRING, JSON object with up to 4 fixed slots per
+//                        day — SHIFT_SLOTS below ('actor-1','actor-2',
+//                        'actress-1','actress-2') — a slot missing from the
+//                        object just means it's empty that day:
+//                        { 'actor-1': { start:'10:00', end:'16:00',
+//                                       actorUsername:'ivan_actor' }, ... }
 //                        (start/end are "HH:MM" 24h, end exclusive.)
 //   actors              HASH, one field per Telegram username (lowercase,
 //                        no "@"), value JSON: { chatId, displayName,
@@ -42,6 +45,12 @@ const SHIFTS_TTL_SECONDS = 60 * 60 * 24 * 120; // shifts are set weeks ahead; ke
 const QSTASH_MAX_DELAY_SECONDS = 7 * 24 * 60 * 60; // free-tier ceiling on Upstash-Not-Before
 const REMINDER_LEAD_MINUTES = 90;
 
+// Fixed slots per day: 2 for an actor, 2 for an actress. Deliberately not
+// an open-ended list — the admin panel always shows exactly these 4 rows
+// per day, so a slot's id doubles as its own storage key (no separate
+// "add a new shift" flow needed).
+export const SHIFT_SLOTS = ['actor-1', 'actor-2', 'actress-1', 'actress-2'];
+
 function parseBookingDateTime(dateISO, time) {
   const [y, m, d] = String(dateISO).split('-').map(Number);
   const [hh, mm] = String(time).split(':').map(Number);
@@ -49,24 +58,26 @@ function parseBookingDateTime(dateISO, time) {
   return new Date(y, m - 1, d, hh, mm, 0, 0);
 }
 
+// Returns { 'actor-1': {start,end,actorUsername}, ... } — only the slots
+// that are actually filled in for that date; an empty/missing day is {}.
 export async function getShiftsForDate(dateISO) {
   const raw = await kv('get', `shifts:${dateISO}`);
-  if (!raw) return [];
+  if (!raw) return {};
   try {
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
   } catch {
-    return [];
+    return {};
   }
 }
 
-export async function saveShiftsForDate(dateISO, shifts) {
+export async function saveShiftsForDate(dateISO, shiftsMap) {
   const key = `shifts:${dateISO}`;
-  if (!shifts.length) {
+  if (!Object.keys(shiftsMap).length) {
     await kv('del', key);
     return;
   }
-  await kv('set', key, JSON.stringify(shifts));
+  await kv('set', key, JSON.stringify(shiftsMap));
   await kv('expire', key, SHIFTS_TTL_SECONDS);
 }
 
@@ -82,12 +93,17 @@ export async function getActorsMap() {
 }
 
 // Which actor (if any) covers a given time on a given date, per that date's
-// shift schedule. Time-range comparison works fine on zero-padded "HH:MM"
-// strings lexicographically. `end` is exclusive.
+// 4 fixed shift slots. Time-range comparison works fine on zero-padded
+// "HH:MM" strings lexicographically. `end` is exclusive. Checked in a
+// fixed order (actor-1, actor-2, actress-1, actress-2) — if two slots
+// somehow overlap the same time, the first one in that order wins.
 export async function resolveActorUsernameForSlot(dateISO, time) {
-  const shifts = await getShiftsForDate(dateISO);
-  const shift = shifts.find((s) => s.start <= time && time < s.end);
-  return shift ? shift.actorUsername : null;
+  const shiftsMap = await getShiftsForDate(dateISO);
+  for (const slotId of SHIFT_SLOTS) {
+    const s = shiftsMap[slotId];
+    if (s && s.start <= time && time < s.end) return s.actorUsername;
+  }
+  return null;
 }
 
 // Schedules (or re-schedules) the 1.5h-before reminder for a customer
