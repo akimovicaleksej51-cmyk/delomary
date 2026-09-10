@@ -237,6 +237,21 @@
   .intake-badge{font-family:var(--sans); font-weight:700; font-size:12px; color:var(--black); background:var(--ochre-bright); padding:8px 16px; border-radius:999px; white-space:nowrap;}
 
   .field-block{margin-bottom:34px;}
+  .step{
+    overflow:hidden; opacity:1; max-height:2000px;
+    transition:max-height .5s ease, opacity .45s ease .05s, margin-top .5s ease, margin-bottom .5s ease;
+  }
+  .step.step-hidden{
+    max-height:0 !important; opacity:0 !important; pointer-events:none;
+    margin-top:0 !important; margin-bottom:0 !important;
+    transition:max-height .4s ease, opacity .25s ease, margin-top .4s ease, margin-bottom .4s ease;
+  }
+  .step-sub{margin-bottom:26px;}
+  .step-sub:last-child{margin-bottom:0;}
+  .sub-label{
+    font-family:var(--sans); font-weight:700; font-size:12px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.03em; margin-bottom:12px;
+  }
   .field-label{
     display:flex; align-items:center; gap:10px;
     font-family:var(--sans); font-weight:800; font-size:13px; letter-spacing:.03em;
@@ -317,6 +332,13 @@
   }
   .contact-fields input:focus{outline:none; border-color:var(--ochre-bright);}
   .contact-fields input::placeholder{color:var(--muted);}
+  .comment-field{
+    display:block; margin-top:14px; width:100%; font-family:var(--sans); font-size:15px; font-weight:600;
+    padding:14px 18px; background:var(--black-2); border:1.5px solid var(--line); color:var(--paper);
+    border-radius:14px; resize:vertical; min-height:88px; line-height:1.55; transition:border-color .2s;
+  }
+  .comment-field:focus{outline:none; border-color:var(--ochre-bright);}
+  .comment-field::placeholder{color:var(--muted);}
   .submit-btn{
     margin-top:18px; width:100%; font-family:var(--sans); font-weight:800; font-size:16px;
     background:var(--ochre-bright); color:#151004; border:none; padding:19px; cursor:pointer; border-radius:14px;
@@ -489,6 +511,7 @@
     .price-num{font-size:40px;}
     .price-tiers{text-align:left; width:100%;}
     .contact-fields input{border-color:transparent; background:var(--black-3);}
+    .comment-field{border-color:transparent; background:var(--black-3); font-size:14.5px;}
     .submit-btn{margin-top:22px;}
     .fine{font-size:11.5px; margin-top:16px;}
 
@@ -670,17 +693,12 @@
       <div class="intake-head">
         <div>
           <h3>Дредвуд ждёт новую смену врачей</h3>
-          <p>Заполните три поля ниже — цена и итог пересчитаются автоматически.</p>
+          <p>Пройдите три коротких шага — цена и итог пересчитаются автоматически.</p>
         </div>
       </div>
 
       <div class="field-block">
-        <span class="field-label"><span class="num">1</span>Количество игроков</span>
-        <div class="players-row" id="playersRow"></div>
-      </div>
-
-      <div class="field-block">
-        <span class="field-label"><span class="num">2</span>Дата сеанса</span>
+        <span class="field-label"><span class="num">1</span>Дата сеанса</span>
         <div class="cal-head">
           <button type="button" class="cal-nav" id="calPrev" aria-label="Предыдущий месяц">‹</button>
           <span class="cal-month" id="calMonthLabel"></span>
@@ -692,34 +710,48 @@
         <div class="cal-grid" id="dayRow"></div>
       </div>
 
-      <div class="field-block">
-        <span class="field-label"><span class="num">3</span>Время сеанса</span>
-        <div class="slot-row" id="slotRow"></div>
-      </div>
-
-      <div class="price-panel">
-        <div>
-          <div class="label">Стоимость сеанса</div>
-          <div class="price-num" id="priceOut">140<sup>₽</sup></div>
-          <div class="price-note" id="priceNote">Тариф для команды 1–2 человека</div>
+      <div class="field-block step step-hidden" id="step2Block">
+        <span class="field-label"><span class="num">2</span>Время и количество игроков</span>
+        <div class="step-sub">
+          <div class="sub-label">Время сеанса</div>
+          <div class="slot-row" id="slotRow"></div>
         </div>
-        <div class="price-tiers" id="priceTiers">
-          <span>1–2 чел — 140 ₽</span>
-          <span>3–4 чел — 160 ₽</span>
-          <span>5 чел — 190 ₽</span>
-          <span>6 чел — 220 ₽</span>
-          <span>сеанс 23:00 — доплата +20 ₽</span>
+        <div class="step-sub">
+          <div class="sub-label">Количество игроков</div>
+          <div class="players-row" id="playersRow"></div>
         </div>
       </div>
 
-      <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <div class="contact-fields">
-        <input type="text" id="bookName" placeholder="Ваше имя">
-        <input type="tel" id="bookPhone" placeholder="+375 (__) ___-__-__">
+      <div class="step step-hidden" id="step3Wrap">
+        <div class="price-panel">
+          <div>
+            <div class="label">Стоимость сеанса</div>
+            <div class="price-num" id="priceOut">140<sup>₽</sup></div>
+            <div class="price-note" id="priceNote">Тариф для команды 1–2 человека</div>
+          </div>
+          <div class="price-tiers" id="priceTiers">
+            <span>1–2 чел — 140 ₽</span>
+            <span>3–4 чел — 160 ₽</span>
+            <span>5 чел — 190 ₽</span>
+            <span>6 чел — 220 ₽</span>
+            <span>сеанс 23:00 — доплата +20 ₽</span>
+          </div>
+        </div>
+
+        <div class="field-block">
+          <span class="field-label"><span class="num">3</span>Контакты и комментарий</span>
+          <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <div class="contact-fields">
+            <input type="text" id="bookName" placeholder="Ваше имя">
+            <input type="tel" id="bookPhone" placeholder="+375 (__) ___-__-__">
+          </div>
+          <textarea id="bookComment" class="comment-field" placeholder="Комментарий (необязательно): пожелания, повод визита, особые обстоятельства" maxlength="500" rows="3"></textarea>
+        </div>
+
+        <button class="submit-btn" id="submitBtn">Отправить заявку на бронь</button>
+        <div class="confirm-msg" id="confirmMsg"></div>
+        <div class="fine">Комиссия с игроков за бронирование на сайте не взимается. Оплата — наличными на месте. Тарифная сетка построена по структуре цен квеста (диапазоны 1–2 / 3–4 / 5 / 6 игроков) от базовой стоимости «от 140 ₽» — точную цену и время на выбранную дату всегда подтверждает администратор при звонке.</div>
       </div>
-      <button class="submit-btn" id="submitBtn">Отправить заявку на бронь</button>
-      <div class="confirm-msg" id="confirmMsg"></div>
-      <div class="fine">Комиссия с игроков за бронирование на сайте не взимается. Оплата — наличными на месте. Тарифная сетка построена по структуре цен квеста (диапазоны 1–2 / 3–4 / 5 / 6 игроков) от базовой стоимости «от 140 ₽» — точную цену и время на выбранную дату всегда подтверждает администратор при звонке.</div>
     </div>
   </div>
 </section>
@@ -915,23 +947,37 @@
   ];
   function priceFor(n){ for(const t of tiers){ if(n <= t.max) return t; } return tiers[tiers.length-1]; }
 
+  const step2Block = document.getElementById('step2Block');
+  const step3Wrap = document.getElementById('step3Wrap');
+  function revealStep2(){
+    step2Block.classList.remove('step-hidden');
+  }
+  function maybeRevealStep3(){
+    if(selectedSlot != null && selectedPlayers != null){
+      step3Wrap.classList.remove('step-hidden');
+    }
+  }
+
   const playersRow = document.getElementById('playersRow');
-  let selectedPlayers = 2;
+  let selectedPlayers = null;
   for(let n=1; n<=6; n++){
     const b = document.createElement('button');
-    b.className = 'pbtn' + (n===selectedPlayers ? ' active' : '');
+    b.type = 'button';
+    b.className = 'pbtn';
     b.textContent = n;
     b.addEventListener('click', () => {
       selectedPlayers = n;
       document.querySelectorAll('.pbtn').forEach(el=>el.classList.remove('active'));
       b.classList.add('active');
       updatePrice();
+      maybeRevealStep3();
     });
     playersRow.appendChild(b);
   }
 
   const priceOut = document.getElementById('priceOut');
   function updatePrice(){
+    if(selectedPlayers == null || selectedSlot == null) return;
     const t = priceFor(selectedPlayers);
     const lateSurcharge = selectedSlotIsLate ? 20 : 0;
     const weekendSurcharge = selectedIsWeekend ? 20 : 0;
@@ -968,9 +1014,9 @@
   function dateLabel(d){ return dayNames[mondayIdx(d)] + ', ' + d.getDate() + ' ' + monthNames[d.getMonth()]; }
   function inRange(d){ return d >= today && d <= rangeEnd; }
 
-  let selectedDate = new Date(today);
-  let selectedDateLabel = dateLabel(selectedDate);
-  let selectedIsWeekend = isWeekend(selectedDate);
+  let selectedDate = null;
+  let selectedDateLabel = '';
+  let selectedIsWeekend = false;
   let viewYear = today.getFullYear();
   let viewMonth = today.getMonth();
 
@@ -993,7 +1039,7 @@
       const bookable = inRange(d);
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (bookable && sameDate(d, selectedDate) ? ' active':'');
+      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
       btn.innerHTML = '<small>'+dayNames[mondayIdx(d)]+'</small>'+dnum;
       if(!bookable){
         btn.disabled = true;
@@ -1004,6 +1050,7 @@
           selectedIsWeekend = weekend;
           document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
           btn.classList.add('active');
+          revealStep2();
           updatePrice();
         });
       }
@@ -1032,11 +1079,12 @@
   const slotRow = document.getElementById('slotRow');
   const slots = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
   const lateIdx = 8;
-  let selectedSlot = slots[0];
+  let selectedSlot = null;
   let selectedSlotIsLate = false;
   slots.forEach((s,i)=>{
     const btn = document.createElement('button');
-    btn.className = 'slot' + (i===0 ? ' active':'');
+    btn.type = 'button';
+    btn.className = 'slot';
     btn.innerHTML = '<span class="dot"></span>' + s;
     btn.addEventListener('click', ()=>{
       selectedSlot = s;
@@ -1044,11 +1092,10 @@
       document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
       btn.classList.add('active');
       updatePrice();
+      maybeRevealStep3();
     });
     slotRow.appendChild(btn);
   });
-
-  updatePrice();
 
   const submitBtn = document.getElementById('submitBtn');
   const submitBtnDefaultText = submitBtn.textContent;
@@ -1057,9 +1104,11 @@
     const msg = document.getElementById('confirmMsg');
     const nameField = document.getElementById('bookName');
     const phoneField = document.getElementById('bookPhone');
+    const commentField = document.getElementById('bookComment');
     const websiteField = document.querySelector('input[name="website"]');
     const name = nameField.value.trim();
     const phone = phoneField.value.trim();
+    const comment = commentField.value.trim();
 
     msg.classList.remove('show', 'err');
 
@@ -1071,7 +1120,7 @@
     }
 
     const t = priceFor(selectedPlayers);
-    const surcharge = selectedSlotIsLate ? 20 : 0;
+    const surcharge = (selectedSlotIsLate ? 20 : 0) + (selectedIsWeekend ? 20 : 0);
     const timeText = selectedSlot ? selectedSlot : 'время уточним по телефону';
 
     submitBtn.disabled = true;
@@ -1088,6 +1137,7 @@
           date: selectedDateLabel,
           time: timeText,
           price: (t.price + surcharge),
+          comment,
           website: websiteField.value,
         }),
       });
@@ -1099,6 +1149,7 @@
         msg.classList.add('show');
         nameField.value = '';
         phoneField.value = '';
+        commentField.value = '';
       } else {
         msg.textContent = out.error || 'Не удалось отправить заявку. Позвоните нам напрямую.';
         msg.classList.add('show', 'err');
