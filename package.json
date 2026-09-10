@@ -1,0 +1,7 @@
+{
+  "name": "delomary-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Сайт квеста «Дело Мэри» с формой брони, отправляющей заявки в Telegram"
+}

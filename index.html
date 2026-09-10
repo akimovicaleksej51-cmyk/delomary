@@ -290,6 +290,9 @@
     border:1px solid var(--ochre); border-radius:14px; color:var(--ochre-bright); font-family:var(--sans); font-weight:600; font-size:14px;
   }
   .confirm-msg.show{display:block; animation:slidein .3s ease;}
+  .confirm-msg.err{background:rgba(224,106,106,0.08); border-color:#e06a6a; color:#e06a6a;}
+  .hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
+  .submit-btn:disabled{opacity:.6; cursor:not-allowed; transform:none;}
   @keyframes slidein{from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:translateY(0);}}
   .fine{font-family:var(--sans); font-size:12.5px; color:var(--muted); margin-top:16px; line-height:1.6;}
 
@@ -533,9 +536,10 @@
         </div>
       </div>
 
+      <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div class="contact-fields">
-        <input type="text" placeholder="Ваше имя">
-        <input type="tel" placeholder="+375 (__) ___-__-__">
+        <input type="text" id="bookName" placeholder="Ваше имя">
+        <input type="tel" id="bookPhone" placeholder="+375 (__) ___-__-__">
       </div>
       <button class="submit-btn" id="submitBtn">Отправить заявку на бронь</button>
       <div class="confirm-msg" id="confirmMsg"></div>
@@ -757,12 +761,17 @@
   const dayRow = document.getElementById('dayRow');
   const dayNames = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
   const today = new Date();
+  const monthNames = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  let selectedDateLabel = '';
+  function dateLabel(d){ return dayNames[d.getDay()===0?6:d.getDay()-1] + ', ' + d.getDate() + ' ' + monthNames[d.getMonth()]; }
   for(let i=0;i<7;i++){
     const d = new Date(today); d.setDate(today.getDate()+i);
     const btn = document.createElement('button');
     btn.className = 'day' + (i===0 ? ' active':'');
     btn.innerHTML = '<small>'+dayNames[d.getDay()===0?6:d.getDay()-1]+'</small>'+d.getDate();
+    if(i===0){ selectedDateLabel = dateLabel(d); }
     btn.addEventListener('click', ()=>{
+      selectedDateLabel = dateLabel(d);
       document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
       btn.classList.add('active');
     });
@@ -790,13 +799,66 @@
 
   updatePrice();
 
-  document.getElementById('submitBtn').addEventListener('click', ()=>{
+  const submitBtn = document.getElementById('submitBtn');
+  const submitBtnDefaultText = submitBtn.textContent;
+
+  submitBtn.addEventListener('click', async ()=>{
+    const msg = document.getElementById('confirmMsg');
+    const nameField = document.getElementById('bookName');
+    const phoneField = document.getElementById('bookPhone');
+    const websiteField = document.querySelector('input[name="website"]');
+    const name = nameField.value.trim();
+    const phone = phoneField.value.trim();
+
+    msg.classList.remove('show', 'err');
+
+    if(!name || !phone){
+      msg.textContent = 'Укажите имя и телефон — без них мы не сможем перезвонить.';
+      msg.classList.add('show', 'err');
+      (name ? phoneField : nameField).focus();
+      return;
+    }
+
     const t = priceFor(selectedPlayers);
     const surcharge = selectedSlotIsLate ? 20 : 0;
-    const msg = document.getElementById('confirmMsg');
     const timeText = selectedSlot ? selectedSlot : 'время уточним по телефону';
-    msg.textContent = 'Заявка принята: команда из ' + selectedPlayers + ' чел., сеанс на ' + timeText + ', к оплате ' + (t.price + surcharge) + ' ₽. Мы позвоним для подтверждения брони.';
-    msg.classList.add('show');
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Отправляем…';
+
+    try {
+      const res = await fetch('/api/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          phone,
+          players: selectedPlayers,
+          date: selectedDateLabel,
+          time: timeText,
+          price: (t.price + surcharge),
+          website: websiteField.value,
+        }),
+      });
+      let out = {};
+      try { out = await res.json(); } catch {}
+
+      if(res.ok && out.ok){
+        msg.textContent = 'Заявка принята: команда из ' + selectedPlayers + ' чел., сеанс на ' + timeText + ' (' + selectedDateLabel + '), к оплате ' + (t.price + surcharge) + ' ₽. Мы позвоним для подтверждения брони.';
+        msg.classList.add('show');
+        nameField.value = '';
+        phoneField.value = '';
+      } else {
+        msg.textContent = out.error || 'Не удалось отправить заявку. Позвоните нам напрямую.';
+        msg.classList.add('show', 'err');
+      }
+    } catch (err) {
+      msg.textContent = 'Нет связи с сервером. Позвоните нам напрямую.';
+      msg.classList.add('show', 'err');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtnDefaultText;
+    }
   });
 
   /* ---- loony room email capture ---- */
