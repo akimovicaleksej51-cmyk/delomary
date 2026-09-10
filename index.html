@@ -243,10 +243,43 @@
   .intake-badge{font-family:var(--sans); font-weight:700; font-size:12px; color:var(--black); background:var(--ochre-bright); padding:8px 16px; border-radius:999px; white-space:nowrap;}
 
   .field-block{margin-bottom:34px;}
-  .step{ scroll-margin-top:132px; }
+  .step{ scroll-margin-top:24px; }
   .step.step-hidden{ display:none; }
   .step:not(.step-hidden){ animation:stepFadeIn .35s ease; }
   @keyframes stepFadeIn{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+
+  /* ===== BOOKING MODAL (opens on top of the calendar when a date is picked) ===== */
+  .booking-modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:200;
+    align-items:flex-start; justify-content:center; padding:60px 16px; overflow-y:auto;
+  }
+  .booking-modal-overlay.show{display:flex;}
+  .booking-modal-box{
+    width:100%; max-width:560px; margin:auto; position:relative;
+    background:var(--black-2); border:1px solid var(--line); border-radius:22px;
+    padding:34px 30px; max-height:calc(100vh - 120px); overflow-y:auto;
+    animation:modalPop .25s ease;
+  }
+  @keyframes modalPop{ from{opacity:0; transform:translateY(12px) scale(.98);} to{opacity:1; transform:translateY(0) scale(1);} }
+  .booking-modal-close{
+    position:fixed; top:26px; width:38px; height:38px; border-radius:10px;
+    background:var(--black-3); border:1.5px solid var(--line); color:var(--paper); font-size:18px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; flex-shrink:0;
+    /* centered above the modal box: box is max-width 560px, so its right
+       edge sits at 50% + 280px; nudge the button to sit just outside it,
+       clamped so it never runs off narrower viewports */
+    left:min(calc(50% + 280px + 14px), calc(100% - 54px));
+    z-index:210;
+  }
+  .booking-modal-close:hover{border-color:var(--ochre); color:var(--ochre-bright);}
+  .booking-modal-date{
+    font-family:var(--sans); font-weight:800; font-size:13px; color:var(--ochre-bright);
+    text-transform:uppercase; letter-spacing:.03em; margin-bottom:6px;
+  }
+  .booking-modal-title{
+    font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:25px;
+    margin:0 0 26px; color:var(--paper);
+  }
   .step-sub{margin-bottom:26px;}
   .step-sub:last-child{margin-bottom:0;}
   .sub-label{
@@ -495,6 +528,11 @@
     .intake{
       padding:0; border:none; border-radius:0; background:none; box-shadow:none;
     }
+    .booking-modal-overlay{padding:0;}
+    .booking-modal-box{
+      max-width:100%; height:100%; max-height:100%; border-radius:0; padding:24px 18px 30px;
+    }
+    .booking-modal-close{left:auto; right:14px; top:14px;}
     .contact-fields{grid-template-columns:1fr; gap:12px;}
     .intake-head{margin-bottom:28px; padding-bottom:0; border-bottom:none; gap:10px;}
     .intake-head h3{font-size:21px;}
@@ -710,7 +748,7 @@
       <div class="intake-head">
         <div>
           <h3>Дредвуд ждёт новую смену врачей</h3>
-          <p>Пройдите три коротких шага — цена и итог пересчитаются автоматически.</p>
+          <p>Выберите день в календаре — время, игроков и контакты укажете в открывшемся окне.</p>
         </div>
       </div>
 
@@ -726,41 +764,49 @@
         </div>
         <div class="cal-grid" id="dayRow"></div>
       </div>
-
-      <div class="field-block step step-hidden" id="step2Block">
-        <span class="field-label"><span class="num">2</span>Время сеанса</span>
-        <div class="slot-row" id="slotRow"></div>
-        <div class="slot-note" id="slotNote"></div>
-      </div>
-
-      <div class="step step-hidden" id="step3Wrap">
-        <div class="field-block">
-          <span class="field-label"><span class="num">3</span>Контакты и оплата</span>
-          <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
-          <div class="contact-fields">
-            <input type="text" id="bookName" placeholder="Ваше имя">
-            <input type="tel" id="bookPhone" placeholder="+375 (__) ___-__-__">
-          </div>
-          <div class="contact-fields">
-            <select id="playersSelect" class="players-select"></select>
-          </div>
-          <textarea id="bookComment" class="comment-field" placeholder="Комментарий (необязательно): пожелания, повод визита, особые обстоятельства" maxlength="500" rows="3"></textarea>
-        </div>
-
-        <div class="price-panel">
-          <div>
-            <div class="label">Стоимость сеанса</div>
-            <div class="price-num" id="priceOut">140<sup>₽</sup></div>
-            <div class="price-note" id="priceNote">Будний тариф для команды 1–2 человека</div>
-          </div>
-          <button class="submit-btn submit-btn-inline" id="submitBtn">Отправить заявку на бронь</button>
-        </div>
-        <div class="confirm-msg" id="confirmMsg"></div>
-        <div class="fine">Комиссия с игроков за бронирование на сайте не взимается. Оплата — наличными на месте. Тарифная сетка построена по структуре цен квеста (диапазоны 1–2 / 3–4 / 5 / 6 игроков) от базовой стоимости «от 140 ₽» — точную цену и время на выбранную дату всегда подтверждает администратор при звонке.</div>
-      </div>
     </div>
   </div>
 </section>
+
+<div class="booking-modal-overlay" id="bookingModalOverlay">
+  <button type="button" class="booking-modal-close" id="bookingModalClose" aria-label="Закрыть">✕</button>
+  <div class="booking-modal-box">
+    <div class="booking-modal-date" id="bookingModalDate"></div>
+    <h3 class="booking-modal-title">Забронировать игру</h3>
+
+    <div class="field-block step step-hidden" id="step2Block">
+      <span class="field-label"><span class="num">2</span>Время сеанса</span>
+      <div class="slot-row" id="slotRow"></div>
+      <div class="slot-note" id="slotNote"></div>
+    </div>
+
+    <div class="step step-hidden" id="step3Wrap">
+      <div class="field-block">
+        <span class="field-label"><span class="num">3</span>Контакты и оплата</span>
+        <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <div class="contact-fields">
+          <input type="text" id="bookName" placeholder="Ваше имя">
+          <input type="tel" id="bookPhone" placeholder="+375 (__) ___-__-__">
+        </div>
+        <div class="contact-fields">
+          <select id="playersSelect" class="players-select"></select>
+        </div>
+        <textarea id="bookComment" class="comment-field" placeholder="Комментарий (необязательно): пожелания, повод визита, особые обстоятельства" maxlength="500" rows="3"></textarea>
+      </div>
+
+      <div class="price-panel">
+        <div>
+          <div class="label">Стоимость сеанса</div>
+          <div class="price-num" id="priceOut">140<sup>₽</sup></div>
+          <div class="price-note" id="priceNote">Будний тариф для команды 1–2 человека</div>
+        </div>
+        <button class="submit-btn submit-btn-inline" id="submitBtn">Отправить заявку на бронь</button>
+      </div>
+      <div class="confirm-msg" id="confirmMsg"></div>
+      <div class="fine">Комиссия с игроков за бронирование на сайте не взимается. Оплата — наличными на месте. Тарифная сетка построена по структуре цен квеста (диапазоны 1–2 / 3–4 / 5 / 6 игроков) от базовой стоимости «от 140 ₽» — точную цену и время на выбранную дату всегда подтверждает администратор при звонке.</div>
+    </div>
+  </div>
+</div>
 
 <section id="reviews" class="reveal">
   <div class="wrap">
@@ -993,10 +1039,46 @@
       });
     });
   }
-  function revealStep2AndScroll(){
+
+  /* ---- booking modal: opens over the calendar once a date is picked, and
+     hosts every later step (time, players, contacts) so nothing scrolls the
+     underlying page — only the modal's own content grows/scrolls. ---- */
+  const bookingModalOverlay = document.getElementById('bookingModalOverlay');
+  const bookingModalDate = document.getElementById('bookingModalDate');
+  const bookingModalClose = document.getElementById('bookingModalClose');
+
+  function openBookingModal(){
+    bookingModalDate.textContent = selectedDateLabel;
     step2Block.classList.remove('step-hidden');
-    scrollToStep(step2Block);
+    step3Wrap.classList.add('step-hidden');
+    selectedSlot = null;
+    selectedSlotIsLate = false;
+    document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
+    slotNote.classList.remove('show');
+    const confirmMsg = document.getElementById('confirmMsg');
+    confirmMsg.classList.remove('show', 'err');
+    bookingModalOverlay.classList.add('show');
+    // Locking scroll by hiding the body's overflow removes the scrollbar,
+    // which widens the content area and reflows text — on this page that
+    // reflow shifts everything below the fold, which reads as an unwanted
+    // jump to whoever is looking at the calendar. Padding the freed
+    // scrollbar width back in keeps the layout width (and therefore the
+    // scroll position) exactly where it was.
+    const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if(scrollBarWidth > 0){ document.body.style.paddingRight = scrollBarWidth + 'px'; }
   }
+  function closeBookingModal(){
+    bookingModalOverlay.classList.remove('show');
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+  }
+  bookingModalClose.addEventListener('click', closeBookingModal);
+  bookingModalOverlay.addEventListener('click', (e) => { if(e.target === bookingModalOverlay) closeBookingModal(); });
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape' && bookingModalOverlay.classList.contains('show')) closeBookingModal();
+  });
+
   function maybeRevealStep3AndScroll(){
     if(selectedSlot != null){
       step3Wrap.classList.remove('step-hidden');
@@ -1089,11 +1171,9 @@
           selectedIsWeekend = weekend;
           document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
           btn.classList.add('active');
+          openBookingModal();
           refreshSlotPrices();
-          updatePrice();
-          slotNote.classList.remove('show');
           refreshSlotAvailability();
-          revealStep2AndScroll();
         });
       }
       dayRow.appendChild(btn);

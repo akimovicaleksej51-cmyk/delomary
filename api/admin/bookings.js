@@ -113,23 +113,46 @@ export default async function handler(req, res) {
       const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
       const cleanTime = isValidTime(body.time) ? body.time.trim().slice(0, 20) : '';
       const cleanComment = typeof body.comment === 'string' ? body.comment.trim().slice(0, 500) : '';
+      const isCustomer = body.type === 'customer';
 
       if (!cleanDateISO || !cleanTime) {
         return res.status(400).json({ error: 'Укажите дату и время.' });
       }
 
-      const record = {
-        type: 'technical',
-        name: 'Техническая бронь',
-        phone: '',
-        players: '',
-        price: '',
-        comment: cleanComment,
-        dateISO: cleanDateISO,
-        dateLabel: '',
-        time: cleanTime,
-        createdAt: new Date().toISOString(),
-      };
+      let record;
+      if (isCustomer) {
+        const cleanName = typeof body.name === 'string' ? body.name.trim().slice(0, 100) : '';
+        const cleanPhone = typeof body.phone === 'string' ? body.phone.trim().slice(0, 40) : '';
+        if (!cleanName || !cleanPhone) {
+          return res.status(400).json({ error: 'Укажите имя и телефон клиента.' });
+        }
+        record = {
+          type: 'customer',
+          name: cleanName,
+          phone: cleanPhone,
+          players: body.players != null ? String(body.players).trim().slice(0, 10) : '',
+          price: body.price != null ? String(body.price).trim().slice(0, 20) : '',
+          comment: cleanComment,
+          dateISO: cleanDateISO,
+          dateLabel: '',
+          time: cleanTime,
+          createdAt: new Date().toISOString(),
+          source: 'admin', // created manually from the admin panel, not the public booking form
+        };
+      } else {
+        record = {
+          type: 'technical',
+          name: 'Техническая бронь',
+          phone: '',
+          players: '',
+          price: '',
+          comment: cleanComment,
+          dateISO: cleanDateISO,
+          dateLabel: '',
+          time: cleanTime,
+          createdAt: new Date().toISOString(),
+        };
+      }
 
       const hashKey = `bookings:${cleanDateISO}`;
       const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));

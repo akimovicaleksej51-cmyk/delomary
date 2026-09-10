@@ -141,6 +141,15 @@
   .modal-msg.err{color:var(--danger-bright);}
   .modal-msg.ok{color:var(--ochre-bright);}
 
+  /* ---------- Type toggle (customer vs technical booking) ---------- */
+  .type-toggle{display:flex; gap:8px; margin-bottom:18px;}
+  .type-toggle-btn{
+    flex:1; padding:11px; border-radius:9px; border:1.5px solid #333; background:var(--black-3);
+    color:var(--muted); font-weight:800; font-size:13px; font-family:var(--sans); text-transform:uppercase;
+    letter-spacing:.03em; transition:all .15s;
+  }
+  .type-toggle-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+
   /* ---------- Slot grid (reused for reschedule + technical booking) ---------- */
   .slot-grid{display:flex; flex-wrap:wrap; gap:8px;}
   .slot-btn{
@@ -183,7 +192,7 @@
       <h1>Брони — Дело Мэри</h1>
       <div class="topbar-actions">
         <button class="btn-secondary" id="refreshBtn">Обновить</button>
-        <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Техническая бронь</button>
+        <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
     </div>
@@ -254,11 +263,17 @@
   </div>
 </div>
 
-<!-- Technical booking modal -->
+<!-- New booking modal (real customer booking or technical block) -->
 <div class="modal-overlay" id="techOverlay">
   <div class="modal-box">
     <button class="modal-close-x" data-close="tech">✕</button>
-    <h2>Техническая бронь</h2>
+    <h2 id="techTitle">Новая бронь</h2>
+
+    <div class="type-toggle" id="bookingTypeToggle">
+      <button type="button" class="type-toggle-btn active" data-type="customer">Клиент</button>
+      <button type="button" class="type-toggle-btn" data-type="technical">Техническая</button>
+    </div>
+
     <div class="detail-field">
       <label>Дата</label>
       <input type="date" id="techDate">
@@ -267,12 +282,20 @@
       <label>Время</label>
       <div class="slot-grid" id="techSlots"></div>
     </div>
+
+    <div id="customerFields">
+      <div class="detail-field"><label>Имя клиента</label><input id="techName" placeholder="Имя"></div>
+      <div class="detail-field"><label>Телефон</label><input id="techPhone" placeholder="+375 (__) ___-__-__"></div>
+      <div class="detail-field"><label>Количество игроков</label><select id="techPlayers"></select></div>
+      <div class="detail-field"><label>Цена (можно исправить вручную)</label><input id="techPrice" inputmode="numeric" placeholder="Рассчитается автоматически"></div>
+    </div>
+
     <div class="detail-field">
-      <label>Комментарий (необязательно)</label>
+      <label id="techCommentLabel">Комментарий (необязательно)</label>
       <textarea id="techComment" rows="3" maxlength="500" placeholder="Например: уборка, съёмки, ремонт"></textarea>
     </div>
     <div class="modal-actions">
-      <button class="btn" id="techSubmitBtn">Заблокировать слот</button>
+      <button class="btn" id="techSubmitBtn">Создать бронь</button>
       <button class="btn-secondary" id="techCancelBtn">Отмена</button>
     </div>
     <div class="modal-msg" id="techMsg"></div>
@@ -282,7 +305,21 @@
 <script>
 (function(){
   const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
+  const LATE_IDX = 8;
   const BOOKING_DAYS_AHEAD = 65;
+  const WEEKDAY_TIERS = [
+    {max:2, price:140, people:'1–2 человека'},
+    {max:4, price:160, people:'3–4 человека'},
+    {max:5, price:190, people:'5 человек'},
+    {max:6, price:220, people:'6 человек'}
+  ];
+  const WEEKEND_TIERS = [
+    {max:2, price:160, people:'1–2 человека'},
+    {max:4, price:180, people:'3–4 человека'},
+    {max:5, price:210, people:'5 человек'},
+    {max:6, price:240, people:'6 человек'}
+  ];
+  function tiersFor(weekend){ return weekend ? WEEKEND_TIERS : WEEKDAY_TIERS; }
   const WEEKDAY_NAMES = ['вс','пн','вт','ср','чт','пт','сб'];
   const MONTH_NAMES = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 
@@ -435,14 +472,16 @@
         .map(b => {
           const isTech = b.type === 'technical';
           const name = isTech ? 'Техническая бронь' : (b.name || '—');
-          const sub = isTech ? (b.comment || '') : (b.phone || '');
+          const sub = isTech
+            ? (b.comment || '')
+            : [b.phone, b.source === 'admin' ? 'внесено вручную' : null].filter(Boolean).join(' · ');
           const priceLabel = (!isTech && b.price) ? `${escapeHtml(b.price)} ₽` : '';
           return `
             <div class="booking-row" data-date="${dateISO}" data-time="${escapeHtml(b.time)}">
               <div class="row-time">${escapeHtml(b.time)}</div>
               <div class="row-type ${isTech ? 'technical' : 'customer'}">${isTech ? 'Техническая' : 'Клиент'}</div>
               <div class="row-main">
-                <div class="row-name">${escapeHtml(name)}${!isTech && b.players ? ` · ${escapeHtml(b.players)} чел.` : ''}</div>
+                <div class="row-name">${escapeHtml(name)}${!isTech && b.players ? ` · ${escapeHtml(b.players)}` : ''}</div>
                 ${sub ? `<div class="row-sub">${escapeHtml(sub)}</div>` : ''}
               </div>
               ${priceLabel ? `<div class="row-price">${priceLabel}</div>` : ''}
@@ -632,8 +671,18 @@
   const techDate = document.getElementById('techDate');
   const techSlots = document.getElementById('techSlots');
   const techComment = document.getElementById('techComment');
+  const techCommentLabel = document.getElementById('techCommentLabel');
   const techMsg = document.getElementById('techMsg');
+  const techTitle = document.getElementById('techTitle');
+  const techSubmitBtn = document.getElementById('techSubmitBtn');
+  const customerFields = document.getElementById('customerFields');
+  const techName = document.getElementById('techName');
+  const techPhone = document.getElementById('techPhone');
+  const techPlayers = document.getElementById('techPlayers');
+  const techPrice = document.getElementById('techPrice');
   let techSelectedTime = null;
+  let techTierIdx = 0;
+  let bookingType = 'customer'; // 'customer' | 'technical'
 
   function renderTechSlots(){
     const dateISO = techDate.value;
@@ -647,18 +696,64 @@
       btn.addEventListener('click', () => {
         techSelectedTime = btn.dataset.time;
         renderTechSlots();
+        buildTechPlayersOptions();
       });
     });
   }
+
+  function buildTechPlayersOptions(){
+    if (bookingType !== 'customer') return;
+    const weekend = techDate.value ? isWeekendISO(techDate.value) : false;
+    const late = techSelectedTime === SLOTS[LATE_IDX];
+    const surcharge = late ? 20 : 0;
+    const list = tiersFor(weekend);
+    if (techTierIdx > list.length - 1) techTierIdx = 0;
+    techPlayers.innerHTML = list.map((t,i) =>
+      `<option value="${i}">${t.people}: ${t.price + surcharge} ₽</option>`
+    ).join('');
+    techPlayers.value = String(techTierIdx);
+    techPrice.value = list[techTierIdx].price + surcharge;
+  }
+  techPlayers.addEventListener('change', () => {
+    techTierIdx = Number(techPlayers.value);
+    buildTechPlayersOptions();
+  });
+
+  function setBookingType(type){
+    bookingType = type;
+    document.querySelectorAll('.type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+    if (type === 'customer'){
+      customerFields.style.display = 'block';
+      techTitle.textContent = 'Новая бронь клиента';
+      techSubmitBtn.textContent = 'Создать бронь';
+      techCommentLabel.textContent = 'Комментарий (необязательно)';
+      techComment.placeholder = 'Например: пожелания, повод визита';
+      buildTechPlayersOptions();
+    } else {
+      customerFields.style.display = 'none';
+      techTitle.textContent = 'Техническая бронь';
+      techSubmitBtn.textContent = 'Заблокировать слот';
+      techCommentLabel.textContent = 'Комментарий (необязательно)';
+      techComment.placeholder = 'Например: уборка, съёмки, ремонт';
+    }
+  }
+  document.querySelectorAll('.type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => setBookingType(btn.dataset.type));
+  });
 
   function openTechModal(){
     techDate.min = todayISO();
     techDate.max = maxDateISO();
     techDate.value = todayISO();
     techSelectedTime = null;
+    techTierIdx = 0;
+    techName.value = '';
+    techPhone.value = '';
+    techPrice.value = '';
     techComment.value = '';
     techMsg.textContent = '';
     techMsg.className = 'modal-msg';
+    setBookingType('customer');
     renderTechSlots();
     techOverlay.classList.add('show');
   }
@@ -666,16 +761,32 @@
   document.getElementById('techCancelBtn').addEventListener('click', () => techOverlay.classList.remove('show'));
   document.querySelectorAll('[data-close="tech"]').forEach(b => b.addEventListener('click', () => techOverlay.classList.remove('show')));
   techOverlay.addEventListener('click', e => { if (e.target === techOverlay) techOverlay.classList.remove('show'); });
-  techDate.addEventListener('change', () => { techSelectedTime = null; renderTechSlots(); });
+  techDate.addEventListener('change', () => { techSelectedTime = null; renderTechSlots(); buildTechPlayersOptions(); });
 
   document.getElementById('techSubmitBtn').addEventListener('click', async () => {
     if (!techDate.value || !techSelectedTime){
       techMsg.textContent = 'Выберите дату и время.'; techMsg.className = 'modal-msg err'; return;
     }
+
+    const payload = { action:'create', type: bookingType, dateISO: techDate.value, time: techSelectedTime, comment: techComment.value };
+
+    if (bookingType === 'customer'){
+      const name = techName.value.trim();
+      const phone = techPhone.value.trim();
+      if (!name || !phone){
+        techMsg.textContent = 'Укажите имя и телефон клиента.'; techMsg.className = 'modal-msg err'; return;
+      }
+      const tier = tiersFor(techDate.value ? isWeekendISO(techDate.value) : false)[techTierIdx];
+      payload.name = name;
+      payload.phone = phone;
+      payload.players = tier ? tier.people : '';
+      payload.price = techPrice.value.trim() || (tier ? tier.price : '');
+    }
+
     try{
       const res = await fetch('/api/admin/bookings', {
         method:'POST', headers: authHeaders(),
-        body: JSON.stringify({ action:'create', dateISO: techDate.value, time: techSelectedTime, comment: techComment.value })
+        body: JSON.stringify(payload)
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){ techMsg.textContent = out.error || 'Не удалось создать бронь.'; techMsg.className = 'modal-msg err'; return; }
