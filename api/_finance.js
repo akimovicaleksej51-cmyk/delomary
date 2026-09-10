@@ -53,18 +53,39 @@ function parseISO(iso) {
   return new Date(y || 2020, (m || 1) - 1, d || 1);
 }
 
-// Every date strictly AFTER sinceISO, up to and including toISO.
-function datesBetweenExclusiveStart(sinceISO, toISO) {
+// Every date from sinceISO through toISO, BOTH inclusive — capped to the
+// MAX_RANGE_DAYS closest to toISO (not the ones right after sinceISO).
+//
+// "Opening balance" here means the standard bookkeeping sense: the amount
+// in the register at the START of sinceISO, before that day's own activity
+// — so sinceISO's own bookings/cashouts still count on top of it. This
+// matters for the common real workflow: someone opens Касса mid-day, counts
+// the physical cash, and sets that as today's opening balance BEFORE
+// logging anything else today — every booking or expense they then record
+// today (and every day after) needs to add on top of that number, or the
+// balance looks stuck at whatever it was for the rest of the day.
+//
+// The MAX_RANGE_DAYS cap also matters on its own: nobody is required to set
+// an opening balance before using Касса at all, so sinceISO defaults to
+// DEFAULT_SINCE (a fixed date years in the past). Counting forward from
+// THAT date would spend the entire 400-day budget on ancient history and
+// never reach "today" — every cashout and every booking's cash would
+// silently never be counted, and the balance would look permanently stuck.
+// Counting backward from toISO instead guarantees recent activity (today
+// included) is always in range, at the cost of ignoring anything older
+// than MAX_RANGE_DAYS when nobody has ever set a real opening balance —
+// which is fine, since KV itself doesn't keep bookings/cashouts that old.
+function datesFromAnchor(sinceISO, toISO) {
   const start = parseISO(sinceISO);
   const end = parseISO(toISO);
+  const totalDays = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (totalDays <= 0) return [];
+  const daysToInclude = Math.min(totalDays, MAX_RANGE_DAYS);
   const dates = [];
-  const cursor = new Date(start);
-  cursor.setDate(cursor.getDate() + 1);
-  let guard = 0;
-  while (cursor <= end && guard < MAX_RANGE_DAYS) {
-    dates.push(isoDate(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-    guard++;
+  for (let i = daysToInclude - 1; i >= 0; i--) {
+    const d = new Date(end);
+    d.setDate(d.getDate() - i);
+    dates.push(isoDate(d));
   }
   return dates;
 }
@@ -168,7 +189,7 @@ async function sumCashOutForDates(dates) {
 // short recent-entries list for the admin panel.
 export async function computeCashRegister(toISO) {
   const opening = await getOpeningBalance();
-  const dates = datesBetweenExclusiveStart(opening.sinceDateISO, toISO);
+  const dates = datesFromAnchor(opening.sinceDateISO, toISO);
 
   const [cashIn, cashOut] = await Promise.all([
     sumCashInForDates(dates),
