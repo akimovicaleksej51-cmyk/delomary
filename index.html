@@ -329,13 +329,13 @@
   }
   .classified h3{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:clamp(28px,4vw,38px); color:var(--paper); margin:0 0 16px; max-width:560px;}
   .classified p{color:var(--muted); max-width:540px; margin:0 0 28px; font-size:16px;}
-  .redact{display:inline-block; background:#000; color:transparent; user-select:none; padding:0 6px; margin:0 2px; border-radius:3px;}
   .room-feats{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:32px;}
   .room-feats div{font-family:var(--sans); font-weight:600; font-size:13px; color:var(--muted); background:var(--black-2); border:1px solid var(--line); padding:12px 18px; border-radius:14px;}
   .notify-row{display:flex; gap:12px; flex-wrap:wrap; max-width:460px;}
   .notify-row input{flex:1; min-width:200px; font-family:var(--sans); font-size:15px; padding:16px 18px; background:var(--black-2); border:1.5px solid var(--line); color:var(--paper); border-radius:14px;}
   .notify-row input::placeholder{color:var(--muted);}
   .notify-row button{font-family:var(--sans); font-weight:800; font-size:14px; padding:16px 24px; background:var(--ochre-bright); border:none; color:#151004; cursor:pointer; border-radius:14px;}
+  .notify-row button:disabled{opacity:.6; cursor:not-allowed;}
 
   /* ===== LOCATION ===== */
   .loc-grid{display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:center;}
@@ -599,12 +599,13 @@
     <div class="classified">
       <span class="tape">скоро</span>
       <h3>Loony Room — комната отдыха в аренду</h3>
-      <p>После квеста дело не обязательно закрывать сразу. Мы готовим отдельное пространство для дня рождения, корпоратива или посиделок с командой — <span class="redact">детали пока опечатаны</span> и появятся здесь совсем скоро.</p>
+      <p>После квеста дело не обязательно закрывать сразу. Мы готовим отдельное пространство для дня рождения, корпоратива или посиделок с командой — детали ещё дорабатываются и появятся здесь совсем скоро.</p>
       <div class="room-feats">
         <div>Формат аренды и вместимость — уточняется</div>
         <div>Программа и décor — на финальной доработке</div>
         <div>Цены и слоты бронирования — скоро на этой странице</div>
       </div>
+      <input type="text" id="loonyWebsite" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div class="notify-row">
         <input type="email" id="loonyEmail" placeholder="Ваш e-mail, чтобы узнать первыми">
         <button id="loonyNotifyBtn">Сообщить мне первому</button>
@@ -865,23 +866,49 @@
   const loonyEmail = document.getElementById('loonyEmail');
   const loonyBtn = document.getElementById('loonyNotifyBtn');
   const loonyMsg = document.getElementById('loonyMsg');
+  const loonyWebsite = document.getElementById('loonyWebsite');
+  const loonyBtnDefaultText = loonyBtn.textContent;
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  function submitLoonyEmail(){
+  function setLoonyMsg(text, isErr){
+    loonyMsg.textContent = text;
+    loonyMsg.classList.toggle('err', !!isErr);
+    loonyMsg.classList.add('show');
+  }
+
+  async function submitLoonyEmail(){
     const value = loonyEmail.value.trim();
     if(!emailPattern.test(value)){
-      loonyMsg.textContent = 'Проверьте адрес — что-то не похоже на e-mail.';
-      loonyMsg.style.color = '#e06a6a';
-      loonyMsg.style.borderColor = '#e06a6a';
-      loonyMsg.classList.add('show');
+      setLoonyMsg('Проверьте адрес — что-то не похоже на e-mail.', true);
+      loonyEmail.focus();
       return;
     }
-    // TODO: пока сохраняем только на экране — отправку в Telegram подключим отдельным шагом.
-    loonyMsg.textContent = 'Записали ' + value + ' — сообщим вам первому, когда Loony Room откроется.';
-    loonyMsg.style.color = '';
-    loonyMsg.style.borderColor = '';
-    loonyMsg.classList.add('show');
-    loonyEmail.value = '';
+
+    loonyBtn.disabled = true;
+    loonyBtn.textContent = 'Отправляем…';
+    loonyMsg.classList.remove('show', 'err');
+
+    try{
+      const res = await fetch('/api/lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: value, website: loonyWebsite ? loonyWebsite.value : '' }),
+      });
+      let out = {};
+      try{ out = await res.json(); } catch {}
+
+      if(res.ok && out.ok){
+        setLoonyMsg('Записали ' + value + ' — сообщим вам первому, когда Loony Room откроется.', false);
+        loonyEmail.value = '';
+      } else {
+        setLoonyMsg(out.error || 'Не удалось отправить. Попробуйте ещё раз чуть позже.', true);
+      }
+    } catch(err){
+      setLoonyMsg('Нет связи с сервером. Попробуйте ещё раз чуть позже.', true);
+    } finally {
+      loonyBtn.disabled = false;
+      loonyBtn.textContent = loonyBtnDefaultText;
+    }
   }
   loonyBtn.addEventListener('click', submitLoonyEmail);
   loonyEmail.addEventListener('keydown', (e) => { if(e.key === 'Enter') submitLoonyEmail(); });
