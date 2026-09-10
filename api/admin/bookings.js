@@ -105,7 +105,7 @@ async function notifyTelegram(record) {
       record.players ? `👥 Игроков: ${escapeMd(record.players)}` : null,
       dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
       record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
-      record.price ? `💰 Цена: ${escapeMd(record.price)} ₽` : null,
+      record.price ? `💰 Цена: ${escapeMd(record.price)} Br` : null,
       record.comment ? `💬 Комментарий: ${escapeMd(record.comment)}` : null,
     ].filter(Boolean).join('\n');
     text = `🩺 *Новая бронь — из админки*\n\n${fields}`;

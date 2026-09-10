@@ -380,6 +380,17 @@
   .price-num{font-family:var(--display); font-weight:400; font-size:52px; color:var(--ochre-bright); line-height:1; display:inline-block; transition:transform .25s ease;}
   .price-num.bump{transform:scale(1.1);}
   .price-num sup{font-size:20px; margin-left:4px;}
+  /* Belarusian rouble mark — a drawn glyph (not a font character), rendered as a
+     currentColor mask so it always matches the surrounding text color and scales
+     with font-size, the same way the "₽" character it replaces used to. */
+  .byn-icon{
+    display:inline-block; width:.78em; height:.94em; vertical-align:-0.09em;
+    background-color:currentColor;
+    -webkit-mask-image:url('assets/byn-sign.png'); mask-image:url('assets/byn-sign.png');
+    -webkit-mask-size:contain; mask-size:contain;
+    -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
+    -webkit-mask-position:center; mask-position:center;
+  }
   .price-note{font-family:var(--sans); font-weight:600; font-size:13.5px; color:var(--muted); margin-top:8px; max-width:280px;}
   .submit-btn.submit-btn-inline{width:auto; flex:0 0 auto; margin-top:0; padding:19px 32px;}
 
@@ -672,7 +683,7 @@
       </div>
       <div class="stat">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.59 2.41A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l9 9a2 2 0 0 0 2.82 0l7.18-7.18a2 2 0 0 0 0-2.82z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg>
-        <div><b>от 140 ₽</b><span>за команду</span></div>
+        <div><b>от 140 <span class="byn-icon"></span></b><span>за команду</span></div>
       </div>
     </div>
 
@@ -809,13 +820,13 @@
       <div class="price-panel">
         <div>
           <div class="label">Стоимость сеанса</div>
-          <div class="price-num" id="priceOut">140<sup>₽</sup></div>
+          <div class="price-num" id="priceOut">140<sup><span class="byn-icon"></span></sup></div>
           <div class="price-note" id="priceNote">Будний тариф для команды 1–2 человека</div>
         </div>
         <button class="submit-btn submit-btn-inline" id="submitBtn">Отправить заявку на бронь</button>
       </div>
       <div class="confirm-msg" id="confirmMsg"></div>
-      <div class="fine">Комиссия с игроков за бронирование на сайте не взимается. Оплата — наличными на месте. Тарифная сетка построена по структуре цен квеста (диапазоны 1–2 / 3–4 / 5 / 6 игроков) от базовой стоимости «от 140 ₽» — точную цену и время на выбранную дату всегда подтверждает администратор при звонке.</div>
+      <div class="fine">Комиссия с игроков за бронирование на сайте не взимается. Оплата — наличными на месте. Тарифная сетка построена по структуре цен квеста (диапазоны 1–2 / 3–4 / 5 / 6 игроков) от базовой стоимости «от 140 <span class="byn-icon"></span>» — точную цену и время на выбранную дату всегда подтверждает администратор при звонке.</div>
     </div>
   </div>
 </div>
@@ -1105,7 +1116,7 @@
     const surcharge = selectedSlotIsLate ? 20 : 0;
     if(selectedTierIdx > list.length - 1) selectedTierIdx = 0;
     playersSelect.innerHTML = list.map((t,i) =>
-      '<option value="'+i+'">Игра для '+t.people+': '+(t.price+surcharge)+' ₽</option>'
+      '<option value="'+i+'">Игра для '+t.people+': '+(t.price+surcharge)+' Br</option>'
     ).join('');
     playersSelect.value = String(selectedTierIdx);
   }
@@ -1121,7 +1132,7 @@
     const t = tiersFor(selectedIsWeekend)[selectedTierIdx];
     const lateSurcharge = selectedSlotIsLate ? 20 : 0;
     const finalPrice = t.price + lateSurcharge;
-    priceOut.innerHTML = finalPrice + '<sup>₽</sup>';
+    priceOut.innerHTML = finalPrice + '<sup><span class="byn-icon"></span></sup>';
     const notes = [];
     if(lateSurcharge) notes.push('доплата за поздний сеанс 23:00');
     document.getElementById('priceNote').textContent = t.label + (notes.length ? ' · ' + notes.join(' + ') : '');
@@ -1240,7 +1251,7 @@
       const i = slots.indexOf(btn.dataset.time);
       const isLate = i === lateIdx;
       const base = tiersFor(selectedIsWeekend)[0].price + (isLate ? 20 : 0);
-      btn.querySelector('.slot-price').textContent = 'от ' + base + ' ₽';
+      btn.querySelector('.slot-price').innerHTML = 'от ' + base + ' <span class="byn-icon"></span>';
     });
   }
   refreshSlotPrices();
@@ -1321,7 +1332,7 @@
       try { out = await res.json(); } catch {}
 
       if(res.ok && out.ok){
-        msg.textContent = 'Заявка принята: ' + t.people + ', сеанс на ' + timeText + ' (' + selectedDateLabel + '), к оплате ' + (t.price + surcharge) + ' ₽. Мы позвоним для подтверждения брони.';
+        msg.innerHTML = 'Заявка принята: ' + t.people + ', сеанс на ' + timeText + ' (' + selectedDateLabel + '), к оплате ' + (t.price + surcharge) + ' <span class="byn-icon"></span>. Мы позвоним для подтверждения брони.';
         msg.classList.add('show');
         nameField.value = '';
         phoneField.value = '';

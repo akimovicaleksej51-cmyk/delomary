@@ -110,7 +110,7 @@ export default async function handler(req, res) {
     cleanPlayers ? `👥 Игроков: ${escapeMd(cleanPlayers)}` : null,
     cleanDateLabel ? `📅 Дата: ${escapeMd(cleanDateLabel)}` : null,
     cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
-    cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} ₽` : null,
+    cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
   ].filter(Boolean).join('\n');
 

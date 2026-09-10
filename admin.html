@@ -522,7 +522,7 @@
           const sub = isTech
             ? (b.comment || '')
             : [b.phone, b.source === 'admin' ? 'внесено вручную' : null].filter(Boolean).join(' · ');
-          const priceLabel = (!isTech && b.price) ? `${escapeHtml(b.price)} ₽` : '';
+          const priceLabel = (!isTech && b.price) ? `${escapeHtml(b.price)} Br` : '';
           return `
             <div class="booking-row" data-date="${dateISO}" data-time="${escapeHtml(b.time)}">
               <div class="row-time">${escapeHtml(b.time)}</div>
@@ -578,7 +578,7 @@
     document.getElementById('dvName').textContent = booking.name || '—';
     document.getElementById('dvPhone').textContent = booking.phone || '—';
     document.getElementById('dvPlayers').textContent = booking.players || '—';
-    document.getElementById('dvPrice').textContent = booking.price ? `${booking.price} ₽` : '—';
+    document.getElementById('dvPrice').textContent = booking.price ? `${booking.price} Br` : '—';
     document.getElementById('dvComment').textContent = booking.comment || '—';
     detailOverlay.classList.add('show');
   }
@@ -878,7 +878,7 @@
     const list = tiersFor(weekend);
     if (techTierIdx > list.length - 1) techTierIdx = 0;
     techPlayers.innerHTML = list.map((t,i) =>
-      `<option value="${i}">${t.people}: ${t.price + surcharge} ₽</option>`
+      `<option value="${i}">${t.people}: ${t.price + surcharge} Br</option>`
     ).join('');
     techPlayers.value = String(techTierIdx);
     techPrice.value = list[techTierIdx].price + surcharge;
