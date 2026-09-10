@@ -56,7 +56,7 @@ export default async function handler(req, res) {
   const cleanDateISO = typeof dateISO === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateISO) ? dateISO : '';
   const cleanTime = typeof time === 'string' ? time.trim().slice(0, 20) : '';
   const cleanDateLabel = typeof date === 'string' ? date.trim().slice(0, 60) : '';
-  const cleanPlayers = players != null ? String(players).slice(0, 10) : '';
+  const cleanPlayers = players != null ? String(players).slice(0, 40) : '';
   const cleanPrice = price != null ? String(price).slice(0, 20) : '';
 
   if (!cleanName || !cleanPhone) {
@@ -107,7 +107,11 @@ export default async function handler(req, res) {
 
   const fields = [
     `👤 Имя: ${escapeMd(cleanName)}`,
-    `📞 Телефон: ${escapeMd(cleanPhone)}`,
+    // Phone is sent RAW (not escapeMd'd) so Telegram recognizes and
+    // auto-links it as a tappable/copyable phone number — a phone number
+    // never contains Markdown-special characters, so nothing needs escaping
+    // here, and escaping it (stray backslashes) breaks that auto-detection.
+    `📞 Телефон: ${cleanPhone}`,
     cleanPlayers ? `👥 Игроков: ${escapeMd(cleanPlayers)}` : null,
     cleanDateLabel ? `📅 Дата: ${escapeMd(cleanDateLabel)}` : null,
     cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,

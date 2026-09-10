@@ -547,9 +547,14 @@
   .loc-grid ul{list-style:none; padding:0; margin:0;}
   .loc-grid li{padding:18px 0; border-bottom:1px solid var(--line); font-family:var(--sans); font-size:14.5px; display:flex; justify-content:space-between; color:var(--muted); font-weight:600;}
   .loc-grid li b{color:var(--paper); font-weight:800;}
+  .map-col{display:flex; flex-direction:column; gap:12px;}
   .map-frame{position:relative; height:300px; border-radius:20px; overflow:hidden; border:1px solid var(--line);}
   .map-frame iframe{width:100%; height:100%; border:0; display:block; filter:invert(0.92) hue-rotate(180deg) contrast(0.9);}
-  .map-cap{position:absolute; bottom:14px; left:14px; z-index:2; font-family:var(--sans); font-weight:700; font-size:12px; color:var(--paper); background:rgba(0,0,0,.75); padding:6px 14px; border-radius:999px;}
+  /* Top-left, not bottom-left: the Yandex widget itself puts its own
+     "Открыть в Яндекс Картах" link in the bottom-left corner, and a
+     bottom-left caption here would sit right on top of it. */
+  .map-cap{position:absolute; top:14px; left:14px; z-index:2; font-family:var(--sans); font-weight:700; font-size:12px; color:var(--paper); background:rgba(0,0,0,.75); padding:6px 14px; border-radius:999px; pointer-events:none;}
+  .map-col .btn{align-self:flex-start;}
 
   /* ===== FOOTER ===== */
   footer{padding:56px 28px 36px; text-align:center; border-top:1px solid var(--line);}
@@ -970,10 +975,6 @@
         <div class="faq-a"><p>Квест рассчитан на игроков от 12 лет. Несовершеннолетним рекомендуем идти в сопровождении взрослых из своей команды.</p></div>
       </div>
       <div class="faq-item">
-        <button class="faq-q"><span>Правда, что в игре участвует живой актёр?</span><span class="plus">+</span></button>
-        <div class="faq-a"><p>Да, актёр — часть сюжета с первых минут. Контакт с ним безопасен, но добавляет напряжения: будьте готовы к неожиданным репликам и появлениям.</p></div>
-      </div>
-      <div class="faq-item">
         <button class="faq-q"><span>Что взять с собой?</span><span class="plus">+</span></button>
         <div class="faq-a"><p>Удобную обувь и одежду — часть локаций требует свободы движения. Верхнюю одежду и сумки оставите в гардеробе перед стартом.</p></div>
       </div>
@@ -1018,9 +1019,12 @@
         <li><span>Приём заявок</span><b>круглосуточно онлайн</b></li>
         <li><span>Звонки</span><b>+375 (44) 780-30-00</b></li>
       </ul>
-      <div class="map-frame">
-        <span class="map-cap">ул. Октябрьская, 16к23 · Минск</span>
-        <iframe src="https://yandex.by/map-widget/v1/?ll=27.573620%2C53.890180&z=16&pt=27.573620,53.890180,pm2rdm" allowfullscreen loading="lazy"></iframe>
+      <div class="map-col">
+        <div class="map-frame">
+          <span class="map-cap">ул. Октябрьская, 16к23 · Минск</span>
+          <iframe src="https://yandex.by/map-widget/v1/?ll=27.573620%2C53.890180&z=16&pt=27.573620,53.890180,pm2rdm" allowfullscreen loading="lazy"></iframe>
+        </div>
+        <a class="btn btn-ghost" href="https://yandex.by/maps/157/minsk/?ll=27.573620%2C53.890180&z=17&pt=27.573620,53.890180,pm2rdm&rtext=~53.890180,27.573620&rtt=auto" target="_blank" rel="noopener">Проложить маршрут →</a>
       </div>
     </div>
   </div>

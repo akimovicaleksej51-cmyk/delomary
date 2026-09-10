@@ -168,7 +168,9 @@ async function notifyTelegram(record) {
   if (record.type === 'customer') {
     const fields = [
       `👤 Имя: ${escapeMd(record.name)}`,
-      `📞 Телефон: ${escapeMd(record.phone)}`,
+      // Phone stays unescaped — see the comment next to it in api/book.js —
+      // so Telegram still recognizes it as a tappable/copyable number.
+      `📞 Телефон: ${record.phone}`,
       record.players ? `👥 Игроков: ${escapeMd(record.players)}` : null,
       dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
       record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
@@ -192,7 +194,7 @@ async function notifyTelegramCancel(record) {
   const dateLabelText = record.dateISO ? formatDateLabel(record.dateISO) : '';
   const fields = [
     record.type === 'customer' && record.name ? `👤 Имя: ${escapeMd(record.name)}` : null,
-    record.type === 'customer' && record.phone ? `📞 Телефон: ${escapeMd(record.phone)}` : null,
+    record.type === 'customer' && record.phone ? `📞 Телефон: ${record.phone}` : null,
     dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
     record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
   ].filter(Boolean).join('\n');
@@ -205,7 +207,7 @@ async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO
   const toLabel = formatDateLabel(toDateISO);
   const fields = [
     record.type === 'customer' && record.name ? `👤 Имя: ${escapeMd(record.name)}` : null,
-    record.type === 'customer' && record.phone ? `📞 Телефон: ${escapeMd(record.phone)}` : null,
+    record.type === 'customer' && record.phone ? `📞 Телефон: ${record.phone}` : null,
     `📅 Было: ${escapeMd(fromLabel)} в ${escapeMd(fromTime)}`,
     `📅 Стало: ${escapeMd(toLabel)} в ${escapeMd(toTime)}`,
   ].filter(Boolean).join('\n');
@@ -320,7 +322,7 @@ export default async function handler(req, res) {
           type: 'customer',
           name: cleanName,
           phone: cleanPhone,
-          players: body.players != null ? String(body.players).trim().slice(0, 10) : '',
+          players: body.players != null ? String(body.players).trim().slice(0, 40) : '',
           price: body.price != null ? String(body.price).trim().slice(0, 20) : '',
           comment: cleanComment,
           dateISO: cleanDateISO,
@@ -468,7 +470,7 @@ export default async function handler(req, res) {
       let existing;
       try { existing = JSON.parse(existingRaw); } catch { existing = {}; }
 
-      const nextPlayers = body.players != null ? String(body.players).trim().slice(0, 10) : existing.players;
+      const nextPlayers = body.players != null ? String(body.players).trim().slice(0, 40) : existing.players;
 
       let updated = {
         ...existing,
