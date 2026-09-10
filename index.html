@@ -156,14 +156,37 @@
   .about-photo:hover img{transform:scale(1.06);}
 
   /* ===== GALLERY ===== */
-  .gallery-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px;}
-  .gallery-grid figure{margin:0; border-radius:14px; overflow:hidden; border:1px solid var(--line); aspect-ratio:3/4; cursor:zoom-in; position:relative;}
-  .gallery-grid img{width:100%; height:100%; object-fit:cover; transition:transform .5s ease, filter .3s ease;}
+  .gallery-grid{
+    display:flex; gap:12px; overflow-x:auto; padding:4px 4px 14px;
+    scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch;
+  }
+  .gallery-grid::-webkit-scrollbar{height:6px;}
+  .gallery-grid::-webkit-scrollbar-track{background:transparent;}
+  .gallery-grid::-webkit-scrollbar-thumb{background:var(--line); border-radius:3px;}
+  .gallery-grid figure{
+    margin:0; flex:0 0 auto; width:190px; aspect-ratio:4/3;
+    border-radius:14px; overflow:hidden; border:1px solid var(--line);
+    cursor:zoom-in; position:relative; scroll-snap-align:start;
+  }
+  .gallery-grid img{width:100%; height:100%; object-fit:cover; transition:transform .4s ease, filter .3s ease;}
   .gallery-grid figure:hover img{transform:scale(1.08);}
+  .gallery-hint{font-family:var(--sans); font-size:12.5px; color:var(--muted); margin:-6px 0 16px;}
+  @media (max-width:860px){ .gallery-grid figure{width:150px;} }
 
   #lightbox{position:fixed; inset:0; background:rgba(0,0,0,.94); display:none; align-items:center; justify-content:center; z-index:200; padding:40px; cursor:zoom-out;}
   #lightbox.open{display:flex;}
-  #lightbox img{max-width:min(880px,90vw); max-height:85vh; border-radius:12px; border:1px solid var(--line);}
+  #lightbox img{max-width:min(880px,90vw); max-height:85vh; border-radius:12px; border:1px solid var(--line); cursor:default;}
+  .lb-btn{
+    position:absolute; z-index:201; display:flex; align-items:center; justify-content:center;
+    width:48px; height:48px; border-radius:50%; border:1px solid var(--line);
+    background:rgba(0,0,0,.6); color:var(--paper); font-size:22px; cursor:pointer;
+    transition:background .2s, border-color .2s;
+  }
+  .lb-btn:hover{background:rgba(0,0,0,.85); border-color:var(--ochre-bright); color:var(--ochre-bright);}
+  .lb-close{top:24px; right:24px;}
+  .lb-prev{left:16px; top:50%; transform:translateY(-50%);}
+  .lb-next{right:16px; top:50%; transform:translateY(-50%);}
+  @media (max-width:640px){ .lb-btn{width:40px; height:40px; font-size:18px;} .lb-prev{left:8px;} .lb-next{right:8px;} }
 
   /* ===== BADGES / RATING ===== */
   .badge-row{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:48px;}
@@ -368,7 +391,7 @@
 <section class="hero" id="about">
   <div class="hero-bg"></div>
   <div class="wrap">
-    <div class="case-tag">дело № 4264 · клиника «дредвуд» · 1960-е</div>
+    <div class="case-tag">клиника «дредвуд» · 1960-е</div>
     <h1>Дело Мэри</h1>
     <div class="hero-mark">Скажи им, что я здесь</div>
     <p class="hero-lede">Квест-перформанс с живым актёром от Loony Games. Вы — молодые врачи-практиканты психиатрической клиники «Дредвуд». За час предстоит понять, кто здесь действительно болен — пациентка Мэри или система, которая её удерживает.</p>
@@ -419,12 +442,18 @@
   </div>
 </section>
 
-<div id="lightbox"><img id="lightboxImg" src="" alt=""></div>
+<div id="lightbox">
+  <button class="lb-btn lb-close" id="lightboxClose" aria-label="Закрыть">✕</button>
+  <button class="lb-btn lb-prev" id="lightboxPrev" aria-label="Предыдущее фото">‹</button>
+  <img id="lightboxImg" src="" alt="">
+  <button class="lb-btn lb-next" id="lightboxNext" aria-label="Следующее фото">›</button>
+</div>
 
 <section id="gallery" class="reveal">
   <div class="wrap">
     <div class="eyebrow">кадры со съёмок</div>
     <h2>Внутри Дредвуда</h2>
+    <p class="gallery-hint">Листайте ленту в сторону, нажмите на кадр — откроется просмотр с переключением стрелками.</p>
     <div class="gallery-grid">
       <figure><img src="assets/photo-hallway-chase.jpg" alt="Коридор клиники Дредвуд"></figure>
       <figure><img src="assets/photo-actor-grab.jpg" alt="Актёр в образе пациентки"></figure>
@@ -472,7 +501,6 @@
           <h3>Дредвуд ждёт новую смену врачей</h3>
           <p>Заполните три поля ниже — цена и итог пересчитаются автоматически.</p>
         </div>
-        <span class="intake-badge">Дело № 4264</span>
       </div>
 
       <div class="field-block">
@@ -574,9 +602,10 @@
         <div>Цены и слоты бронирования — скоро на этой странице</div>
       </div>
       <div class="notify-row">
-        <input type="email" placeholder="Ваш e-mail, чтобы узнать первыми" disabled>
-        <button disabled>Раздел готовится</button>
+        <input type="email" id="loonyEmail" placeholder="Ваш e-mail, чтобы узнать первыми">
+        <button id="loonyNotifyBtn">Сообщить мне первому</button>
       </div>
+      <div class="confirm-msg" id="loonyMsg"></div>
     </div>
   </div>
 </section>
@@ -651,13 +680,39 @@
 
   const lightbox = document.getElementById('lightbox');
   const lightboxImg = document.getElementById('lightboxImg');
-  document.querySelectorAll('.gallery-grid img, .about-photo img').forEach(img=>{
-    img.addEventListener('click', ()=>{
-      lightboxImg.src = img.src;
-      lightbox.classList.add('open');
+  const galleryImgs = Array.from(document.querySelectorAll('.gallery-grid img'));
+  let lightboxIndex = 0;
+
+  function showAt(idx){
+    lightboxIndex = (idx + galleryImgs.length) % galleryImgs.length;
+    const img = galleryImgs[lightboxIndex];
+    lightboxImg.src = img.src;
+    lightboxImg.alt = img.alt;
+  }
+  function openLightbox(idx){ showAt(idx); lightbox.classList.add('open'); }
+  function closeLightbox(){ lightbox.classList.remove('open'); }
+
+  galleryImgs.forEach((img, i) => img.addEventListener('click', () => openLightbox(i)));
+
+  // the "about" photo reuses whichever gallery image matches it, so it also gets full navigation
+  const aboutPhotoImg = document.querySelector('.about-photo img');
+  if (aboutPhotoImg) {
+    aboutPhotoImg.addEventListener('click', () => {
+      const idx = galleryImgs.findIndex(g => g.getAttribute('src') === aboutPhotoImg.getAttribute('src'));
+      openLightbox(idx >= 0 ? idx : 0);
     });
+  }
+
+  document.getElementById('lightboxClose').addEventListener('click', closeLightbox);
+  document.getElementById('lightboxPrev').addEventListener('click', (e) => { e.stopPropagation(); showAt(lightboxIndex - 1); });
+  document.getElementById('lightboxNext').addEventListener('click', (e) => { e.stopPropagation(); showAt(lightboxIndex + 1); });
+  lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+  document.addEventListener('keydown', (e) => {
+    if (!lightbox.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowRight') showAt(lightboxIndex + 1);
+    if (e.key === 'ArrowLeft') showAt(lightboxIndex - 1);
   });
-  lightbox.addEventListener('click', ()=> lightbox.classList.remove('open'));
 
   /* ---- booking logic ---- */
   const tiers = [
@@ -743,6 +798,31 @@
     msg.textContent = 'Заявка принята: команда из ' + selectedPlayers + ' чел., сеанс на ' + timeText + ', к оплате ' + (t.price + surcharge) + ' ₽. Мы позвоним для подтверждения брони.';
     msg.classList.add('show');
   });
+
+  /* ---- loony room email capture ---- */
+  const loonyEmail = document.getElementById('loonyEmail');
+  const loonyBtn = document.getElementById('loonyNotifyBtn');
+  const loonyMsg = document.getElementById('loonyMsg');
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  function submitLoonyEmail(){
+    const value = loonyEmail.value.trim();
+    if(!emailPattern.test(value)){
+      loonyMsg.textContent = 'Проверьте адрес — что-то не похоже на e-mail.';
+      loonyMsg.style.color = '#e06a6a';
+      loonyMsg.style.borderColor = '#e06a6a';
+      loonyMsg.classList.add('show');
+      return;
+    }
+    // TODO: пока сохраняем только на экране — отправку в Telegram подключим отдельным шагом.
+    loonyMsg.textContent = 'Записали ' + value + ' — сообщим вам первому, когда Loony Room откроется.';
+    loonyMsg.style.color = '';
+    loonyMsg.style.borderColor = '';
+    loonyMsg.classList.add('show');
+    loonyEmail.value = '';
+  }
+  loonyBtn.addEventListener('click', submitLoonyEmail);
+  loonyEmail.addEventListener('keydown', (e) => { if(e.key === 'Enter') submitLoonyEmail(); });
 
   document.querySelectorAll('.faq-item').forEach(item=>{
     const q = item.querySelector('.faq-q');
