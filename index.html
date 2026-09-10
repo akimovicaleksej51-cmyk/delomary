@@ -61,6 +61,24 @@
     white-space:nowrap;
   }
   .nav-cta:hover{background:#ffd84d; transform:translateY(-1px);}
+  .nav-toggle{
+    display:none; width:42px; height:42px; flex-shrink:0; border-radius:10px;
+    border:1px solid var(--line); background:var(--black-2); color:var(--paper);
+    align-items:center; justify-content:center; cursor:pointer;
+  }
+  .nav-toggle svg{width:20px; height:20px;}
+  .mobile-menu{
+    display:none; flex-direction:column;
+    padding:6px 28px 18px; border-top:1px solid var(--line);
+    background:rgba(0,0,0,0.98);
+  }
+  .mobile-menu.open{display:flex;}
+  .mobile-menu a{
+    padding:15px 2px; text-decoration:none; color:var(--paper);
+    font-family:var(--sans); font-weight:700; font-size:15px;
+    border-bottom:1px solid var(--line);
+  }
+  .mobile-menu a:last-child{border-bottom:none;}
 
   /* ===== SECTION SHELL ===== */
   section{position:relative; z-index:1; padding:80px 28px;}
@@ -273,7 +291,7 @@
 
   .contact-fields{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:32px;}
   .contact-fields input{
-    font-family:var(--sans); font-size:15px; font-weight:600; padding:16px 18px;
+    font-family:var(--sans); font-size:16px; font-weight:600; padding:16px 18px;
     background:var(--black-2); border:1.5px solid var(--line); color:var(--paper); border-radius:14px;
     width:100%; transition:border-color .2s;
   }
@@ -332,7 +350,7 @@
   .room-feats{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:32px;}
   .room-feats div{font-family:var(--sans); font-weight:600; font-size:13px; color:var(--muted); background:var(--black-2); border:1px solid var(--line); padding:12px 18px; border-radius:14px;}
   .notify-row{display:flex; gap:12px; flex-wrap:wrap; max-width:460px;}
-  .notify-row input{flex:1; min-width:200px; font-family:var(--sans); font-size:15px; padding:16px 18px; background:var(--black-2); border:1.5px solid var(--line); color:var(--paper); border-radius:14px;}
+  .notify-row input{flex:1; min-width:200px; font-family:var(--sans); font-size:16px; padding:16px 18px; background:var(--black-2); border:1.5px solid var(--line); color:var(--paper); border-radius:14px;}
   .notify-row input::placeholder{color:var(--muted);}
   .notify-row button{font-family:var(--sans); font-weight:800; font-size:14px; padding:16px 24px; background:var(--ochre-bright); border:none; color:#151004; cursor:pointer; border-radius:14px;}
   .notify-row button:disabled{opacity:.6; cursor:not-allowed;}
@@ -358,6 +376,7 @@
 
   @media (max-width:860px){
     .nav-links{display:none;}
+    .nav-toggle{display:flex;}
     .about-grid, .rating-block, .loc-grid{grid-template-columns:1fr; gap:32px;}
     .rating-hero{border-right:none; border-bottom:1px solid var(--line); padding-right:0; padding-bottom:24px;}
     .reviews-grid{grid-template-columns:1fr;}
@@ -385,8 +404,19 @@
         <a href="#location">Адрес</a>
       </nav>
       <a class="nav-cta" href="#booking">Забронировать</a>
+      <button class="nav-toggle" id="navToggle" aria-label="Меню" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
     </div>
   </div>
+  <nav class="mobile-menu" id="mobileMenu">
+    <a href="#about">О квесте</a>
+    <a href="#gallery">Кадры</a>
+    <a href="#booking">Бронь</a>
+    <a href="#reviews">Отзывы</a>
+    <a href="#loonyroom">Loony Room</a>
+    <a href="#location">Адрес</a>
+  </nav>
 </header>
 
 <div id="top"></div>
@@ -607,7 +637,7 @@
       </div>
       <input type="text" id="loonyWebsite" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div class="notify-row">
-        <input type="email" id="loonyEmail" placeholder="Ваш e-mail, чтобы узнать первыми">
+        <input type="email" id="loonyEmail" placeholder="Ваш e-mail">
         <button id="loonyNotifyBtn">Сообщить мне первому</button>
       </div>
       <div class="confirm-msg" id="loonyMsg"></div>
@@ -649,6 +679,17 @@
 </footer>
 
 <script>
+  const navToggle = document.getElementById('navToggle');
+  const mobileMenu = document.getElementById('mobileMenu');
+  navToggle.addEventListener('click', () => {
+    const isOpen = mobileMenu.classList.toggle('open');
+    navToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  });
+  mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+    mobileMenu.classList.remove('open');
+    navToggle.setAttribute('aria-expanded', 'false');
+  }));
+
   window.addEventListener('scroll', ()=>{
     const h = document.documentElement;
     const pct = (h.scrollTop) / (h.scrollHeight - h.clientHeight) * 100;
