@@ -7,9 +7,13 @@
 // api/admin/login.js) — after too many failures in a row, requests get 429
 // for a while regardless of the password given.
 //
-// GET  → returns every booking (customer or technical) in the booking
-//         window, oldest first, full details included (name, phone,
-//         players, price, comment...).
+// GET  → returns every booking AND history entry (customer or technical) in
+//         the booking window, oldest first, full details included (name,
+//         phone, players, price, comment...). Each item carries a `status`
+//         of 'active' | 'cancelled' | 'rescheduled' and a unique `id`, so the
+//         panel can show what actually happened at a slot instead of just
+//         what's booked right now — a cancelled or rescheduled record stays
+//         visible at its original date/time instead of disappearing.
 // POST → body.action selects what to do:
 //   { action:'create', dateISO, time, comment }
 //       Creates a "technical" booking (blocks the slot, no customer info).
@@ -20,7 +24,10 @@
 //       Updates a booking's details in place (same date/time).
 //   { action:'reschedule', fromDateISO, fromTime, toDateISO, toTime }
 //       Moves a booking to a different date/time (fails with 409 if the
-//       new slot is already taken).
+//       new slot is already taken). The vacated slot isn't just deleted —
+//       it's recorded in history as 'rescheduled', with rescheduledTo
+//       pointing at the new date/time, so the move stays visible in the
+//       panel. The new slot's record carries a matching rescheduledFrom.
 //   { action:'blockDay', dateISO, comment }
 //       Blocks every slot on a date that isn't already taken by a customer
 //       (fills in "technical" bookings for the gaps). Existing customer
@@ -41,12 +48,14 @@
 // booking record. See api/book.js for how customer bookings are created,
 // and api/slots.js for the public (PII-free) read side.
 //
-// Cancelled bookings move to a parallel HASH at "history:<ISO date>" instead
-// of being deleted outright, so a cancellation can still be looked up later
-// (and so api/admin/stats-style aggregation has something to count). Each
-// history field is keyed "<time>@<cancelledAt-ms>" (rather than plain
-// "<time>") so cancelling and re-booking the same slot more than once on the
-// same date doesn't overwrite an earlier history entry.
+// Cancelled AND rescheduled bookings move to a parallel HASH at
+// "history:<ISO date>" instead of being deleted outright, so what happened
+// at a slot can still be looked up later (and so stats aggregation has
+// something to count). Each history field is keyed "<time>@<ms-timestamp>"
+// (rather than plain "<time>") so cancelling/rescheduling and re-booking the
+// same slot more than once on the same date doesn't overwrite an earlier
+// history entry. A history record's own `status` field says which of the two
+// it was.
 //
 // A booking created or cancelled here is also forwarded to Telegram, same as
 // public bookings from api/book.js, so nothing done in the admin panel goes
@@ -57,8 +66,9 @@
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 
-const WINDOW_DAYS_BACK = 3; // small buffer so very recent bookings stay visible
+const WINDOW_DAYS_BACK = 3; // small buffer so very recent ACTIVE bookings stay visible
 const WINDOW_DAYS_AHEAD = 65;
+const HISTORY_WINDOW_DAYS_BACK = 60; // cancelled/rescheduled entries are worth looking up further back
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
 const HISTORY_TTL_SECONDS = 60 * 60 * 24 * 95; // slightly outlives SLOT_TTL_SECONDS
 const SLOTS = ['11:00', '12:30', '14:00', '15:30', '17:00', '18:30', '20:00', '21:30', '23:00'];
@@ -75,6 +85,18 @@ function windowDates() {
   today.setHours(0, 0, 0, 0);
   const dates = [];
   for (let i = -WINDOW_DAYS_BACK; i < WINDOW_DAYS_AHEAD; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    dates.push(isoDate(d));
+  }
+  return dates;
+}
+
+function historyWindowDates() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dates = [];
+  for (let i = -HISTORY_WINDOW_DAYS_BACK; i < WINDOW_DAYS_AHEAD; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     dates.push(isoDate(d));
@@ -177,6 +199,19 @@ async function notifyTelegramCancel(record) {
   await sendTelegram(`❌ *${kind}*\n\n${fields}`, 'admin cancel');
 }
 
+async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO, toTime) {
+  const fromLabel = formatDateLabel(fromDateISO);
+  const toLabel = formatDateLabel(toDateISO);
+  const fields = [
+    record.type === 'customer' && record.name ? `👤 Имя: ${escapeMd(record.name)}` : null,
+    record.type === 'customer' && record.phone ? `📞 Телефон: ${escapeMd(record.phone)}` : null,
+    `📅 Было: ${escapeMd(fromLabel)} в ${escapeMd(fromTime)}`,
+    `📅 Стало: ${escapeMd(toLabel)} в ${escapeMd(toTime)}`,
+  ].filter(Boolean).join('\n');
+  const kind = record.type === 'customer' ? 'Бронь перенесена' : 'Техническая бронь перенесена';
+  await sendTelegram(`🔁 *${kind}*\n\n${fields}`, 'admin reschedule');
+}
+
 async function notifyTelegramDayAction(dateISO, kindLabel, count) {
   const dateLabelText = formatDateLabel(dateISO);
   await sendTelegram(`🗓 *${escapeMd(kindLabel)}*\n\n📅 Дата: ${escapeMd(dateLabelText)}\nСлотов: ${count}`, 'admin day action');
@@ -200,24 +235,48 @@ export default async function handler(req, res) {
   await clearAttempts(ip);
 
   if (req.method === 'GET') {
-    const dates = windowDates();
-    const commands = dates.map((iso) => ['HGETALL', `bookings:${iso}`]);
-    const results = await kvPipeline(commands);
+    const bookingDates = windowDates();
+    const historyDates = historyWindowDates();
 
-    if (!results) {
-      return res.status(200).json({ bookings: [] });
-    }
+    const [bookingResults, historyResults] = await Promise.all([
+      kvPipeline(bookingDates.map((iso) => ['HGETALL', `bookings:${iso}`])),
+      kvPipeline(historyDates.map((iso) => ['HGETALL', `history:${iso}`])),
+    ]);
 
     const bookings = [];
-    results.forEach((entry, i) => {
+
+    (bookingResults || []).forEach((entry, i) => {
       const obj = pairsToObject(entry && entry.result);
       Object.entries(obj).forEach(([time, raw]) => {
         try {
           const record = JSON.parse(raw);
+          const dateISO = record.dateISO || bookingDates[i];
+          const recordTime = record.time || time;
           bookings.push({
             ...record,
-            dateISO: record.dateISO || dates[i],
-            time: record.time || time,
+            dateISO,
+            time: recordTime,
+            status: 'active',
+            id: `active:${dateISO}:${recordTime}`,
+          });
+        } catch {
+          // Skip a malformed entry instead of failing the whole list.
+        }
+      });
+    });
+
+    (historyResults || []).forEach((entry, i) => {
+      const obj = pairsToObject(entry && entry.result);
+      Object.entries(obj).forEach(([field, raw]) => {
+        try {
+          const record = JSON.parse(raw);
+          const dateISO = record.dateISO || historyDates[i];
+          bookings.push({
+            ...record,
+            dateISO,
+            time: record.time || field.split('@')[0],
+            status: record.status === 'rescheduled' ? 'rescheduled' : 'cancelled',
+            id: `history:${dateISO}:${field}`,
           });
         } catch {
           // Skip a malformed entry instead of failing the whole list.
@@ -435,14 +494,37 @@ export default async function handler(req, res) {
       let existing;
       try { existing = JSON.parse(existingRaw); } catch { existing = {}; }
 
-      const updated = { ...existing, dateISO: toDateISO, time: toTime };
+      const updated = {
+        ...existing,
+        dateISO: toDateISO,
+        time: toTime,
+        rescheduledFrom: { dateISO: fromDateISO, time: fromTime },
+      };
 
       const added = await kv('hsetnx', toKey, toTime, JSON.stringify(updated));
       if (added === 0) {
         return res.status(409).json({ error: 'Это время уже занято — выберите другое.' });
       }
       await kv('expire', toKey, SLOT_TTL_SECONDS);
+
+      // The vacated slot isn't just deleted — it's kept in history as
+      // 'rescheduled' (same idea as a cancellation) so the move itself
+      // stays visible: whoever looks at the old date/time can see it was
+      // moved, and to where.
+      const rescheduledAt = new Date().toISOString();
+      const historyRecord = {
+        ...existing,
+        status: 'rescheduled',
+        rescheduledAt,
+        rescheduledTo: { dateISO: toDateISO, time: toTime },
+      };
+      const historyKey = `history:${fromDateISO}`;
+      const historyField = `${fromTime}@${Date.now()}`;
+      await kv('hset', historyKey, historyField, JSON.stringify(historyRecord));
+      await kv('expire', historyKey, HISTORY_TTL_SECONDS);
       await kv('hdel', fromKey, fromTime);
+
+      await notifyTelegramReschedule(existing, fromDateISO, fromTime, toDateISO, toTime);
 
       return res.status(200).json({ ok: true, booking: updated });
     }

@@ -455,6 +455,27 @@
   }
   .contact-fields input:focus{outline:none; border-color:var(--ochre-bright);}
   .contact-fields input::placeholder{color:var(--muted);}
+  /* Phone field: "+375" is shown as a fixed, clearly-not-editable chip from
+     the very first render (not just placeholder text that vanishes once you
+     start typing), so it's obvious the country code is already taken care
+     of and people only need to type their own number. */
+  .phone-field-wrap{
+    display:flex; align-items:center;
+    background:var(--black-2); border:1.5px solid var(--line); border-radius:14px;
+    padding:0 18px; width:100%; transition:border-color .2s;
+  }
+  .phone-field-wrap:focus-within{border-color:var(--ochre-bright);}
+  .phone-prefix{
+    font-family:var(--sans); font-size:16px; font-weight:800; color:var(--ochre-bright);
+    flex-shrink:0; padding-right:10px; margin-right:10px; border-right:1.5px solid var(--line);
+    user-select:none;
+  }
+  .phone-field-wrap input{
+    font-family:var(--sans); font-size:16px; font-weight:600; padding:16px 0;
+    background:transparent; border:none; color:var(--paper); width:100%; min-width:0;
+  }
+  .phone-field-wrap input:focus{outline:none;}
+  .phone-field-wrap input::placeholder{color:var(--muted);}
   .comment-field{
     display:block; margin-top:14px; width:100%; font-family:var(--sans); font-size:15px; font-weight:600;
     padding:14px 18px; background:var(--black-2); border:1.5px solid var(--line); color:var(--paper);
@@ -638,6 +659,7 @@
     .price-num{font-size:40px;}
     .submit-btn.submit-btn-inline{width:100%;}
     .contact-fields input{border-color:transparent; background:var(--black-3);}
+    .phone-field-wrap{border-color:transparent; background:var(--black-3);}
     .comment-field{border-color:transparent; background:var(--black-3); font-size:14.5px;}
     .submit-btn{margin-top:22px;}
     .fine{font-size:11.5px; margin-top:16px;}
@@ -883,7 +905,10 @@
         <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
         <div class="contact-fields">
           <input type="text" id="bookName" placeholder="Ваше имя">
-          <input type="tel" id="bookPhone" placeholder="+375 (__) ___-__-__">
+          <div class="phone-field-wrap">
+            <span class="phone-prefix">+375</span>
+            <input type="tel" id="bookPhone" placeholder="(__) ___-__-__">
+          </div>
         </div>
         <div class="contact-fields">
           <select id="playersSelect" class="players-select"></select>
@@ -1415,9 +1440,9 @@
     }
   }
 
-  // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
-  // booking arrives in Telegram in one consistent shape instead of whatever
-  // format each visitor happened to type.
+  // Auto-format phone numbers as (XX) XXX-XX-XX while typing — the "+375" is
+  // shown as its own fixed chip next to the field (see .phone-prefix), not
+  // typed into the value, so this only ever formats the local 9 digits.
   function formatByPhone(raw){
     let digits = raw.replace(/\D/g, '');
     if (digits.startsWith('375')) digits = digits.slice(3);
@@ -1425,7 +1450,7 @@
     else if (digits.startsWith('0')) digits = digits.slice(1);
     digits = digits.slice(0, 9);
     if (!digits) return '';
-    let out = '+375 (' + digits.slice(0, 2);
+    let out = '(' + digits.slice(0, 2);
     if (digits.length >= 2) out += ')';
     if (digits.length > 2) out += ' ' + digits.slice(2, 5);
     if (digits.length > 5) out += '-' + digits.slice(5, 7);
@@ -1455,12 +1480,16 @@
     const commentField = document.getElementById('bookComment');
     const websiteField = document.querySelector('input[name="website"]');
     const name = nameField.value.trim();
-    const phone = phoneField.value.trim();
+    const localPhone = phoneField.value.trim();
+    // The visible field only ever holds the local part — "+375" lives in the
+    // fixed .phone-prefix chip next to it — so the full number sent to the
+    // server/Telegram is reassembled here.
+    const phone = localPhone ? ('+375 ' + localPhone) : '';
     const comment = commentField.value.trim();
 
     msg.classList.remove('show', 'err');
 
-    if(!name || phoneDigitCount(phone) !== 9){
+    if(!name || phoneDigitCount(localPhone) !== 9){
       msg.textContent = 'Укажите имя и телефон полностью — без них мы не сможем перезвонить.';
       msg.classList.add('show', 'err');
       (name ? phoneField : nameField).focus();

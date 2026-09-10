@@ -14,6 +14,7 @@
     --ochre:#E0A722; --ochre-bright:#F5C518; --ochre-deep:#8a6a15;
     --paper:#F3EFE4; --muted:#B9B4A6; --line:#2a2a2a;
     --danger:#e5484d; --danger-bright:#ff6b6f;
+    --info:#5b9bd5; --info-bright:#7ab8ec;
     --display:'Anton','Arial Narrow',sans-serif;
     --sans:'Manrope',Arial,sans-serif;
   }
@@ -80,13 +81,28 @@
   .btn-secondary, .btn-danger{padding:11px 18px;}
 
   .list-toolbar{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;}
-  .list-toolbar input{
+  .list-toolbar input[type="text"]{
     flex:1 1 220px; min-width:0; padding:10px 14px; border-radius:9px; border:1px solid #333;
     background:var(--black-3); color:var(--paper); font-size:14px; font-family:var(--sans);
   }
-  .list-toolbar input:focus{outline:none; border-color:var(--ochre);}
+  .list-toolbar input[type="text"]:focus{outline:none; border-color:var(--ochre);}
   .list-toolbar .btn-secondary{padding:10px 16px; font-size:13.5px; flex:0 0 auto;}
   .list-toolbar .btn-secondary.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  /* Native date input, dark-themed to match — this is a quick "jump to a
+     day" filter, so it doesn't need the full custom calendar-grid treatment
+     used for actual booking flows elsewhere in the panel. */
+  .list-toolbar .day-filter-wrap{display:flex; align-items:center; gap:6px; flex:0 0 auto;}
+  .list-toolbar input[type="date"]{
+    color-scheme:dark; padding:9px 12px; border-radius:9px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:13.5px; font-family:var(--sans);
+  }
+  .list-toolbar input[type="date"]:focus{outline:none; border-color:var(--ochre);}
+  .day-filter-clear{
+    background:none; border:1px solid #333; color:var(--muted); border-radius:9px;
+    width:34px; height:36px; font-size:15px; flex-shrink:0; display:none;
+  }
+  .day-filter-clear:hover{border-color:var(--danger-bright); color:var(--danger-bright);}
+  .day-filter-clear.show{display:block;}
 
   /* ---------- Bookings list ---------- */
   .day-group{margin-bottom:26px;}
@@ -111,10 +127,18 @@
   }
   .row-type.customer{background:rgba(224,167,34,.18); color:var(--ochre-bright);}
   .row-type.technical{background:rgba(185,180,166,.18); color:var(--muted);}
+  .row-type.status-cancelled{background:rgba(229,72,77,.18); color:var(--danger-bright);}
+  .row-type.status-rescheduled{background:rgba(91,155,213,.18); color:var(--info-bright);}
   .row-main{flex:1; min-width:0;}
   .row-name{font-weight:700; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .row-sub{font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .row-price{font-weight:800; color:var(--ochre-bright); font-size:14.5px; flex-shrink:0;}
+  /* Cancelled/rescheduled rows are history, not live bookings — dim them and
+     strike the time to show the slot itself is free, without making the
+     whole row hard to read (the badge + text label still carry the status,
+     per accessibility: never color alone). */
+  .booking-row.is-history{opacity:.68;}
+  .booking-row.is-history .row-time{text-decoration:line-through; text-decoration-color:var(--muted);}
   .empty-note, .load-note{color:var(--muted); font-size:14.5px; padding:30px 0; text-align:center;}
 
   /* ---------- Modal ---------- */
@@ -276,6 +300,10 @@
     </div>
     <div class="list-toolbar">
       <input type="text" id="searchBox" placeholder="Поиск по имени или телефону…">
+      <div class="day-filter-wrap">
+        <input type="date" id="dayFilterInput" title="Показать брони только на этот день">
+        <button type="button" class="day-filter-clear" id="dayFilterClear" aria-label="Сбросить фильтр по дате">✕</button>
+      </div>
       <button class="btn-secondary" id="todayToggleBtn">Сегодня</button>
       <button class="btn-secondary" id="exportCsvBtn">Экспорт CSV</button>
     </div>
@@ -290,13 +318,14 @@
     <h2 id="detailTitle">Бронь</h2>
 
     <div id="detailView">
+      <div class="detail-field"><label>Статус</label><div class="value" id="dvStatus"></div></div>
       <div class="detail-field"><label>Тип</label><div class="value" id="dvType"></div></div>
       <div class="detail-field"><label>Имя</label><div class="value" id="dvName"></div></div>
       <div class="detail-field"><label>Телефон</label><div class="value" id="dvPhone"></div></div>
       <div class="detail-field"><label>Игроков</label><div class="value" id="dvPlayers"></div></div>
       <div class="detail-field"><label>Цена</label><div class="value" id="dvPrice"></div></div>
       <div class="detail-field"><label>Комментарий</label><div class="value" id="dvComment"></div></div>
-      <div class="modal-actions">
+      <div class="modal-actions" id="detailActiveActions">
         <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
         <button class="btn-secondary" id="editBtn">Редактировать</button>
         <button class="btn-danger" id="cancelBookingBtn">Отменить</button>
@@ -471,7 +500,7 @@
   let allBookings = [];
   let activeBooking = null; // the booking currently open in the detail modal
   let searchQuery = '';
-  let showTodayOnly = false;
+  let filterDateISO = ''; // '' = show every date; otherwise show only this one day
 
   // ---------- helpers ----------
   function todayISO(){
@@ -614,19 +643,21 @@
   }
 
   function takenTimesFor(dateISO, excludeBooking){
+    // Only ACTIVE bookings actually occupy a slot — a cancelled or
+    // rescheduled entry stays in allBookings (as history) but its slot is
+    // free again, so it must not block picking that time for something new.
     return allBookings
-      .filter(b => b.dateISO === dateISO && b !== excludeBooking)
+      .filter(b => b.dateISO === dateISO && b.status === 'active' && b !== excludeBooking)
       .map(b => b.time);
   }
 
-  // Applies the search box and "today only" toggle on top of allBookings.
-  // Kept separate from renderList so CSV export can reuse exactly what's
+  // Applies the search box and the day filter on top of allBookings. Kept
+  // separate from renderList so CSV export can reuse exactly what's
   // currently on screen.
   function getFilteredBookings(){
     let list = allBookings;
-    if (showTodayOnly){
-      const today = todayISO();
-      list = list.filter(b => b.dateISO === today);
+    if (filterDateISO){
+      list = list.filter(b => b.dateISO === filterDateISO);
     }
     const q = searchQuery.trim().toLowerCase();
     if (q){
@@ -639,6 +670,14 @@
     return list;
   }
 
+  // Status-specific bits of a row: the badge (class + label) and any extra
+  // line describing what happened (where a reschedule came from / went to).
+  function statusBadge(b){
+    if (b.status === 'cancelled') return { cls: 'status-cancelled', label: 'Отменена' };
+    if (b.status === 'rescheduled') return { cls: 'status-rescheduled', label: 'Перенесена' };
+    return b.type === 'technical' ? { cls: 'technical', label: 'Техническая' } : { cls: 'customer', label: 'Клиент' };
+  }
+
   function renderList(){
     if (!allBookings.length){
       listContainer.innerHTML = '<div class="empty-note">Броней пока нет.</div>';
@@ -646,7 +685,8 @@
     }
     const filtered = getFilteredBookings();
     if (!filtered.length){
-      listContainer.innerHTML = '<div class="empty-note">Ничего не найдено — попробуйте изменить поиск или отключить фильтр «Сегодня».</div>';
+      const reason = filterDateISO ? 'на выбранную дату' : 'по вашему запросу';
+      listContainer.innerHTML = `<div class="empty-note">Ничего не найдено ${reason} — попробуйте изменить поиск или дату.</div>`;
       return;
     }
     const byDate = {};
@@ -662,15 +702,28 @@
         .sort((a,b) => a.time.localeCompare(b.time))
         .map(b => {
           const isTech = b.type === 'technical';
+          const isHistory = b.status !== 'active';
           const name = isTech ? 'Техническая бронь' : (b.name || '—');
-          const sub = isTech
-            ? (b.comment || '')
-            : [b.phone, b.source === 'admin' ? 'внесено вручную' : null].filter(Boolean).join(' · ');
-          const priceLabel = (!isTech && b.price) ? `${escapeHtml(b.price)} Br` : '';
+          const subParts = [];
+          if (!isTech){
+            if (b.phone) subParts.push(b.phone);
+            if (b.source === 'admin') subParts.push('внесено вручную');
+          } else if (b.comment){
+            subParts.push(b.comment);
+          }
+          if (b.status === 'rescheduled' && b.rescheduledTo){
+            subParts.push(`→ перенесена на ${formatDateHeading(b.rescheduledTo.dateISO)} в ${b.rescheduledTo.time}`);
+          }
+          if (b.status === 'active' && b.rescheduledFrom){
+            subParts.push(`перенесена с ${formatDateHeading(b.rescheduledFrom.dateISO)}, ${b.rescheduledFrom.time}`);
+          }
+          const sub = subParts.filter(Boolean).join(' · ');
+          const priceLabel = (!isTech && b.price && !isHistory) ? `${escapeHtml(b.price)} Br` : '';
+          const badge = statusBadge(b);
           return `
-            <div class="booking-row" data-date="${dateISO}" data-time="${escapeHtml(b.time)}">
+            <div class="booking-row${isHistory ? ' is-history' : ''}" data-id="${escapeHtml(b.id)}">
               <div class="row-time">${escapeHtml(b.time)}</div>
-              <div class="row-type ${isTech ? 'technical' : 'customer'}">${isTech ? 'Техническая' : 'Клиент'}</div>
+              <div class="row-type ${badge.cls}">${badge.label}</div>
               <div class="row-main">
                 <div class="row-name">${escapeHtml(name)}${!isTech && b.players ? ` · ${escapeHtml(b.players)}` : ''}</div>
                 ${sub ? `<div class="row-sub">${escapeHtml(sub)}</div>` : ''}
@@ -688,8 +741,7 @@
 
     listContainer.querySelectorAll('.booking-row').forEach(row => {
       row.addEventListener('click', () => {
-        const { date, time } = row.dataset;
-        const booking = allBookings.find(b => b.dateISO === date && b.time === time);
+        const booking = allBookings.find(b => b.id === row.dataset.id);
         if (booking) openDetail(booking);
       });
     });
@@ -697,8 +749,10 @@
 
   document.getElementById('refreshBtn').addEventListener('click', loadBookings);
 
-  // ---------- toolbar: search, "today only" toggle, CSV export ----------
+  // ---------- toolbar: search, day filter, CSV export ----------
   const searchBox = document.getElementById('searchBox');
+  const dayFilterInput = document.getElementById('dayFilterInput');
+  const dayFilterClear = document.getElementById('dayFilterClear');
   const todayToggleBtn = document.getElementById('todayToggleBtn');
   const exportCsvBtn = document.getElementById('exportCsvBtn');
 
@@ -707,9 +761,29 @@
     renderList();
   });
 
+  // The date input and the "Сегодня" quick-button both drive the same
+  // filterDateISO state, so they're kept visually in sync with each other.
+  function syncDayFilterUI(){
+    dayFilterInput.value = filterDateISO || '';
+    todayToggleBtn.classList.toggle('active', filterDateISO === todayISO());
+    dayFilterClear.classList.toggle('show', Boolean(filterDateISO));
+  }
+
+  dayFilterInput.addEventListener('change', () => {
+    filterDateISO = dayFilterInput.value || '';
+    syncDayFilterUI();
+    renderList();
+  });
+
+  dayFilterClear.addEventListener('click', () => {
+    filterDateISO = '';
+    syncDayFilterUI();
+    renderList();
+  });
+
   todayToggleBtn.addEventListener('click', () => {
-    showTodayOnly = !showTodayOnly;
-    todayToggleBtn.classList.toggle('active', showTodayOnly);
+    filterDateISO = (filterDateISO === todayISO()) ? '' : todayISO();
+    syncDayFilterUI();
     renderList();
   });
 
@@ -718,28 +792,39 @@
     return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
 
+  function statusLabelForCsv(b){
+    if (b.status === 'cancelled') return 'Отменена';
+    if (b.status === 'rescheduled') return 'Перенесена';
+    return 'Активна';
+  }
+
   exportCsvBtn.addEventListener('click', () => {
     const rows = getFilteredBookings().slice().sort((a,b) => {
       return a.dateISO === b.dateISO ? a.time.localeCompare(b.time) : a.dateISO.localeCompare(b.dateISO);
     });
     if (!rows.length){
-      alert('Нет броней для экспорта — измените фильтр поиска.');
+      alert('Нет броней для экспорта — измените фильтр поиска или дату.');
       return;
     }
-    const header = ['Дата','Время','Тип','Имя','Телефон','Игроки','Цена','Комментарий','Источник'];
+    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Комментарий','Источник','Перенос'];
     const lines = [header.join(';')];
     rows.forEach(b => {
       const isTech = b.type === 'technical';
+      const moveNote = b.status === 'rescheduled' && b.rescheduledTo
+        ? `на ${b.rescheduledTo.dateISO} ${b.rescheduledTo.time}`
+        : (b.status === 'active' && b.rescheduledFrom ? `с ${b.rescheduledFrom.dateISO} ${b.rescheduledFrom.time}` : '');
       lines.push([
         b.dateISO || '',
         b.time || '',
         isTech ? 'Техническая' : 'Клиент',
+        statusLabelForCsv(b),
         isTech ? '' : (b.name || ''),
         isTech ? '' : (b.phone || ''),
         isTech ? '' : (b.players || ''),
         isTech ? '' : (b.price != null ? b.price : ''),
         b.comment || '',
-        b.source === 'admin' ? 'вручную' : (b.source || '')
+        b.source === 'admin' ? 'вручную' : (b.source || ''),
+        moveNote
       ].map(csvEscape).join(';'));
     });
     // Leading BOM so Excel opens Cyrillic text as UTF-8 instead of guessing wrong.
@@ -774,14 +859,36 @@
     activeBooking = booking;
     resetDetailViews();
     const isTech = booking.type === 'technical';
+    const isHistory = booking.status !== 'active';
     document.getElementById('detailTitle').textContent =
       `${isTech ? 'Техническая бронь' : 'Бронь'} · ${formatDateHeading(booking.dateISO)} в ${booking.time}`;
+
+    const dvStatus = document.getElementById('dvStatus');
+    if (booking.status === 'cancelled'){
+      dvStatus.innerHTML = `<span style="color:var(--danger-bright); font-weight:700;">Отменена</span>`;
+    } else if (booking.status === 'rescheduled'){
+      const to = booking.rescheduledTo;
+      dvStatus.innerHTML = `<span style="color:var(--info-bright); font-weight:700;">Перенесена</span>` +
+        (to ? ` → ${formatDateHeading(to.dateISO)} в ${to.time}` : '');
+    } else if (booking.rescheduledFrom){
+      const from = booking.rescheduledFrom;
+      dvStatus.innerHTML = `<span style="color:var(--ochre-bright); font-weight:700;">Активна</span>` +
+        ` (перенесена с ${formatDateHeading(from.dateISO)}, ${from.time})`;
+    } else {
+      dvStatus.innerHTML = `<span style="color:var(--ochre-bright); font-weight:700;">Активна</span>`;
+    }
+
     document.getElementById('dvType').textContent = isTech ? 'Техническая (слот заблокирован)' : 'Клиентская бронь';
     document.getElementById('dvName').textContent = booking.name || '—';
     document.getElementById('dvPhone').textContent = booking.phone || '—';
     document.getElementById('dvPlayers').textContent = booking.players || '—';
     document.getElementById('dvPrice').textContent = booking.price ? `${booking.price} Br` : '—';
     document.getElementById('dvComment').textContent = booking.comment || '—';
+
+    // Cancelled/rescheduled entries are history, not live bookings — nothing
+    // to edit, reschedule, or cancel about a slot that's already free.
+    document.getElementById('detailActiveActions').style.display = isHistory ? 'none' : 'flex';
+
     detailOverlay.classList.add('show');
   }
 
@@ -1242,7 +1349,7 @@
 
   function updateCloseDayStatus(){
     if (!closeDaySelectedDateISO){ closeDayStatus.innerHTML = ''; return; }
-    const dayBookings = allBookings.filter(b => b.dateISO === closeDaySelectedDateISO);
+    const dayBookings = allBookings.filter(b => b.dateISO === closeDaySelectedDateISO && b.status === 'active');
     const technical = dayBookings.filter(b => b.type === 'technical').length;
     const customer = dayBookings.filter(b => b.type !== 'technical').length;
     const open = Math.max(0, SLOTS.length - technical - customer);
