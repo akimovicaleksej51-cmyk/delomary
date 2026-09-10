@@ -306,6 +306,37 @@
   .slot-btn.slot-customer{background:#d95926; border-color:#d95926; color:#fff;}
   .slot-btn.overview-slot.picked{outline:2px solid #fff; outline-offset:1px;}
 
+  /* ---------- Shifts & actor reminders modal ---------- */
+  .shifts-hint{color:var(--muted); font-size:13.5px; line-height:1.5; margin:2px 0 16px;}
+  .shifts-hint b{color:var(--paper);}
+  .shift-day{padding:14px 0; border-top:1px solid #2a2a2a;}
+  .shift-day:first-child{border-top:none; padding-top:4px;}
+  .shift-day-heading{font-weight:800; font-size:13.5px; letter-spacing:.03em; margin-bottom:10px;}
+  .shift-list{display:flex; flex-direction:column; gap:6px; margin-bottom:10px;}
+  .shift-chip{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:var(--black-3); border:1px solid #2a2a2a; border-radius:8px;
+    padding:8px 10px; font-size:13.5px;
+  }
+  .shift-actor-status{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; margin-left:8px;}
+  .shift-actor-status.ok{color:#199e70;}
+  .shift-actor-status.warn{color:var(--ochre-bright);}
+  .shift-delete{
+    background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px;
+    padding:2px 6px; border-radius:6px; flex-shrink:0;
+  }
+  .shift-delete:hover{color:var(--danger-bright); background:#2a2a2a;}
+  .shift-empty-note{color:var(--muted); font-size:13px; margin:0 0 10px;}
+  .shift-add-row{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+  .shift-add-row input[type="time"], .shift-add-row input[type="text"]{
+    background:var(--black-3); color:var(--paper); border:1px solid #2a2a2a; border-radius:8px;
+    padding:8px 10px; font-size:13.5px; font-family:var(--sans);
+  }
+  .shift-add-row input[type="time"]{flex:0 0 auto; width:110px;}
+  .shift-add-row input[type="text"]{flex:1 1 140px; min-width:110px;}
+  .shift-add-row .shift-dash{color:var(--muted);}
+  .shift-add-row .btn-secondary{padding:8px 14px; font-size:13px; flex:0 0 auto;}
+
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
     .row-sub{display:none;}
@@ -341,6 +372,7 @@
         <button class="btn-secondary" id="calendarBtn">Календарь</button>
         <button class="btn-secondary" id="statsBtn">Статистика</button>
         <button class="btn-secondary" id="closeDayBtn">Закрыть день</button>
+        <button class="btn-secondary" id="shiftsBtn">Смены и напоминания</button>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
@@ -407,6 +439,7 @@
       <div class="detail-field"><label>Игроков</label><div class="value" id="dvPlayers"></div></div>
       <div class="detail-field"><label>Цена</label><div class="value" id="dvPrice"></div></div>
       <div class="detail-field"><label>Комментарий</label><div class="value" id="dvComment"></div></div>
+      <div class="detail-field" id="dvReminderRow"><label>Напоминание актёру</label><div class="value" id="dvReminder"></div></div>
       <div class="modal-actions" id="detailActiveActions">
         <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
         <button class="btn-secondary" id="editBtn">Редактировать</button>
@@ -555,6 +588,28 @@
   </div>
 </div>
 
+<!-- Actor shift schedule → drives Telegram reminders 1.5ч before a booking -->
+<div class="modal-overlay" id="shiftsOverlay">
+  <div class="modal-box" style="max-width:680px;">
+    <button class="modal-close-x" data-close="shifts">✕</button>
+    <h2>Смены и напоминания</h2>
+    <p class="shifts-hint">
+      Расставьте, какой актёр работает в какие часы — если в это время появится бронь клиента,
+      актёру придёт в Telegram напоминание за 1.5 часа до игры. Актёр должен один раз написать
+      <b>/start</b> вашему боту в Telegram — иначе напоминание отправить будет некому; кто уже
+      подключился, видно рядом с именем.
+    </p>
+    <div class="cal-head">
+      <button type="button" class="cal-nav" id="shiftsWeekPrev" aria-label="Предыдущая неделя">‹</button>
+      <span class="cal-month" id="shiftsWeekLabel"></span>
+      <button type="button" class="cal-nav" id="shiftsWeekNext" aria-label="Следующая неделя">›</button>
+    </div>
+    <div id="shiftsDaysList"><div class="load-note">Загрузка…</div></div>
+    <div class="modal-msg" id="shiftsMsg"></div>
+  </div>
+</div>
+<datalist id="knownActorsList"></datalist>
+
 <script>
 (function(){
   const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
@@ -613,6 +668,15 @@
     const d = parseISO(iso);
     const wd = WEEKDAY_NAMES[d.getDay()];
     return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${wd}`;
+  }
+  // Formats a full ISO datetime (e.g. booking.reminderFireAt) as "16
+  // сентября в 18:30" for display in the booking detail modal.
+  function formatReminderMoment(iso){
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} в ${hh}:${mm}`;
   }
   // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
   // booking entered by hand ends up in the same shape as ones from the site.
@@ -996,6 +1060,28 @@
     document.getElementById('dvPlayers').textContent = booking.players || '—';
     document.getElementById('dvPrice').textContent = booking.price ? `${booking.price} Br` : '—';
     document.getElementById('dvComment').textContent = booking.comment || '—';
+
+    const dvReminderRow = document.getElementById('dvReminderRow');
+    const dvReminder = document.getElementById('dvReminder');
+    if (isTech) {
+      dvReminderRow.style.display = 'none';
+    } else {
+      dvReminderRow.style.display = '';
+      if (isHistory) {
+        dvReminder.textContent = (booking.reminderMsgId || booking.reminderPending)
+          ? 'Было запланировано — отменено вместе с бронью'
+          : '—';
+      } else if (booking.reminderMsgId) {
+        const when = booking.reminderFireAt ? formatReminderMoment(booking.reminderFireAt) : '';
+        dvReminder.textContent = `Актёру @${booking.reminderActor}${when ? ', ' + when : ''}`;
+      } else if (booking.reminderPending) {
+        dvReminder.textContent = `Актёру @${booking.reminderActor} — запланируется позже (бронь дальше чем на 7 дней)`;
+      } else if (booking.reminderStatus === 'actor-not-registered') {
+        dvReminder.textContent = `Назначен @${booking.reminderActor}, но он ещё не подключил бота — попросите отправить /start`;
+      } else {
+        dvReminder.textContent = 'Актёр не назначен на это время (см. «Смены и напоминания»)';
+      }
+    }
 
     // Cancelled/rescheduled entries are history, not live bookings — nothing
     // to edit, reschedule, or cancel about a slot that's already free.
@@ -1835,6 +1921,173 @@
   document.getElementById('statsBtn').addEventListener('click', openStatsModal);
   document.querySelectorAll('[data-close="stats"]').forEach(b => b.addEventListener('click', () => statsOverlay.classList.remove('show')));
   statsOverlay.addEventListener('click', e => { if (e.target === statsOverlay) statsOverlay.classList.remove('show'); });
+
+  // ---------- shifts & actor reminders ----------
+  const shiftsOverlay = document.getElementById('shiftsOverlay');
+  const shiftsDaysList = document.getElementById('shiftsDaysList');
+  const shiftsWeekLabel = document.getElementById('shiftsWeekLabel');
+  const shiftsMsg = document.getElementById('shiftsMsg');
+  const SHIFTS_WINDOW_DAYS = 7;
+  let shiftsWeekStart = null; // ISO date the visible 7-day window starts at
+  let shiftsData = {};   // { '2026-09-16': [{id,start,end,actorUsername}, ...] }
+  let shiftsActors = {}; // { 'ivan_actor': {displayName, registered} }
+
+  function shiftsWeekDates(){
+    const dates = [];
+    const [y, m, d] = shiftsWeekStart.split('-').map(Number);
+    const start = new Date(y, m - 1, d);
+    for (let i = 0; i < SHIFTS_WINDOW_DAYS; i++){
+      const dd = new Date(start);
+      dd.setDate(start.getDate() + i);
+      dates.push(isoDate(dd));
+    }
+    return dates;
+  }
+
+  function renderKnownActorsList(){
+    const list = document.getElementById('knownActorsList');
+    list.innerHTML = Object.keys(shiftsActors).map(u => `<option value="${escapeHtml(u)}">`).join('');
+  }
+
+  function renderShiftsDays(){
+    const dates = shiftsWeekDates();
+    shiftsWeekLabel.textContent = `${formatDateHeading(dates[0])} — ${formatDateHeading(dates[dates.length - 1])}`;
+
+    shiftsDaysList.innerHTML = dates.map(dateISO => {
+      const shifts = shiftsData[dateISO] || [];
+      const rows = shifts.length
+        ? shifts.map(s => {
+            const actor = shiftsActors[s.actorUsername];
+            const registered = actor && actor.registered;
+            const statusHtml = registered
+              ? '<span class="shift-actor-status ok">подключён</span>'
+              : '<span class="shift-actor-status warn">ждём /start</span>';
+            return `<div class="shift-chip">
+                <span>${escapeHtml(s.start)}–${escapeHtml(s.end)} · @${escapeHtml(s.actorUsername)}${statusHtml}</span>
+                <button type="button" class="shift-delete" data-date="${dateISO}" data-id="${escapeHtml(s.id)}" aria-label="Удалить смену">✕</button>
+              </div>`;
+          }).join('')
+        : '<p class="shift-empty-note">Смен пока нет.</p>';
+
+      return `<div class="shift-day">
+          <div class="shift-day-heading">${formatDateHeading(dateISO)}</div>
+          <div class="shift-list">${rows}</div>
+          <div class="shift-add-row">
+            <input type="time" class="shift-start" step="900" value="11:00">
+            <span class="shift-dash">–</span>
+            <input type="time" class="shift-end" step="900" value="17:00">
+            <input type="text" class="shift-actor" placeholder="username актёра" list="knownActorsList">
+            <button type="button" class="btn-secondary shift-add-btn" data-date="${dateISO}">Добавить</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    shiftsDaysList.querySelectorAll('.shift-delete').forEach(btn => {
+      btn.addEventListener('click', () => deleteShift(btn.dataset.date, btn.dataset.id));
+    });
+    shiftsDaysList.querySelectorAll('.shift-add-btn').forEach(btn => {
+      btn.addEventListener('click', () => addShiftFromRow(btn));
+    });
+  }
+
+  async function loadShifts(){
+    shiftsDaysList.innerHTML = '<div class="load-note">Загрузка…</div>';
+    shiftsMsg.textContent = '';
+    try{
+      const res = await fetch(`/api/admin/shifts?from=${shiftsWeekStart}&days=${SHIFTS_WINDOW_DAYS}`, {
+        headers: authHeaders(), cache:'no-store'
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        shiftsDaysList.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить смены.')}</div>`;
+        return;
+      }
+      shiftsData = out.shifts || {};
+      shiftsActors = out.actors || {};
+      renderKnownActorsList();
+      renderShiftsDays();
+    } catch(err){
+      shiftsDaysList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
+
+  async function addShiftFromRow(btn){
+    const dateISO = btn.dataset.date;
+    const row = btn.closest('.shift-add-row');
+    const start = row.querySelector('.shift-start').value;
+    const end = row.querySelector('.shift-end').value;
+    const actorUsername = row.querySelector('.shift-actor').value.trim().replace(/^@/, '');
+
+    if (!start || !end || !actorUsername){
+      shiftsMsg.textContent = 'Заполните время начала, конца и username актёра.';
+      shiftsMsg.className = 'modal-msg err';
+      return;
+    }
+
+    btn.disabled = true;
+    shiftsMsg.textContent = '';
+    try{
+      const res = await fetch('/api/admin/shifts', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'addShift', dateISO, start, end, actorUsername })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        shiftsMsg.textContent = out.error || 'Не удалось добавить смену.';
+        shiftsMsg.className = 'modal-msg err';
+        return;
+      }
+      shiftsData[dateISO] = out.shifts;
+      renderShiftsDays();
+    } catch(err){
+      shiftsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      shiftsMsg.className = 'modal-msg err';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteShift(dateISO, shiftId){
+    try{
+      const res = await fetch('/api/admin/shifts', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'deleteShift', dateISO, shiftId })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        shiftsMsg.textContent = out.error || 'Не удалось удалить смену.';
+        shiftsMsg.className = 'modal-msg err';
+        return;
+      }
+      shiftsData[dateISO] = out.shifts;
+      renderShiftsDays();
+    } catch(err){
+      shiftsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      shiftsMsg.className = 'modal-msg err';
+    }
+  }
+
+  function openShiftsModal(){
+    if (!shiftsWeekStart) shiftsWeekStart = isoDate(new Date());
+    shiftsOverlay.classList.add('show');
+    loadShifts();
+  }
+
+  document.getElementById('shiftsWeekPrev').addEventListener('click', () => {
+    const [y, m, d] = shiftsWeekStart.split('-').map(Number);
+    const dd = new Date(y, m - 1, d); dd.setDate(dd.getDate() - SHIFTS_WINDOW_DAYS);
+    shiftsWeekStart = isoDate(dd);
+    loadShifts();
+  });
+  document.getElementById('shiftsWeekNext').addEventListener('click', () => {
+    const [y, m, d] = shiftsWeekStart.split('-').map(Number);
+    const dd = new Date(y, m - 1, d); dd.setDate(dd.getDate() + SHIFTS_WINDOW_DAYS);
+    shiftsWeekStart = isoDate(dd);
+    loadShifts();
+  });
+  document.getElementById('shiftsBtn').addEventListener('click', openShiftsModal);
+  document.querySelectorAll('[data-close="shifts"]').forEach(b => b.addEventListener('click', () => shiftsOverlay.classList.remove('show')));
+  shiftsOverlay.addEventListener('click', e => { if (e.target === shiftsOverlay) shiftsOverlay.classList.remove('show'); });
 
   // ---------- boot ----------
   const savedPassword = localStorage.getItem('adminPassword');

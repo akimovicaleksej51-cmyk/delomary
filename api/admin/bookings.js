@@ -65,6 +65,7 @@
 
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
 
 const WINDOW_DAYS_BACK = 3; // small buffer so very recent ACTIVE bookings stay visible
 const WINDOW_DAYS_AHEAD = 65;
@@ -351,7 +352,16 @@ export default async function handler(req, res) {
       await kv('expire', hashKey, SLOT_TTL_SECONDS);
       await notifyTelegram(record);
 
-      return res.status(200).json({ ok: true, booking: record });
+      let finalRecord = record;
+      if (isCustomer) {
+        const reminderPatch = await scheduleReminder(record);
+        if (Object.keys(reminderPatch).length) {
+          finalRecord = { ...record, ...reminderPatch };
+          await kv('hset', hashKey, cleanTime, JSON.stringify(finalRecord));
+        }
+      }
+
+      return res.status(200).json({ ok: true, booking: finalRecord });
     }
 
     if (action === 'cancel') {
@@ -369,6 +379,7 @@ export default async function handler(req, res) {
         let existing;
         try { existing = JSON.parse(existingRaw); } catch { existing = null; }
         if (existing) {
+          await cancelReminder(existing);
           const cancelledAt = new Date().toISOString();
           const cancelled = { ...existing, status: 'cancelled', cancelledAt };
           const historyKey = `history:${cleanDateISO}`;
@@ -457,14 +468,25 @@ export default async function handler(req, res) {
       let existing;
       try { existing = JSON.parse(existingRaw); } catch { existing = {}; }
 
-      const updated = {
+      const nextPlayers = body.players != null ? String(body.players).trim().slice(0, 10) : existing.players;
+
+      let updated = {
         ...existing,
         name: typeof body.name === 'string' ? body.name.trim().slice(0, 100) : existing.name,
         phone: typeof body.phone === 'string' ? body.phone.trim().slice(0, 40) : existing.phone,
-        players: body.players != null ? String(body.players).trim().slice(0, 10) : existing.players,
+        players: nextPlayers,
         price: body.price != null ? String(body.price).trim().slice(0, 20) : existing.price,
         comment: typeof body.comment === 'string' ? body.comment.trim().slice(0, 500) : existing.comment,
       };
+
+      // The reminder text includes the player count — if it changed and a
+      // reminder was already scheduled, cancel the stale one and schedule a
+      // fresh one so the actor sees the right number.
+      if (updated.type === 'customer' && nextPlayers !== existing.players) {
+        await cancelReminder(existing);
+        const reminderPatch = await scheduleReminder(stripReminderFields(updated));
+        updated = { ...stripReminderFields(updated), ...reminderPatch };
+      }
 
       await kv('hset', hashKey, cleanTime, JSON.stringify(updated));
       return res.status(200).json({ ok: true, booking: updated });
@@ -494,8 +516,13 @@ export default async function handler(req, res) {
       let existing;
       try { existing = JSON.parse(existingRaw); } catch { existing = {}; }
 
-      const updated = {
-        ...existing,
+      // A moved booking may now fall under a different (or no) shift, so
+      // the old reminder — if one was scheduled — is cancelled outright;
+      // a fresh one gets scheduled below for the new date/time.
+      await cancelReminder(existing);
+
+      let updated = {
+        ...stripReminderFields(existing),
         dateISO: toDateISO,
         time: toTime,
         rescheduledFrom: { dateISO: fromDateISO, time: fromTime },
@@ -506,6 +533,14 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: 'Это время уже занято — выберите другое.' });
       }
       await kv('expire', toKey, SLOT_TTL_SECONDS);
+
+      if (updated.type === 'customer') {
+        const reminderPatch = await scheduleReminder(updated);
+        if (Object.keys(reminderPatch).length) {
+          updated = { ...updated, ...reminderPatch };
+          await kv('hset', toKey, toTime, JSON.stringify(updated));
+        }
+      }
 
       // The vacated slot isn't just deleted — it's kept in history as
       // 'rescheduled' (same idea as a cancellation) so the move itself

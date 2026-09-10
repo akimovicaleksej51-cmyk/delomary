@@ -26,6 +26,7 @@
 // these JSON values, so customer details are never exposed publicly.
 
 import { kv } from './_kv.js';
+import { scheduleReminder } from './_reminders.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
 
@@ -136,7 +137,16 @@ export default async function handler(req, res) {
       });
     }
 
-    if (reserved) await kv('expire', hashKey, SLOT_TTL_SECONDS);
+    if (reserved) {
+      await kv('expire', hashKey, SLOT_TTL_SECONDS);
+      // Best-effort: if a shift schedule assigns an actor to this slot,
+      // this schedules their private 1.5h-before reminder. Never blocks or
+      // fails the booking itself — see api/_reminders.js.
+      const reminderPatch = await scheduleReminder(record);
+      if (Object.keys(reminderPatch).length) {
+        await kv('hset', hashKey, cleanTime, JSON.stringify({ ...record, ...reminderPatch }));
+      }
+    }
 
     return res.status(200).json({ ok: true });
   } catch (err) {
