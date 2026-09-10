@@ -237,15 +237,10 @@
   .intake-badge{font-family:var(--sans); font-weight:700; font-size:12px; color:var(--black); background:var(--ochre-bright); padding:8px 16px; border-radius:999px; white-space:nowrap;}
 
   .field-block{margin-bottom:34px;}
-  .step{
-    overflow:hidden; opacity:1; max-height:2000px; scroll-margin-top:132px;
-    transition:max-height .5s ease, opacity .45s ease .05s, margin-top .5s ease, margin-bottom .5s ease;
-  }
-  .step.step-hidden{
-    max-height:0 !important; opacity:0 !important; pointer-events:none;
-    margin-top:0 !important; margin-bottom:0 !important;
-    transition:max-height .4s ease, opacity .25s ease, margin-top .4s ease, margin-bottom .4s ease;
-  }
+  .step{ scroll-margin-top:132px; }
+  .step.step-hidden{ display:none; }
+  .step:not(.step-hidden){ animation:stepFadeIn .35s ease; }
+  @keyframes stepFadeIn{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
   .step-sub{margin-bottom:26px;}
   .step-sub:last-child{margin-bottom:0;}
   .sub-label{
@@ -728,7 +723,7 @@
           <div>
             <div class="label">Стоимость сеанса</div>
             <div class="price-num" id="priceOut">140<sup>₽</sup></div>
-            <div class="price-note" id="priceNote">Тариф для команды 1–2 человека</div>
+            <div class="price-note" id="priceNote">Будний тариф для команды 1–2 человека</div>
           </div>
           <div class="price-tiers" id="priceTiers">
             <span>1–2 чел — 140 ₽</span>
@@ -940,30 +935,41 @@
   });
 
   /* ---- booking logic ---- */
-  const tiers = [
-    {max:2, price:140, label:'Тариф для команды 1–2 человека'},
-    {max:4, price:160, label:'Тариф для команды 3–4 человека'},
-    {max:5, price:190, label:'Тариф для команды из 5 человек'},
-    {max:6, price:220, label:'Тариф для команды из 6 человек'}
+  const weekdayTiers = [
+    {max:2, price:140, label:'Будний тариф для команды 1–2 человека'},
+    {max:4, price:160, label:'Будний тариф для команды 3–4 человека'},
+    {max:5, price:190, label:'Будний тариф для команды из 5 человек'},
+    {max:6, price:220, label:'Будний тариф для команды из 6 человек'}
   ];
-  function priceFor(n){ for(const t of tiers){ if(n <= t.max) return t; } return tiers[tiers.length-1]; }
+  const weekendTiers = [
+    {max:2, price:160, label:'Тариф выходного дня для команды 1–2 человека'},
+    {max:4, price:180, label:'Тариф выходного дня для команды 3–4 человека'},
+    {max:5, price:210, label:'Тариф выходного дня для команды из 5 человек'},
+    {max:6, price:240, label:'Тариф выходного дня для команды из 6 человек'}
+  ];
+  function priceFor(n, weekend){
+    const list = weekend ? weekendTiers : weekdayTiers;
+    for(const t of list){ if(n <= t.max) return t; }
+    return list[list.length-1];
+  }
 
   const step2Block = document.getElementById('step2Block');
   const step3Wrap = document.getElementById('step3Wrap');
-  function revealStep2(){
-    if(step2Block.classList.contains('step-hidden')){
-      step2Block.classList.remove('step-hidden');
+  function scrollToStep(el){
+    requestAnimationFrame(()=>{
       requestAnimationFrame(()=>{
-        step2Block.scrollIntoView({ behavior:'smooth', block:'start' });
+        el.scrollIntoView({ behavior:'smooth', block:'start' });
       });
-    }
+    });
   }
-  function maybeRevealStep3(){
-    if(selectedSlot != null && selectedPlayers != null && step3Wrap.classList.contains('step-hidden')){
+  function revealStep2AndScroll(){
+    step2Block.classList.remove('step-hidden');
+    scrollToStep(step2Block);
+  }
+  function maybeRevealStep3AndScroll(){
+    if(selectedSlot != null && selectedPlayers != null){
       step3Wrap.classList.remove('step-hidden');
-      requestAnimationFrame(()=>{
-        step3Wrap.scrollIntoView({ behavior:'smooth', block:'start' });
-      });
+      scrollToStep(step3Wrap);
     }
   }
 
@@ -979,7 +985,7 @@
       document.querySelectorAll('.pbtn').forEach(el=>el.classList.remove('active'));
       b.classList.add('active');
       updatePrice();
-      maybeRevealStep3();
+      maybeRevealStep3AndScroll();
     });
     playersRow.appendChild(b);
   }
@@ -987,22 +993,20 @@
   const priceOut = document.getElementById('priceOut');
   function updatePrice(){
     if(selectedPlayers == null || selectedSlot == null) return;
-    const t = priceFor(selectedPlayers);
+    const t = priceFor(selectedPlayers, selectedIsWeekend);
     const lateSurcharge = selectedSlotIsLate ? 20 : 0;
-    const weekendSurcharge = selectedIsWeekend ? 20 : 0;
-    const finalPrice = t.price + lateSurcharge + weekendSurcharge;
+    const finalPrice = t.price + lateSurcharge;
     priceOut.innerHTML = finalPrice + '<sup>₽</sup>';
     const notes = [];
-    if(weekendSurcharge) notes.push('доплата за выходной день');
     if(lateSurcharge) notes.push('доплата за поздний сеанс 23:00');
     document.getElementById('priceNote').textContent = t.label + (notes.length ? ' · ' + notes.join(' + ') : '');
     priceOut.classList.remove('bump'); void priceOut.offsetWidth; priceOut.classList.add('bump');
+    const list = selectedIsWeekend ? weekendTiers : weekdayTiers;
     document.getElementById('priceTiers').innerHTML =
-      '<span class="'+(selectedPlayers<=2?'cur':'')+'">1–2 чел — 140 ₽</span>' +
-      '<span class="'+(selectedPlayers>=3&&selectedPlayers<=4?'cur':'')+'">3–4 чел — 160 ₽</span>' +
-      '<span class="'+(selectedPlayers===5?'cur':'')+'">5 чел — 190 ₽</span>' +
-      '<span class="'+(selectedPlayers===6?'cur':'')+'">6 чел — 220 ₽</span>' +
-      '<span class="'+(weekendSurcharge?'cur':'')+'">сб-вс — доплата +20 ₽</span>' +
+      '<span class="'+(selectedPlayers<=2?'cur':'')+'">1–2 чел — '+list[0].price+' ₽</span>' +
+      '<span class="'+(selectedPlayers>=3&&selectedPlayers<=4?'cur':'')+'">3–4 чел — '+list[1].price+' ₽</span>' +
+      '<span class="'+(selectedPlayers===5?'cur':'')+'">5 чел — '+list[2].price+' ₽</span>' +
+      '<span class="'+(selectedPlayers===6?'cur':'')+'">6 чел — '+list[3].price+' ₽</span>' +
       '<span class="'+(lateSurcharge?'cur':'')+'">сеанс 23:00 — доплата +20 ₽</span>';
   }
 
@@ -1059,8 +1063,8 @@
           selectedIsWeekend = weekend;
           document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
           btn.classList.add('active');
-          revealStep2();
           updatePrice();
+          revealStep2AndScroll();
         });
       }
       dayRow.appendChild(btn);
@@ -1101,7 +1105,7 @@
       document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
       btn.classList.add('active');
       updatePrice();
-      maybeRevealStep3();
+      maybeRevealStep3AndScroll();
     });
     slotRow.appendChild(btn);
   });
@@ -1128,8 +1132,8 @@
       return;
     }
 
-    const t = priceFor(selectedPlayers);
-    const surcharge = (selectedSlotIsLate ? 20 : 0) + (selectedIsWeekend ? 20 : 0);
+    const t = priceFor(selectedPlayers, selectedIsWeekend);
+    const surcharge = selectedSlotIsLate ? 20 : 0;
     const timeText = selectedSlot ? selectedSlot : 'время уточним по телефону';
 
     submitBtn.disabled = true;
