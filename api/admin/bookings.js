@@ -67,6 +67,7 @@ import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
 import { toAmount } from '../_finance.js';
+import { businessToday, businessDateTime } from '../_time.js';
 
 const WINDOW_DAYS_BACK = 3; // small buffer so very recent ACTIVE bookings stay visible
 const WINDOW_DAYS_AHEAD = 65;
@@ -83,8 +84,7 @@ function isoDate(d) {
 }
 
 function windowDates() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = businessToday();
   const dates = [];
   for (let i = -WINDOW_DAYS_BACK; i < WINDOW_DAYS_AHEAD; i++) {
     const d = new Date(today);
@@ -95,8 +95,7 @@ function windowDates() {
 }
 
 function historyWindowDates() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = businessToday();
   const dates = [];
   for (let i = -HISTORY_WINDOW_DAYS_BACK; i < WINDOW_DAYS_AHEAD; i++) {
     const d = new Date(today);
@@ -606,8 +605,7 @@ export default async function handler(req, res) {
       const STATS_DAYS_FORWARD = 30;
       const CHART_DAYS = 21;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = businessToday();
       const dates = [];
       for (let i = -STATS_DAYS_BACK; i <= STATS_DAYS_FORWARD; i++) {
         const d = new Date(today);
@@ -639,8 +637,10 @@ export default async function handler(req, res) {
           const dISO = record.dateISO || dates[i];
           const recordTime = record.time || time;
           const [hh, mm] = recordTime.split(':').map(Number);
-          const [y, m, d] = dISO.split('-').map(Number);
-          const sessionEnd = new Date(y, (m || 1) - 1, d || 1, hh || 0, (mm || 0) + 60);
+          // hh:mm is Minsk wall-clock time — businessDateTime() converts it
+          // to the correct absolute instant instead of letting the server's
+          // own (UTC) clock reinterpret those numbers as UTC.
+          const sessionEnd = businessDateTime(dISO, hh || 0, (mm || 0) + 60);
 
           if (sessionEnd <= now) {
             completed++;

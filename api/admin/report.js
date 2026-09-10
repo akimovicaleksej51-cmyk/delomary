@@ -15,6 +15,7 @@
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { toAmount } from '../_finance.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { todayISO } from '../_time.js';
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 92;
@@ -66,7 +67,7 @@ export default async function handler(req, res) {
   if (!Number.isFinite(days) || days < 1) days = DEFAULT_DAYS;
   days = Math.min(days, MAX_DAYS);
 
-  const toISO = isValidDateISO(req.query && req.query.to) ? req.query.to : isoDate(new Date());
+  const toISO = isValidDateISO(req.query && req.query.to) ? req.query.to : todayISO();
   const end = parseISO(toISO);
   const dates = [];
   for (let i = days - 1; i >= 0; i--) {

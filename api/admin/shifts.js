@@ -26,6 +26,7 @@
 import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS } from '../_reminders.js';
 import { scheduleCloseout, cancelCloseout } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { todayISO } from '../_time.js';
 
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -65,7 +66,7 @@ export default async function handler(req, res) {
   await clearAttempts(ip);
 
   if (req.method === 'GET') {
-    const fromISO = isValidDateISO(req.query && req.query.from) ? req.query.from : isoDate(new Date());
+    const fromISO = isValidDateISO(req.query && req.query.from) ? req.query.from : todayISO();
     let days = parseInt((req.query && req.query.days) || '14', 10);
     if (!Number.isFinite(days) || days < 1) days = 14;
     days = Math.min(days, 31);

@@ -25,6 +25,7 @@
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { scheduleReminder, getShiftsForDate, SHIFT_SLOTS } from '../_reminders.js';
 import { getCloseoutRecord, scheduleCloseout } from '../_closeout.js';
+import { businessToday } from '../_time.js';
 
 const SWEEP_DAYS_AHEAD = 9; // a little past the 7-day QStash ceiling, for margin
 
@@ -44,8 +45,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = businessToday();
   const dates = [];
   for (let i = 0; i < SWEEP_DAYS_AHEAD; i++) {
     const d = new Date(today);

@@ -19,6 +19,7 @@
 // blocked until the database is connected.
 
 import { kvPipeline } from './_kv.js';
+import { businessToday } from './_time.js';
 
 const BOOKING_DAYS_AHEAD = 65; // small buffer beyond the site's 60-day window
 
@@ -37,8 +38,7 @@ export default async function handler(req, res) {
 
   res.setHeader('Cache-Control', 'no-store');
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = businessToday();
   const dates = [];
   for (let i = 0; i < BOOKING_DAYS_AHEAD; i++) {
     const d = new Date(today);

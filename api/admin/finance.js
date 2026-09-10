@@ -31,6 +31,7 @@ import {
   toAmount,
 } from '../_finance.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { todayISO } from '../_time.js';
 
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -40,13 +41,6 @@ function checkAuth(req) {
 
 function isValidDateISO(s) {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-
-function isoDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 function genId() {
@@ -70,7 +64,7 @@ export default async function handler(req, res) {
   await clearAttempts(ip);
 
   if (req.method === 'GET') {
-    const toISO = isValidDateISO(req.query && req.query.to) ? req.query.to : isoDate(new Date());
+    const toISO = isValidDateISO(req.query && req.query.to) ? req.query.to : todayISO();
     const state = await computeCashRegister(toISO);
     return res.status(200).json(state);
   }
@@ -93,7 +87,7 @@ export default async function handler(req, res) {
       const list = await getCashoutsForDate(cleanDateISO);
       list.push({ id: genId(), kind, label, amount, createdAt: new Date().toISOString() });
       await saveCashoutsForDate(cleanDateISO, list);
-      const state = await computeCashRegister(isoDate(new Date()));
+      const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });
     }
 
@@ -106,7 +100,7 @@ export default async function handler(req, res) {
       const list = await getCashoutsForDate(cleanDateISO);
       const next = list.filter((c) => c.id !== id);
       await saveCashoutsForDate(cleanDateISO, next);
-      const state = await computeCashRegister(isoDate(new Date()));
+      const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });
     }
 
@@ -116,7 +110,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Укажите дату для точки отсчёта.' });
       }
       await setOpeningBalance(body.balance, cleanDateISO);
-      const state = await computeCashRegister(isoDate(new Date()));
+      const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });
     }
 
