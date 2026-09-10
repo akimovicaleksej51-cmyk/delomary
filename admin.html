@@ -480,6 +480,7 @@
       <div class="detail-field" id="dvWorkedRow"><label>Кто отыграл</label><div class="value" id="dvWorked"></div></div>
       <div class="detail-field" id="dvHandledRow"><label>Оформил</label><div class="value" id="dvHandled"></div></div>
       <div class="detail-field" id="dvReminderRow"><label>Напоминание актёру</label><div class="value" id="dvReminder"></div></div>
+      <div class="detail-field" id="dvCloseoutRow"><label>Сверка от актёра</label><div class="value" id="dvCloseout"></div></div>
       <div class="modal-actions" id="detailActiveActions">
         <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
         <button class="btn-secondary" id="editBtn">Редактировать</button>
@@ -641,8 +642,13 @@
 <div class="modal-overlay" id="statsOverlay">
   <div class="modal-box" style="max-width:720px;">
     <button class="modal-close-x" data-close="stats">✕</button>
-    <h2>Статистика броней</h2>
+    <h2>Статистика и отчёты</h2>
+    <div class="type-toggle" id="statsTabToggle">
+      <button type="button" class="type-toggle-btn active" data-stats-tab="bookings">Брони</button>
+      <button type="button" class="type-toggle-btn" data-stats-tab="finance">Финансы</button>
+    </div>
     <div id="statsBody"><div class="load-note">Загрузка…</div></div>
+    <div id="reportBody" style="display:none;"><div class="load-note">Загрузка…</div></div>
   </div>
 </div>
 
@@ -799,6 +805,19 @@
     if (toNum(b.payCard) > 0) parts.push(`Безнал ${b.payCard}`);
     if (toNum(b.payErip) > 0) parts.push(`ЕРИП ${b.payErip}`);
     return parts.length ? `${b.price} Br (${parts.join(' + ')})` : `${b.price} Br`;
+  }
+  // null → no shift/closeout ever touched this booking, so the row stays
+  // hidden entirely (see api/_closeout.js for the underlying states).
+  function formatCloseoutStatus(b){
+    if (!b.closeoutStatus) return null;
+    const parts = [];
+    if (b.closeoutStatus === 'edited') parts.push('Актёр исправил игроков/цену');
+    else if (b.closeoutStatus === 'awaiting') parts.push('Отправлено актёру, ждём ответа');
+    else parts.push('Актёр подтвердил игру');
+    if (b.closeoutCashCollected != null && b.closeoutCashCollected !== '') {
+      parts.push(`наличными: ${b.closeoutCashCollected} Br`);
+    }
+    return parts.join(' · ');
   }
   // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
   // booking entered by hand ends up in the same shape as ones from the site.
@@ -1105,7 +1124,7 @@
       alert('Нет броней для экспорта — измените фильтр поиска или дату.');
       return;
     }
-    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Комментарий','Как создано','Перенос'];
+    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Сверка актёра','Комментарий','Как создано','Перенос'];
     const lines = [header.join(';')];
     rows.forEach(b => {
       const isTech = b.type === 'technical';
@@ -1129,6 +1148,7 @@
         isTech ? '' : (b.workedActor || ''),
         isTech ? '' : (b.workedActress || ''),
         isTech ? '' : (b.handledByAdmin || ''),
+        isTech ? '' : (b.closeoutStatus === 'edited' ? 'Исправлено' : b.closeoutStatus === 'confirmed' ? 'Подтверждено' : b.closeoutStatus === 'awaiting' ? 'Ожидает' : ''),
         b.comment || '',
         b.source === 'admin' ? 'вручную' : (b.source || ''),
         moveNote
@@ -1234,6 +1254,19 @@
         dvReminder.textContent = `Назначен @${booking.reminderActor}, но он ещё не подключил бота — попросите отправить /start`;
       } else {
         dvReminder.textContent = 'Актёр не назначен на это время (см. «Смены и напоминания»)';
+      }
+    }
+
+    const dvCloseoutRow = document.getElementById('dvCloseoutRow');
+    if (isTech) {
+      dvCloseoutRow.style.display = 'none';
+    } else {
+      const closeoutText = formatCloseoutStatus(booking);
+      if (closeoutText) {
+        dvCloseoutRow.style.display = '';
+        document.getElementById('dvCloseout').textContent = closeoutText;
+      } else {
+        dvCloseoutRow.style.display = 'none';
       }
     }
 
@@ -2086,6 +2119,9 @@
   }
 
   async function openStatsModal(){
+    document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.statsTab === 'bookings'));
+    document.getElementById('statsBody').style.display = 'block';
+    document.getElementById('reportBody').style.display = 'none';
     statsBody.innerHTML = '<div class="load-note">Загрузка…</div>';
     statsOverlay.classList.add('show');
     try{
@@ -2106,6 +2142,82 @@
   document.getElementById('statsBtn').addEventListener('click', openStatsModal);
   document.querySelectorAll('[data-close="stats"]').forEach(b => b.addEventListener('click', () => statsOverlay.classList.remove('show')));
   statsOverlay.addEventListener('click', e => { if (e.target === statsOverlay) statsOverlay.classList.remove('show'); });
+
+  // ---------- financial report ("Финансы" tab inside Статистика) ----------
+  document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+      const tab = btn.dataset.statsTab;
+      document.getElementById('statsBody').style.display = tab === 'bookings' ? 'block' : 'none';
+      document.getElementById('reportBody').style.display = tab === 'finance' ? 'block' : 'none';
+      if (tab === 'finance') loadReport();
+    });
+  });
+
+  function renderReport(data){
+    const days = data.days || [];
+    const totalCash = days.reduce((s,d) => s + d.cash, 0);
+    const totalCard = days.reduce((s,d) => s + d.card, 0);
+    const totalErip = days.reduce((s,d) => s + d.erip, 0);
+    const totalOut = days.reduce((s,d) => s + d.expenses + d.payroll, 0);
+
+    const channelRows = Object.entries(data.channels || {}).sort((a,b) => b[1].count - a[1].count)
+      .map(([name, v]) => `<tr><td>${escapeHtml(name)}</td><td>${v.count}</td><td>${Math.round(v.total)} Br</td></tr>`).join('');
+    const actorRows = Object.entries(data.actors || {}).sort((a,b) => b[1] - a[1])
+      .map(([name, count]) => `<tr><td>${escapeHtml(name)}</td><td>${count}</td></tr>`).join('');
+    const dayRows = days.slice().reverse().map(d => `
+        <tr>
+          <td>${formatDateHeading(d.dateISO)}</td>
+          <td>${d.bookings}</td>
+          <td>${Math.round(d.cash)}</td>
+          <td>${Math.round(d.card)}</td>
+          <td>${Math.round(d.erip)}</td>
+          <td>${Math.round(d.expenses)}</td>
+          <td>${Math.round(d.payroll)}</td>
+          <td>${Math.round(d.netChange)}</td>
+        </tr>`).join('');
+
+    document.getElementById('reportBody').innerHTML = `
+      <div class="stats-kpis">
+        <div class="stat-tile"><div class="stat-label">Нал</div><div class="stat-value">${Math.round(totalCash)}</div></div>
+        <div class="stat-tile"><div class="stat-label">Безнал</div><div class="stat-value">${Math.round(totalCard)}</div></div>
+        <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(totalErip)}</div></div>
+        <div class="stat-tile"><div class="stat-label">Расходы + ЗП</div><div class="stat-value">${Math.round(totalOut)}</div></div>
+      </div>
+      <div class="stats-chart-head"><span class="stats-chart-title">По дням (${escapeHtml(data.from || '')} — ${escapeHtml(data.to || '')})</span></div>
+      <div style="overflow-x:auto;">
+        <table class="stats-table">
+          <thead><tr><th>Дата</th><th>Броней</th><th>Нал</th><th>Безнал</th><th>ЕРИП</th><th>Расходы</th><th>ЗП/инкасс.</th><th>Итог в кассу</th></tr></thead>
+          <tbody>${dayRows || '<tr><td colspan="8" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="stats-chart-head" style="margin-top:20px;"><span class="stats-chart-title">Источники броней</span></div>
+      <table class="stats-table">
+        <thead><tr><th>Источник</th><th>Броней</th><th>Сумма</th></tr></thead>
+        <tbody>${channelRows || '<tr><td colspan="3" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
+      </table>
+      <div class="stats-chart-head" style="margin-top:20px;"><span class="stats-chart-title">Кто сколько отыграл</span></div>
+      <table class="stats-table">
+        <thead><tr><th>Имя</th><th>Игр</th></tr></thead>
+        <tbody>${actorRows || '<tr><td colspan="2" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
+      </table>
+    `;
+  }
+
+  async function loadReport(){
+    document.getElementById('reportBody').innerHTML = '<div class="load-note">Загрузка…</div>';
+    try{
+      const res = await fetch('/api/admin/report?days=30', { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        document.getElementById('reportBody').innerHTML = `<div class="stats-empty">${escapeHtml(out.error || 'Не удалось загрузить отчёт.')}</div>`;
+        return;
+      }
+      renderReport(out);
+    } catch(err){
+      document.getElementById('reportBody').innerHTML = '<div class="stats-empty">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
 
   // ---------- shifts & actor reminders ----------
   const shiftsOverlay = document.getElementById('shiftsOverlay');

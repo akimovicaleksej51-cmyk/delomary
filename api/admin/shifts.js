@@ -24,6 +24,7 @@
 //       slot instead (removes it from that date's schedule).
 
 import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS } from '../_reminders.js';
+import { scheduleCloseout, cancelCloseout } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 
 function checkAuth(req) {
@@ -114,6 +115,11 @@ export default async function handler(req, res) {
 
       const shiftsMap = await getShiftsForDate(cleanDateISO);
 
+      // Whatever this slot used to be, any end-of-shift check-in scheduled
+      // for it is now stale — cancel it before deciding whether to
+      // schedule a fresh one below.
+      await cancelCloseout(cleanDateISO, slot);
+
       // All three fields blank → clear this slot instead of setting it.
       if (!cleanStart && !cleanEnd && !cleanActor) {
         delete shiftsMap[slot];
@@ -130,6 +136,9 @@ export default async function handler(req, res) {
 
       shiftsMap[slot] = { start: cleanStart, end: cleanEnd, actorUsername: cleanActor };
       await saveShiftsForDate(cleanDateISO, shiftsMap);
+      // Best-effort: schedules the actor's end-of-shift check-in message —
+      // see api/_closeout.js. Never blocks or fails saving the shift.
+      await scheduleCloseout(cleanDateISO, slot, shiftsMap[slot]);
 
       return res.status(200).json({ ok: true, shifts: shiftsMap });
     }

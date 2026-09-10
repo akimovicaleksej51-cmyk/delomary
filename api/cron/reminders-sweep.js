@@ -10,6 +10,12 @@
 // upcoming customer booking without a scheduled reminder yet and, once its
 // reminder time has come within the 7-day window, schedules it for real.
 //
+// This same sweep also does the equivalent job for the "shift closeout"
+// feature (see api/_closeout.js) — a shift schedule set more than 7 days
+// ahead hits the exact same QStash ceiling. The Vercel Hobby plan only
+// allows a limited number of cron jobs, so both sweeps share this one
+// daily run rather than needing a second cron entry in vercel.json.
+//
 // Auth: Vercel automatically sends "Authorization: Bearer <CRON_SECRET>"
 // on cron-triggered requests when a CRON_SECRET env var is set — this
 // checks that header so the endpoint can't be triggered by anyone else.
@@ -17,7 +23,8 @@
 // philosophy as the rest of this project, but you should set it.)
 
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
-import { scheduleReminder } from '../_reminders.js';
+import { scheduleReminder, getShiftsForDate, SHIFT_SLOTS } from '../_reminders.js';
+import { getCloseoutRecord, scheduleCloseout } from '../_closeout.js';
 
 const SWEEP_DAYS_AHEAD = 9; // a little past the 7-day QStash ceiling, for margin
 
@@ -69,5 +76,19 @@ export default async function handler(req, res) {
     }));
   }));
 
-  return res.status(200).json({ ok: true, checked, scheduled });
+  // Same idea, for shift closeouts stuck in 'pending' (see api/_closeout.js).
+  let closeoutsScheduled = 0;
+  await Promise.all(dates.map(async (dateISO) => {
+    await Promise.all(SHIFT_SLOTS.map(async (slot) => {
+      const rec = await getCloseoutRecord(dateISO, slot);
+      if (!rec || rec.status !== 'pending') return;
+      const shiftsMap = await getShiftsForDate(dateISO);
+      const slotData = shiftsMap[slot];
+      if (!slotData) return;
+      await scheduleCloseout(dateISO, slot, slotData);
+      closeoutsScheduled++;
+    }));
+  }));
+
+  return res.status(200).json({ ok: true, checked, scheduled, closeoutsScheduled });
 }
