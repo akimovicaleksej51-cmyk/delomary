@@ -238,7 +238,7 @@
 
   .field-block{margin-bottom:34px;}
   .step{
-    overflow:hidden; opacity:1; max-height:2000px;
+    overflow:hidden; opacity:1; max-height:2000px; scroll-margin-top:132px;
     transition:max-height .5s ease, opacity .45s ease .05s, margin-top .5s ease, margin-bottom .5s ease;
   }
   .step.step-hidden{
@@ -421,6 +421,7 @@
     .nav-links{display:none;}
     .nav-toggle{display:flex;}
     .brand img{height:56px;}
+    .step{scroll-margin-top:88px;}
 
     .wrap{padding:0 20px;}
     section{padding:52px 20px;}
@@ -950,11 +951,19 @@
   const step2Block = document.getElementById('step2Block');
   const step3Wrap = document.getElementById('step3Wrap');
   function revealStep2(){
-    step2Block.classList.remove('step-hidden');
+    if(step2Block.classList.contains('step-hidden')){
+      step2Block.classList.remove('step-hidden');
+      requestAnimationFrame(()=>{
+        step2Block.scrollIntoView({ behavior:'smooth', block:'start' });
+      });
+    }
   }
   function maybeRevealStep3(){
-    if(selectedSlot != null && selectedPlayers != null){
+    if(selectedSlot != null && selectedPlayers != null && step3Wrap.classList.contains('step-hidden')){
       step3Wrap.classList.remove('step-hidden');
+      requestAnimationFrame(()=>{
+        step3Wrap.scrollIntoView({ behavior:'smooth', block:'start' });
+      });
     }
   }
 
