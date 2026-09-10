@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Дело Мэри. Скажи им, что я здесь — квест Loony Games, Минск</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
     --black: #000000;
@@ -18,6 +18,7 @@
     --muted: #B9B4A6;
     --line: rgba(245,197,24,0.22);
     --display: 'Anton', 'Arial Narrow', sans-serif;
+    --script: 'Caveat', cursive;
     --sans: 'Manrope', Arial, sans-serif;
     --radius: 18px;
   }
@@ -49,7 +50,7 @@
     padding:12px 28px; max-width:1120px; margin:0 auto;
   }
   .brand{display:flex; align-items:center; gap:10px; text-decoration:none;}
-  .brand img{height:42px; width:auto; border-radius:8px;}
+  .brand img{height:58px; width:auto; border-radius:8px;}
   .nav-right{display:flex; align-items:center; gap:28px;}
   .nav-links{display:flex; gap:24px; font-family:var(--sans); font-weight:600; font-size:14px;}
   .nav-links a{text-decoration:none; color:var(--paper); opacity:.7; transition:opacity .2s, color .2s;}
@@ -120,21 +121,22 @@
   @keyframes blink{0%,100%{opacity:1;}50%{opacity:.15;}}
   .hero h1{
     font-family:var(--display); font-weight:400; text-transform:uppercase;
-    font-size:clamp(46px, 8vw, 92px);
-    line-height:.96; letter-spacing:.005em;
+    font-size:clamp(48px, 8.5vw, 98px);
+    line-height:.94; letter-spacing:.02em;
     margin:0; color:var(--paper);
     max-width:820px;
+    text-shadow:0 2px 28px rgba(245,197,24,0.18);
   }
   .hero-mark{
-    display:inline-block; margin-top:14px;
+    display:inline-block; margin-top:8px;
     background:var(--ochre-bright); color:#151004;
-    padding:6px 16px; border-radius:6px;
-    font-family:var(--display); font-weight:400; text-transform:uppercase;
-    font-size:clamp(20px,3.2vw,34px); line-height:1.15;
-    transform:rotate(-1deg);
+    padding:2px 22px 10px;
+    font-family:var(--script); font-weight:700; text-transform:none;
+    font-size:clamp(28px,4.4vw,42px); line-height:1.2;
+    transform:rotate(-2deg);
     opacity:0; animation:markIn .6s ease .3s forwards;
   }
-  @keyframes markIn{from{opacity:0; transform:rotate(-1deg) translateY(8px);} to{opacity:1; transform:rotate(-1deg) translateY(0);}}
+  @keyframes markIn{from{opacity:0; transform:rotate(-2deg) translateY(8px);} to{opacity:1; transform:rotate(-2deg) translateY(0);}}
   .hero-lede{
     max-width:540px; margin:28px 0 36px; color:var(--muted);
     font-size:17px; font-weight:500;
@@ -264,6 +266,8 @@
   .day small{display:block; font-size:11px; font-weight:600; color:var(--muted); margin-bottom:3px; text-transform:uppercase;}
   .day.active{background:var(--ochre-bright); color:#151004; border-color:var(--ochre-bright);}
   .day.active small{color:#151004; opacity:.7;}
+  .day.weekend small{color:var(--ochre-bright);}
+  .day.active.weekend small{color:#151004;}
 
   .slot-row{display:flex; gap:10px; flex-wrap:wrap;}
   .slot{
@@ -367,7 +371,7 @@
   /* ===== FOOTER ===== */
   footer{padding:56px 28px 36px; text-align:center; border-top:1px solid var(--line);}
   footer .brand{display:inline-flex; margin-bottom:20px;}
-  footer .brand img{height:52px;}
+  footer .brand img{height:68px;}
   .foot-links{display:flex; gap:24px; justify-content:center; flex-wrap:wrap; font-family:var(--sans); font-weight:700; font-size:13.5px; margin-bottom:26px;}
   .foot-links a{text-decoration:none; color:var(--muted);}
   .foot-links a:hover{color:var(--ochre-bright);}
@@ -389,7 +393,7 @@
     .hero > .wrap{padding-top:108px; padding-bottom:44px;}
     .case-tag{font-size:11px; padding:6px 13px; margin-bottom:18px;}
     .hero h1{font-size:clamp(36px,11vw,48px); max-width:100%;}
-    .hero-mark{font-size:clamp(16px,5vw,20px); padding:5px 14px; margin-top:12px;}
+    .hero-mark{font-size:clamp(22px,7vw,28px); padding:2px 16px 7px; margin-top:10px;}
     .hero-lede{font-size:15px; margin:22px 0 28px; max-width:100%;}
     .stat-strip{
       display:grid; grid-template-columns:repeat(2,1fr); gap:20px 12px;
@@ -551,11 +555,11 @@
         <div><b>60</b><span>минут</span></div>
       </div>
       <div class="stat">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2h5M6 2h12M6 22h12M6 22c0-4 3-5 3-8s-3-4-3-8m12 16c0-4-3-5-3-8s3-4 3-8"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19v-6"/><path d="M12 19V9"/><path d="M19 19V5"/></svg>
         <div><b>3/5</b><span>сложность</span></div>
       </div>
       <div class="stat">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M12 7v5l3.2 2"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.59 2.41A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l9 9a2 2 0 0 0 2.82 0l7.18-7.18a2 2 0 0 0 0-2.82z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg>
         <div><b>от 140 ₽</b><span>за команду</span></div>
       </div>
     </div>
@@ -899,17 +903,22 @@
   const priceOut = document.getElementById('priceOut');
   function updatePrice(){
     const t = priceFor(selectedPlayers);
-    const surcharge = selectedSlotIsLate ? 20 : 0;
-    const finalPrice = t.price + surcharge;
+    const lateSurcharge = selectedSlotIsLate ? 20 : 0;
+    const weekendSurcharge = selectedIsWeekend ? 20 : 0;
+    const finalPrice = t.price + lateSurcharge + weekendSurcharge;
     priceOut.innerHTML = finalPrice + '<sup>₽</sup>';
-    document.getElementById('priceNote').textContent = t.label + (surcharge ? ' · доплата за поздний сеанс 23:00' : '');
+    const notes = [];
+    if(weekendSurcharge) notes.push('доплата за выходной день');
+    if(lateSurcharge) notes.push('доплата за поздний сеанс 23:00');
+    document.getElementById('priceNote').textContent = t.label + (notes.length ? ' · ' + notes.join(' + ') : '');
     priceOut.classList.remove('bump'); void priceOut.offsetWidth; priceOut.classList.add('bump');
     document.getElementById('priceTiers').innerHTML =
       '<span class="'+(selectedPlayers<=2?'cur':'')+'">1–2 чел — 140 ₽</span>' +
       '<span class="'+(selectedPlayers>=3&&selectedPlayers<=4?'cur':'')+'">3–4 чел — 160 ₽</span>' +
       '<span class="'+(selectedPlayers===5?'cur':'')+'">5 чел — 190 ₽</span>' +
       '<span class="'+(selectedPlayers===6?'cur':'')+'">6 чел — 220 ₽</span>' +
-      '<span class="'+(surcharge?'cur':'')+'">сеанс 23:00 — доплата +20 ₽</span>';
+      '<span class="'+(weekendSurcharge?'cur':'')+'">сб-вс — доплата +20 ₽</span>' +
+      '<span class="'+(lateSurcharge?'cur':'')+'">сеанс 23:00 — доплата +20 ₽</span>';
   }
 
   const dayRow = document.getElementById('dayRow');
@@ -917,17 +926,23 @@
   const today = new Date();
   const monthNames = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
   let selectedDateLabel = '';
+  let selectedIsWeekend = false;
+  const BOOKING_DAYS_AHEAD = 60; // ~2 месяца вперёд
   function dateLabel(d){ return dayNames[d.getDay()===0?6:d.getDay()-1] + ', ' + d.getDate() + ' ' + monthNames[d.getMonth()]; }
-  for(let i=0;i<7;i++){
+  function isWeekend(d){ return d.getDay()===0 || d.getDay()===6; }
+  for(let i=0;i<BOOKING_DAYS_AHEAD;i++){
     const d = new Date(today); d.setDate(today.getDate()+i);
+    const weekend = isWeekend(d);
     const btn = document.createElement('button');
-    btn.className = 'day' + (i===0 ? ' active':'');
+    btn.className = 'day' + (i===0 ? ' active':'') + (weekend ? ' weekend':'');
     btn.innerHTML = '<small>'+dayNames[d.getDay()===0?6:d.getDay()-1]+'</small>'+d.getDate();
-    if(i===0){ selectedDateLabel = dateLabel(d); }
+    if(i===0){ selectedDateLabel = dateLabel(d); selectedIsWeekend = weekend; }
     btn.addEventListener('click', ()=>{
       selectedDateLabel = dateLabel(d);
+      selectedIsWeekend = weekend;
       document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
       btn.classList.add('active');
+      updatePrice();
     });
     dayRow.appendChild(btn);
   }
