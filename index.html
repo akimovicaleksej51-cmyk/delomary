@@ -50,7 +50,7 @@
     padding:12px 28px; max-width:1120px; margin:0 auto;
   }
   .brand{display:flex; align-items:center; gap:10px; text-decoration:none;}
-  .brand img{height:58px; width:auto; border-radius:8px;}
+  .brand img{height:84px; width:auto; border-radius:8px;}
   .nav-right{display:flex; align-items:center; gap:28px;}
   .nav-links{display:flex; gap:24px; font-family:var(--sans); font-weight:600; font-size:14px;}
   .nav-links a{text-decoration:none; color:var(--paper); opacity:.7; transition:opacity .2s, color .2s;}
@@ -257,17 +257,33 @@
   .pbtn:hover{border-color:var(--ochre);}
   .pbtn.active{background:var(--ochre-bright); color:#151004; border-color:var(--ochre-bright);}
 
-  .day-row{display:flex; gap:8px; overflow-x:auto; padding-bottom:6px;}
-  .day{
-    font-family:var(--sans); font-weight:700; font-size:13.5px; text-align:center;
-    padding:12px 16px; border:1.5px solid var(--line); border-radius:14px; cursor:pointer; min-width:66px;
-    color:var(--paper); background:var(--black-2); transition:all .15s; flex-shrink:0;
+  .cal-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;}
+  .cal-month{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:17px; letter-spacing:.02em; color:var(--paper);}
+  .cal-nav{
+    width:38px; height:38px; flex-shrink:0; border-radius:10px;
+    border:1.5px solid var(--line); background:var(--black-2); color:var(--paper);
+    font-family:var(--sans); font-size:19px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:all .15s;
   }
-  .day small{display:block; font-size:11px; font-weight:600; color:var(--muted); margin-bottom:3px; text-transform:uppercase;}
+  .cal-nav:hover:not(:disabled){border-color:var(--ochre); color:var(--ochre-bright);}
+  .cal-nav:disabled{opacity:.25; cursor:not-allowed;}
+  .cal-weekdays{display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-bottom:8px;}
+  .cal-weekdays span{text-align:center; font-family:var(--sans); font-weight:700; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.02em;}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}
+  .day{
+    font-family:var(--sans); font-weight:700; font-size:14px; text-align:center;
+    aspect-ratio:1/1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    border:1.5px solid var(--line); border-radius:12px; cursor:pointer; padding:0;
+    color:var(--paper); background:var(--black-2); transition:all .15s;
+  }
+  .day small{display:block; font-size:9.5px; font-weight:600; color:var(--muted); margin:0; text-transform:uppercase;}
+  .day:not(.disabled):not(.empty):hover{border-color:var(--ochre);}
   .day.active{background:var(--ochre-bright); color:#151004; border-color:var(--ochre-bright);}
   .day.active small{color:#151004; opacity:.7;}
   .day.weekend small{color:var(--ochre-bright);}
   .day.active.weekend small{color:#151004;}
+  .day.empty{visibility:hidden; border:none; background:none; pointer-events:none;}
+  .day.disabled{opacity:.25; cursor:not-allowed; pointer-events:none;}
 
   .slot-row{display:flex; gap:10px; flex-wrap:wrap;}
   .slot{
@@ -371,7 +387,7 @@
   /* ===== FOOTER ===== */
   footer{padding:56px 28px 36px; text-align:center; border-top:1px solid var(--line);}
   footer .brand{display:inline-flex; margin-bottom:20px;}
-  footer .brand img{height:68px;}
+  footer .brand img{height:104px;}
   .foot-links{display:flex; gap:24px; justify-content:center; flex-wrap:wrap; font-family:var(--sans); font-weight:700; font-size:13.5px; margin-bottom:26px;}
   .foot-links a{text-decoration:none; color:var(--muted);}
   .foot-links a:hover{color:var(--ochre-bright);}
@@ -382,6 +398,7 @@
   @media (max-width:860px){
     .nav-links{display:none;}
     .nav-toggle{display:flex;}
+    .brand img{height:56px;}
 
     .wrap{padding:0 20px;}
     section{padding:52px 20px;}
@@ -451,10 +468,14 @@
       flex:1 1 28%; width:auto; height:50px; font-size:17px; border-radius:12px;
       border-color:transparent; background:var(--black-3);
     }
+    .cal-nav{width:34px; height:34px; font-size:16px;}
+    .cal-month{font-size:15px;}
+    .cal-weekdays span{font-size:10px;}
     .day{
-      padding:11px 15px; min-width:60px; font-size:12.5px; border-radius:12px;
+      font-size:12px; border-radius:10px;
       border-color:transparent; background:var(--black-3);
     }
+    .day small{font-size:8.5px;}
     .slot{
       font-size:13px; padding:13px 14px; border-radius:14px;
       border-color:transparent; background:var(--black-3);
@@ -501,6 +522,7 @@
     /* --- footer --- */
     .foot-links{gap:14px; font-size:12.5px; margin-bottom:22px;}
     footer{padding:44px 20px 28px;}
+    footer .brand img{height:76px;}
   }
 </style>
 </head>
@@ -551,7 +573,7 @@
         <div><b>1–6</b><span>игроков</span></div>
       </div>
       <div class="stat">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2h5M12 14v-4M12 14a6 6 0 1 0 0 8 6 6 0 0 0 0-8Z"/><path d="M12 2v2"/><path d="m17.5 4.5-1 1"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4"/><path d="M12 14v-3"/><circle cx="12" cy="14" r="8"/></svg>
         <div><b>60</b><span>минут</span></div>
       </div>
       <div class="stat">
@@ -659,7 +681,15 @@
 
       <div class="field-block">
         <span class="field-label"><span class="num">2</span>Дата сеанса</span>
-        <div class="day-row" id="dayRow"></div>
+        <div class="cal-head">
+          <button type="button" class="cal-nav" id="calPrev" aria-label="Предыдущий месяц">‹</button>
+          <span class="cal-month" id="calMonthLabel"></span>
+          <button type="button" class="cal-nav" id="calNext" aria-label="Следующий месяц">›</button>
+        </div>
+        <div class="cal-weekdays">
+          <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+        </div>
+        <div class="cal-grid" id="dayRow"></div>
       </div>
 
       <div class="field-block">
@@ -922,30 +952,82 @@
   }
 
   const dayRow = document.getElementById('dayRow');
+  const calMonthLabel = document.getElementById('calMonthLabel');
+  const calPrev = document.getElementById('calPrev');
+  const calNext = document.getElementById('calNext');
   const dayNames = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
-  const today = new Date();
   const monthNames = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-  let selectedDateLabel = '';
-  let selectedIsWeekend = false;
+  const monthNamesNom = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const today = new Date(); today.setHours(0,0,0,0);
   const BOOKING_DAYS_AHEAD = 60; // ~2 месяца вперёд
-  function dateLabel(d){ return dayNames[d.getDay()===0?6:d.getDay()-1] + ', ' + d.getDate() + ' ' + monthNames[d.getMonth()]; }
+  const rangeEnd = new Date(today); rangeEnd.setDate(today.getDate() + BOOKING_DAYS_AHEAD - 1);
+
+  function mondayIdx(d){ return (d.getDay()+6)%7; } // Monday=0 ... Sunday=6
   function isWeekend(d){ return d.getDay()===0 || d.getDay()===6; }
-  for(let i=0;i<BOOKING_DAYS_AHEAD;i++){
-    const d = new Date(today); d.setDate(today.getDate()+i);
-    const weekend = isWeekend(d);
-    const btn = document.createElement('button');
-    btn.className = 'day' + (i===0 ? ' active':'') + (weekend ? ' weekend':'');
-    btn.innerHTML = '<small>'+dayNames[d.getDay()===0?6:d.getDay()-1]+'</small>'+d.getDate();
-    if(i===0){ selectedDateLabel = dateLabel(d); selectedIsWeekend = weekend; }
-    btn.addEventListener('click', ()=>{
-      selectedDateLabel = dateLabel(d);
-      selectedIsWeekend = weekend;
-      document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
-      btn.classList.add('active');
-      updatePrice();
-    });
-    dayRow.appendChild(btn);
+  function sameDate(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+  function dateLabel(d){ return dayNames[mondayIdx(d)] + ', ' + d.getDate() + ' ' + monthNames[d.getMonth()]; }
+  function inRange(d){ return d >= today && d <= rangeEnd; }
+
+  let selectedDate = new Date(today);
+  let selectedDateLabel = dateLabel(selectedDate);
+  let selectedIsWeekend = isWeekend(selectedDate);
+  let viewYear = today.getFullYear();
+  let viewMonth = today.getMonth();
+
+  function renderMonth(){
+    dayRow.innerHTML = '';
+    calMonthLabel.textContent = monthNamesNom[viewMonth] + ' ' + viewYear;
+
+    const firstOfMonth = new Date(viewYear, viewMonth, 1);
+    const leadEmpty = mondayIdx(firstOfMonth);
+    for(let i=0;i<leadEmpty;i++){
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      dayRow.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+    for(let dnum=1; dnum<=daysInMonth; dnum++){
+      const d = new Date(viewYear, viewMonth, dnum);
+      const weekend = isWeekend(d);
+      const bookable = inRange(d);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (bookable && sameDate(d, selectedDate) ? ' active':'');
+      btn.innerHTML = '<small>'+dayNames[mondayIdx(d)]+'</small>'+dnum;
+      if(!bookable){
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', ()=>{
+          selectedDate = d;
+          selectedDateLabel = dateLabel(d);
+          selectedIsWeekend = weekend;
+          document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
+          btn.classList.add('active');
+          updatePrice();
+        });
+      }
+      dayRow.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(viewYear, viewMonth, 0);
+    calPrev.disabled = prevMonthLastDay < new Date(today.getFullYear(), today.getMonth(), 1);
+    const nextMonthFirstDay = new Date(viewYear, viewMonth+1, 1);
+    calNext.disabled = nextMonthFirstDay > rangeEnd;
   }
+
+  calPrev.addEventListener('click', ()=>{
+    if(calPrev.disabled) return;
+    viewMonth--; if(viewMonth < 0){ viewMonth = 11; viewYear--; }
+    renderMonth();
+  });
+  calNext.addEventListener('click', ()=>{
+    if(calNext.disabled) return;
+    viewMonth++; if(viewMonth > 11){ viewMonth = 0; viewYear++; }
+    renderMonth();
+  });
+
+  renderMonth();
 
   const slotRow = document.getElementById('slotRow');
   const slots = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
