@@ -12,7 +12,7 @@
   :root{
     --black:#000000; --black-2:#0C0C0C; --black-3:#171717;
     --ochre:#E0A722; --ochre-bright:#F5C518; --ochre-deep:#8a6a15;
-    --paper:#F3EFE4; --muted:#B9B4A6;
+    --paper:#F3EFE4; --muted:#B9B4A6; --line:#2a2a2a;
     --danger:#e5484d; --danger-bright:#ff6b6f;
     --display:'Anton','Arial Narrow',sans-serif;
     --sans:'Manrope',Arial,sans-serif;
@@ -160,6 +160,35 @@
   .slot-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
   .slot-btn.taken{opacity:.35; cursor:not-allowed; text-decoration:line-through; pointer-events:none;}
 
+  /* ---------- Month calendar (reused for reschedule + new-booking date pick) ---------- */
+  .cal-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;}
+  .cal-month{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:15px; letter-spacing:.02em; color:var(--paper);}
+  .cal-nav{
+    width:32px; height:32px; flex-shrink:0; border-radius:9px;
+    border:1.5px solid var(--line); background:var(--black-3); color:var(--paper);
+    font-family:var(--sans); font-size:17px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:all .15s;
+  }
+  .cal-nav:hover:not(:disabled){border-color:var(--ochre); color:var(--ochre-bright);}
+  .cal-nav:disabled{opacity:.25; cursor:not-allowed;}
+  .cal-weekdays{display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:6px;}
+  .cal-weekdays span{text-align:center; font-family:var(--sans); font-weight:700; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.02em;}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:5px;}
+  .day{
+    font-family:var(--sans); font-weight:700; font-size:13px; text-align:center;
+    aspect-ratio:1/1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+    border:1.5px solid var(--line); border-radius:9px; cursor:pointer; padding:0;
+    color:var(--paper); background:var(--black-3); transition:all .15s;
+  }
+  .day small{display:block; font-size:8.5px; font-weight:600; color:var(--muted); margin:0; text-transform:uppercase;}
+  .day:not(.disabled):not(.empty):hover{border-color:var(--ochre);}
+  .day.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  .day.active small{color:var(--black); opacity:.7;}
+  .day.weekend small{color:var(--ochre-bright);}
+  .day.active.weekend small{color:var(--black);}
+  .day.empty{visibility:hidden; border:none; background:none; pointer-events:none;}
+  .day.disabled{opacity:.25; cursor:not-allowed; pointer-events:none;}
+
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
     .row-sub{display:none;}
@@ -235,7 +264,15 @@
     <div id="rescheduleView" style="display:none;">
       <div class="detail-field">
         <label>Новая дата</label>
-        <input type="date" id="rescheduleDate">
+        <div class="cal-head">
+          <button type="button" class="cal-nav" id="reschedCalPrev" aria-label="Предыдущий месяц">‹</button>
+          <span class="cal-month" id="reschedCalMonthLabel"></span>
+          <button type="button" class="cal-nav" id="reschedCalNext" aria-label="Следующий месяц">›</button>
+        </div>
+        <div class="cal-weekdays">
+          <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+        </div>
+        <div class="cal-grid" id="reschedCalGrid"></div>
       </div>
       <div class="detail-field">
         <label>Новое время</label>
@@ -276,7 +313,15 @@
 
     <div class="detail-field">
       <label>Дата</label>
-      <input type="date" id="techDate">
+      <div class="cal-head">
+        <button type="button" class="cal-nav" id="techCalPrev" aria-label="Предыдущий месяц">‹</button>
+        <span class="cal-month" id="techCalMonthLabel"></span>
+        <button type="button" class="cal-nav" id="techCalNext" aria-label="Следующий месяц">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+      </div>
+      <div class="cal-grid" id="techCalGrid"></div>
     </div>
     <div class="detail-field">
       <label>Время</label>
@@ -322,6 +367,8 @@
   function tiersFor(weekend){ return weekend ? WEEKEND_TIERS : WEEKDAY_TIERS; }
   const WEEKDAY_NAMES = ['вс','пн','вт','ср','чт','пт','сб'];
   const MONTH_NAMES = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  const MONTH_NAMES_NOM = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const WEEKDAY_SHORT = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']; // Monday-first, for the calendar grid cells
 
   let adminPassword = null;
   let allBookings = [];
@@ -581,12 +628,72 @@
   });
 
   // -- reschedule --
-  const rescheduleDate = document.getElementById('rescheduleDate');
   const rescheduleSlots = document.getElementById('rescheduleSlots');
   let rescheduleSelectedTime = null;
+  let reschedSelectedDateISO = null;
+
+  const reschedCalGrid = document.getElementById('reschedCalGrid');
+  const reschedCalMonthLabel = document.getElementById('reschedCalMonthLabel');
+  const reschedCalPrev = document.getElementById('reschedCalPrev');
+  const reschedCalNext = document.getElementById('reschedCalNext');
+  let reschedCalViewYear, reschedCalViewMonth;
+
+  function renderReschedCalendar(){
+    reschedCalGrid.innerHTML = '';
+    reschedCalMonthLabel.textContent = MONTH_NAMES_NOM[reschedCalViewMonth] + ' ' + reschedCalViewYear;
+
+    const firstOfMonth = new Date(reschedCalViewYear, reschedCalViewMonth, 1);
+    const leadEmpty = (firstOfMonth.getDay() + 6) % 7;
+    for (let i = 0; i < leadEmpty; i++) {
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      reschedCalGrid.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(reschedCalViewYear, reschedCalViewMonth + 1, 0).getDate();
+    const minD = parseISO(todayISO());
+    const maxD = parseISO(maxDateISO());
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(reschedCalViewYear, reschedCalViewMonth, dnum);
+      const iso = isoDate(d);
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const inRange = d >= minD && d <= maxD;
+      const isSelected = iso === reschedSelectedDateISO;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + (isSelected ? ' active' : '');
+      btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
+      if (!inRange) {
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', () => {
+          reschedSelectedDateISO = iso;
+          rescheduleSelectedTime = null;
+          renderReschedCalendar();
+          renderRescheduleSlots();
+        });
+      }
+      reschedCalGrid.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(reschedCalViewYear, reschedCalViewMonth, 0);
+    reschedCalPrev.disabled = prevMonthLastDay < new Date(minD.getFullYear(), minD.getMonth(), 1);
+    const nextMonthFirstDay = new Date(reschedCalViewYear, reschedCalViewMonth + 1, 1);
+    reschedCalNext.disabled = nextMonthFirstDay > maxD;
+  }
+  reschedCalPrev.addEventListener('click', () => {
+    if (reschedCalPrev.disabled) return;
+    reschedCalViewMonth--; if (reschedCalViewMonth < 0){ reschedCalViewMonth = 11; reschedCalViewYear--; }
+    renderReschedCalendar();
+  });
+  reschedCalNext.addEventListener('click', () => {
+    if (reschedCalNext.disabled) return;
+    reschedCalViewMonth++; if (reschedCalViewMonth > 11){ reschedCalViewMonth = 0; reschedCalViewYear++; }
+    renderReschedCalendar();
+  });
 
   function renderRescheduleSlots(){
-    const dateISO = rescheduleDate.value;
+    const dateISO = reschedSelectedDateISO;
     const taken = dateISO ? takenTimesFor(dateISO, activeBooking) : [];
     rescheduleSlots.innerHTML = SLOTS.map(s => {
       const isTaken = taken.includes(s);
@@ -605,25 +712,26 @@
     if (!activeBooking) return;
     detailView.style.display = 'none';
     rescheduleView.style.display = 'block';
-    rescheduleDate.min = todayISO();
-    rescheduleDate.max = maxDateISO();
-    rescheduleDate.value = activeBooking.dateISO;
+    const initialD = parseISO(activeBooking.dateISO);
+    reschedCalViewYear = initialD.getFullYear();
+    reschedCalViewMonth = initialD.getMonth();
+    reschedSelectedDateISO = activeBooking.dateISO;
     rescheduleSelectedTime = null;
+    renderReschedCalendar();
     renderRescheduleSlots();
   });
-  rescheduleDate.addEventListener('change', () => { rescheduleSelectedTime = null; renderRescheduleSlots(); });
   document.getElementById('cancelRescheduleBtn').addEventListener('click', resetDetailViews);
 
   document.getElementById('saveRescheduleBtn').addEventListener('click', async () => {
     if (!activeBooking) return;
-    if (!rescheduleDate.value || !rescheduleSelectedTime){
+    if (!reschedSelectedDateISO || !rescheduleSelectedTime){
       detailMsg.textContent = 'Выберите дату и время.'; detailMsg.className = 'modal-msg err'; return;
     }
     const payload = {
       action:'reschedule',
       fromDateISO: activeBooking.dateISO,
       fromTime: activeBooking.time,
-      toDateISO: rescheduleDate.value,
+      toDateISO: reschedSelectedDateISO,
       toTime: rescheduleSelectedTime,
     };
     try{
@@ -668,7 +776,6 @@
 
   // ---------- technical booking modal ----------
   const techOverlay = document.getElementById('techOverlay');
-  const techDate = document.getElementById('techDate');
   const techSlots = document.getElementById('techSlots');
   const techComment = document.getElementById('techComment');
   const techCommentLabel = document.getElementById('techCommentLabel');
@@ -681,11 +788,73 @@
   const techPlayers = document.getElementById('techPlayers');
   const techPrice = document.getElementById('techPrice');
   let techSelectedTime = null;
+  let techSelectedDateISO = null;
   let techTierIdx = 0;
   let bookingType = 'customer'; // 'customer' | 'technical'
 
+  const techCalGrid = document.getElementById('techCalGrid');
+  const techCalMonthLabel = document.getElementById('techCalMonthLabel');
+  const techCalPrev = document.getElementById('techCalPrev');
+  const techCalNext = document.getElementById('techCalNext');
+  let techCalViewYear, techCalViewMonth;
+
+  function renderTechCalendar(){
+    techCalGrid.innerHTML = '';
+    techCalMonthLabel.textContent = MONTH_NAMES_NOM[techCalViewMonth] + ' ' + techCalViewYear;
+
+    const firstOfMonth = new Date(techCalViewYear, techCalViewMonth, 1);
+    const leadEmpty = (firstOfMonth.getDay() + 6) % 7;
+    for (let i = 0; i < leadEmpty; i++) {
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      techCalGrid.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(techCalViewYear, techCalViewMonth + 1, 0).getDate();
+    const minD = parseISO(todayISO());
+    const maxD = parseISO(maxDateISO());
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(techCalViewYear, techCalViewMonth, dnum);
+      const iso = isoDate(d);
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const inRange = d >= minD && d <= maxD;
+      const isSelected = iso === techSelectedDateISO;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + (isSelected ? ' active' : '');
+      btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
+      if (!inRange) {
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', () => {
+          techSelectedDateISO = iso;
+          techSelectedTime = null;
+          renderTechCalendar();
+          renderTechSlots();
+          buildTechPlayersOptions();
+        });
+      }
+      techCalGrid.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(techCalViewYear, techCalViewMonth, 0);
+    techCalPrev.disabled = prevMonthLastDay < new Date(minD.getFullYear(), minD.getMonth(), 1);
+    const nextMonthFirstDay = new Date(techCalViewYear, techCalViewMonth + 1, 1);
+    techCalNext.disabled = nextMonthFirstDay > maxD;
+  }
+  techCalPrev.addEventListener('click', () => {
+    if (techCalPrev.disabled) return;
+    techCalViewMonth--; if (techCalViewMonth < 0){ techCalViewMonth = 11; techCalViewYear--; }
+    renderTechCalendar();
+  });
+  techCalNext.addEventListener('click', () => {
+    if (techCalNext.disabled) return;
+    techCalViewMonth++; if (techCalViewMonth > 11){ techCalViewMonth = 0; techCalViewYear++; }
+    renderTechCalendar();
+  });
+
   function renderTechSlots(){
-    const dateISO = techDate.value;
+    const dateISO = techSelectedDateISO;
     const taken = dateISO ? takenTimesFor(dateISO, null) : [];
     techSlots.innerHTML = SLOTS.map(s => {
       const isTaken = taken.includes(s);
@@ -703,7 +872,7 @@
 
   function buildTechPlayersOptions(){
     if (bookingType !== 'customer') return;
-    const weekend = techDate.value ? isWeekendISO(techDate.value) : false;
+    const weekend = techSelectedDateISO ? isWeekendISO(techSelectedDateISO) : false;
     const late = techSelectedTime === SLOTS[LATE_IDX];
     const surcharge = late ? 20 : 0;
     const list = tiersFor(weekend);
@@ -742,9 +911,10 @@
   });
 
   function openTechModal(){
-    techDate.min = todayISO();
-    techDate.max = maxDateISO();
-    techDate.value = todayISO();
+    const t = parseISO(todayISO());
+    techCalViewYear = t.getFullYear();
+    techCalViewMonth = t.getMonth();
+    techSelectedDateISO = todayISO();
     techSelectedTime = null;
     techTierIdx = 0;
     techName.value = '';
@@ -754,6 +924,7 @@
     techMsg.textContent = '';
     techMsg.className = 'modal-msg';
     setBookingType('customer');
+    renderTechCalendar();
     renderTechSlots();
     techOverlay.classList.add('show');
   }
@@ -761,14 +932,13 @@
   document.getElementById('techCancelBtn').addEventListener('click', () => techOverlay.classList.remove('show'));
   document.querySelectorAll('[data-close="tech"]').forEach(b => b.addEventListener('click', () => techOverlay.classList.remove('show')));
   techOverlay.addEventListener('click', e => { if (e.target === techOverlay) techOverlay.classList.remove('show'); });
-  techDate.addEventListener('change', () => { techSelectedTime = null; renderTechSlots(); buildTechPlayersOptions(); });
 
   document.getElementById('techSubmitBtn').addEventListener('click', async () => {
-    if (!techDate.value || !techSelectedTime){
+    if (!techSelectedDateISO || !techSelectedTime){
       techMsg.textContent = 'Выберите дату и время.'; techMsg.className = 'modal-msg err'; return;
     }
 
-    const payload = { action:'create', type: bookingType, dateISO: techDate.value, time: techSelectedTime, comment: techComment.value };
+    const payload = { action:'create', type: bookingType, dateISO: techSelectedDateISO, time: techSelectedTime, comment: techComment.value };
 
     if (bookingType === 'customer'){
       const name = techName.value.trim();
@@ -776,7 +946,7 @@
       if (!name || !phone){
         techMsg.textContent = 'Укажите имя и телефон клиента.'; techMsg.className = 'modal-msg err'; return;
       }
-      const tier = tiersFor(techDate.value ? isWeekendISO(techDate.value) : false)[techTierIdx];
+      const tier = tiersFor(techSelectedDateISO ? isWeekendISO(techSelectedDateISO) : false)[techTierIdx];
       payload.name = name;
       payload.phone = phone;
       payload.players = tier ? tier.people : '';

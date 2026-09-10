@@ -22,6 +22,12 @@
 // field per booked time, whose value is a JSON string with the full
 // booking record. See api/book.js for how customer bookings are created,
 // and api/slots.js for the public (PII-free) read side.
+//
+// A booking created here via { action:'create' } is also forwarded to
+// Telegram, same as public bookings from api/book.js, so nothing entered by
+// hand in the admin panel goes unnoticed there. Uses the same
+// TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars as api/book.js; if they're
+// not set, the booking is still created — the Telegram step is just skipped.
 
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 
@@ -60,6 +66,71 @@ function isValidDateISO(s) {
 
 function isValidTime(s) {
   return typeof s === 'string' && s.trim().length > 0 && s.trim().length <= 20;
+}
+
+const MONTH_NAMES = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const WEEKDAY_NAMES = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+
+function parseISO(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatDateLabel(iso) {
+  const d = parseISO(iso);
+  return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${WEEKDAY_NAMES[d.getDay()]}`;
+}
+
+function escapeMd(s) {
+  return String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+}
+
+// Best-effort notification for a booking created from the admin panel. Unlike
+// the public api/book.js flow (where Telegram IS the record, so a failure
+// there rolls back the reservation), the admin already sees the booking in
+// the panel the moment it's created — so a Telegram hiccup here is only
+// logged, never allowed to fail the request or undo the booking.
+async function notifyTelegram(record) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  const dateLabelText = record.dateISO ? formatDateLabel(record.dateISO) : '';
+  let text;
+
+  if (record.type === 'customer') {
+    const fields = [
+      `👤 Имя: ${escapeMd(record.name)}`,
+      `📞 Телефон: ${escapeMd(record.phone)}`,
+      record.players ? `👥 Игроков: ${escapeMd(record.players)}` : null,
+      dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
+      record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
+      record.price ? `💰 Цена: ${escapeMd(record.price)} ₽` : null,
+      record.comment ? `💬 Комментарий: ${escapeMd(record.comment)}` : null,
+    ].filter(Boolean).join('\n');
+    text = `🩺 *Новая бронь — из админки*\n\n${fields}`;
+  } else {
+    const fields = [
+      dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
+      record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
+      record.comment ? `💬 Комментарий: ${escapeMd(record.comment)}` : null,
+    ].filter(Boolean).join('\n');
+    text = `🔧 *Техническая бронь — из админки*\n\n${fields}`;
+  }
+
+  try {
+    const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+    });
+    const tgData = await tgRes.json().catch(() => ({}));
+    if (!tgData.ok) {
+      console.error('Telegram API error (admin create):', tgData);
+    }
+  } catch (err) {
+    console.error('Failed to reach Telegram API (admin create):', err);
+  }
 }
 
 export default async function handler(req, res) {
@@ -160,6 +231,7 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: 'Этот слот уже занят.' });
       }
       await kv('expire', hashKey, SLOT_TTL_SECONDS);
+      await notifyTelegram(record);
 
       return res.status(200).json({ ok: true, booking: record });
     }
