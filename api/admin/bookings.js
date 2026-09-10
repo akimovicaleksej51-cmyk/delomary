@@ -66,6 +66,7 @@
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
+import { toAmount } from '../_finance.js';
 
 const WINDOW_DAYS_BACK = 3; // small buffer so very recent ACTIVE bookings stay visible
 const WINDOW_DAYS_AHEAD = 65;
@@ -324,6 +325,19 @@ export default async function handler(req, res) {
           phone: cleanPhone,
           players: body.players != null ? String(body.players).trim().slice(0, 40) : '',
           price: body.price != null ? String(body.price).trim().slice(0, 20) : '',
+          // Payment breakdown, booking source/channel, and who worked the
+          // session are normally filled in later via the "edit" action
+          // (after the game, once the admin actually knows them) — see the
+          // Касса feature. Left blank here so creating a booking from the
+          // admin panel behaves exactly as it always did.
+          payCash: '',
+          payCard: '',
+          payErip: '',
+          channel: '',
+          discountNote: '',
+          workedActor: '',
+          workedActress: '',
+          handledByAdmin: '',
           comment: cleanComment,
           dateISO: cleanDateISO,
           dateLabel: '',
@@ -472,12 +486,33 @@ export default async function handler(req, res) {
 
       const nextPlayers = body.players != null ? String(body.players).trim().slice(0, 40) : existing.players;
 
+      // The admin panel's edit form sends the cash/card/ERIP breakdown
+      // instead of a single price — the total is derived from it here so
+      // there's only ever one place ("Касса") that reads payment amounts
+      // off a booking. If the breakdown comes back all-empty (e.g. a
+      // booking created before this feature existed, whose fields were
+      // never touched), the previous single `price` is kept as-is instead
+      // of being wiped to 0.
+      const nextPayCash = body.payCash != null ? String(body.payCash).trim().slice(0, 20) : (existing.payCash || '');
+      const nextPayCard = body.payCard != null ? String(body.payCard).trim().slice(0, 20) : (existing.payCard || '');
+      const nextPayErip = body.payErip != null ? String(body.payErip).trim().slice(0, 20) : (existing.payErip || '');
+      const paySum = toAmount(nextPayCash) + toAmount(nextPayCard) + toAmount(nextPayErip);
+      const nextPrice = paySum > 0 ? String(paySum) : existing.price;
+
       let updated = {
         ...existing,
         name: typeof body.name === 'string' ? body.name.trim().slice(0, 100) : existing.name,
         phone: typeof body.phone === 'string' ? body.phone.trim().slice(0, 40) : existing.phone,
         players: nextPlayers,
-        price: body.price != null ? String(body.price).trim().slice(0, 20) : existing.price,
+        price: nextPrice,
+        payCash: nextPayCash,
+        payCard: nextPayCard,
+        payErip: nextPayErip,
+        channel: typeof body.channel === 'string' ? body.channel.trim().slice(0, 60) : (existing.channel || ''),
+        discountNote: typeof body.discountNote === 'string' ? body.discountNote.trim().slice(0, 200) : (existing.discountNote || ''),
+        workedActor: typeof body.workedActor === 'string' ? body.workedActor.trim().slice(0, 60) : (existing.workedActor || ''),
+        workedActress: typeof body.workedActress === 'string' ? body.workedActress.trim().slice(0, 60) : (existing.workedActress || ''),
+        handledByAdmin: typeof body.handledByAdmin === 'string' ? body.handledByAdmin.trim().slice(0, 60) : (existing.handledByAdmin || ''),
         comment: typeof body.comment === 'string' ? body.comment.trim().slice(0, 500) : existing.comment,
       };
 

@@ -337,6 +337,41 @@
   .shift-actor-status.warn{color:var(--ochre-bright);}
   .shift-actor-status:empty{display:none;}
 
+  /* ---------- Payment split (edit form + Касса) ---------- */
+  .pay-split{display:flex; gap:8px; flex-wrap:wrap;}
+  .pay-split-item{display:flex; flex-direction:column; gap:4px; flex:1 1 90px;}
+  .pay-split-item span{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-weight:700;}
+  .pay-split-item input{
+    padding:9px 10px; border-radius:8px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:14px; font-family:var(--sans);
+  }
+  .pay-split-item input:focus{outline:none; border-color:var(--ochre);}
+  .pay-split-total{font-size:13.5px; color:var(--muted); margin-top:8px;}
+  .pay-split-total b{color:var(--ochre-bright); font-size:15px;}
+
+  /* ---------- Cash register ("Касса") ---------- */
+  .finance-balance{
+    background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px;
+    padding:16px; margin-bottom:18px; text-align:center;
+  }
+  .finance-balance-label{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:6px;}
+  .finance-balance-value{font-family:var(--display); font-weight:400; font-size:34px; color:var(--ochre-bright);}
+  .finance-balance-sub{font-size:12px; color:var(--muted); margin-top:4px; line-height:1.4;}
+  .finance-opening{border:1px solid #2a2a2a; border-radius:10px; padding:10px 14px; margin-bottom:6px;}
+  .finance-opening summary{cursor:pointer; font-size:13px; font-weight:700; color:var(--paper);}
+  .finance-row{
+    display:flex; align-items:center; gap:10px; background:var(--black-3); border:1px solid #262626;
+    border-radius:10px; padding:10px 12px; margin-bottom:8px;
+  }
+  .finance-row .fr-date{font-size:12px; color:var(--muted); flex:0 0 70px;}
+  .finance-row .fr-kind{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:3px 8px; border-radius:999px; flex-shrink:0;}
+  .finance-row .fr-kind.expense{background:rgba(229,72,77,.18); color:var(--danger-bright);}
+  .finance-row .fr-kind.payroll{background:rgba(91,155,213,.18); color:var(--info-bright);}
+  .finance-row .fr-label{flex:1; min-width:0; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .finance-row .fr-amount{font-weight:800; color:var(--paper); font-size:13.5px; flex-shrink:0;}
+  .finance-row .fr-del{background:none; border:none; color:var(--muted); font-size:16px; padding:4px 6px; flex-shrink:0;}
+  .finance-row .fr-del:hover{color:var(--danger-bright);}
+
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
     .row-sub{display:none;}
@@ -373,6 +408,7 @@
         <button class="btn-secondary" id="statsBtn">Статистика</button>
         <button class="btn-secondary" id="closeDayBtn">Закрыть день</button>
         <button class="btn-secondary" id="shiftsBtn">Смены и напоминания</button>
+        <button class="btn-secondary" id="financeBtn">Касса</button>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
@@ -439,6 +475,10 @@
       <div class="detail-field"><label>Игроков</label><div class="value" id="dvPlayers"></div></div>
       <div class="detail-field"><label>Цена</label><div class="value" id="dvPrice"></div></div>
       <div class="detail-field"><label>Комментарий</label><div class="value" id="dvComment"></div></div>
+      <div class="detail-field" id="dvChannelRow"><label>Источник брони</label><div class="value" id="dvChannel"></div></div>
+      <div class="detail-field" id="dvDiscountRow"><label>Скидка / сертификат</label><div class="value" id="dvDiscount"></div></div>
+      <div class="detail-field" id="dvWorkedRow"><label>Кто отыграл</label><div class="value" id="dvWorked"></div></div>
+      <div class="detail-field" id="dvHandledRow"><label>Оформил</label><div class="value" id="dvHandled"></div></div>
       <div class="detail-field" id="dvReminderRow"><label>Напоминание актёру</label><div class="value" id="dvReminder"></div></div>
       <div class="modal-actions" id="detailActiveActions">
         <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
@@ -451,7 +491,25 @@
       <div class="detail-field"><label>Имя</label><input id="editName"></div>
       <div class="detail-field"><label>Телефон</label><input id="editPhone"></div>
       <div class="detail-field"><label>Игроков</label><input id="editPlayers"></div>
-      <div class="detail-field"><label>Цена</label><input id="editPrice"></div>
+      <div class="detail-field">
+        <label>Способ оплаты</label>
+        <div class="pay-split">
+          <div class="pay-split-item"><span>Нал</span><input id="editPayCash" inputmode="numeric" placeholder="0"></div>
+          <div class="pay-split-item"><span>Безнал</span><input id="editPayCard" inputmode="numeric" placeholder="0"></div>
+          <div class="pay-split-item"><span>ЕРИП</span><input id="editPayErip" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="pay-split-total">Итого: <b id="editPayTotal">0</b> Br</div>
+      </div>
+      <div class="detail-field"><label>Скидка / номер сертификата</label><input id="editDiscountNote" placeholder="Например: скидка 10% или серт. №123"></div>
+      <div class="detail-field"><label>Источник брони</label><input id="editChannel" list="knownChannelsList" placeholder="Сайт, Instagram, Пинкертон…"></div>
+      <div class="detail-field">
+        <label>Кто отыграл</label>
+        <div class="pay-split">
+          <div class="pay-split-item" style="flex:1;"><span>Актёр</span><input id="editWorkedActor" list="knownActorNamesList" placeholder="Имя"></div>
+          <div class="pay-split-item" style="flex:1;"><span>Актриса</span><input id="editWorkedActress" list="knownActorNamesList" placeholder="Имя"></div>
+        </div>
+      </div>
+      <div class="detail-field"><label>Кто из админов оформил</label><input id="editHandledByAdmin" placeholder="Ваше имя"></div>
       <div class="detail-field"><label>Комментарий</label><textarea id="editComment" rows="3"></textarea></div>
       <div class="modal-actions">
         <button class="btn" id="saveEditBtn">Сохранить</button>
@@ -610,6 +668,56 @@
 </div>
 <datalist id="knownActorsList"></datalist>
 
+<!-- Cash register ("Касса") — running cash balance, replaces the manual
+     running-total column from the owner's old spreadsheet -->
+<div class="modal-overlay" id="financeOverlay">
+  <div class="modal-box" style="max-width:560px;">
+    <button class="modal-close-x" data-close="finance">✕</button>
+    <h2>Касса</h2>
+
+    <div class="finance-balance">
+      <div class="finance-balance-label">Текущий остаток в кассе</div>
+      <div class="finance-balance-value" id="financeBalance">—</div>
+      <div class="finance-balance-sub" id="financeBalanceSub"></div>
+    </div>
+
+    <details class="finance-opening">
+      <summary>Задать точку отсчёта вручную</summary>
+      <p style="color:var(--muted); font-size:12.5px; margin:8px 0 12px;">
+        Например: «на 1 сентября в кассе было 500 Br» — дальше остаток будет
+        считаться автоматически от этой даты (наличные из броней минус
+        расходы и выплаты ниже).
+      </p>
+      <div class="pay-split">
+        <div class="pay-split-item" style="flex:1;"><span>Дата</span><input type="date" id="financeOpeningDate"></div>
+        <div class="pay-split-item" style="flex:1;"><span>Сумма, Br</span><input type="text" id="financeOpeningBalance" inputmode="numeric" placeholder="0"></div>
+      </div>
+      <button class="btn-secondary" id="financeOpeningSave" style="margin-top:10px;">Сохранить точку отсчёта</button>
+    </details>
+
+    <h3 style="font-size:14px; margin:22px 0 12px;">Добавить расход или выплату</h3>
+    <div class="type-toggle" id="financeKindToggle">
+      <button type="button" class="type-toggle-btn active" data-kind="expense">Расход</button>
+      <button type="button" class="type-toggle-btn" data-kind="payroll">Зарплата / инкассация</button>
+    </div>
+    <div class="pay-split" style="margin-top:12px;">
+      <div class="pay-split-item" style="flex:0 0 140px;"><span>Дата</span><input type="date" id="financeCashoutDate"></div>
+      <div class="pay-split-item" style="flex:1;"><span>Описание</span><input type="text" id="financeCashoutLabel" placeholder="Например: реквизит, ЗП Ивану"></div>
+      <div class="pay-split-item" style="flex:0 0 110px;"><span>Сумма, Br</span><input type="text" id="financeCashoutAmount" inputmode="numeric" placeholder="0"></div>
+    </div>
+    <button class="btn" id="financeCashoutAdd" style="margin-top:10px;">Записать</button>
+
+    <h3 style="font-size:14px; margin:22px 0 12px;">Последние записи</h3>
+    <div id="financeList"><div class="load-note">Загрузка…</div></div>
+
+    <div class="modal-msg" id="financeMsg"></div>
+  </div>
+</div>
+<datalist id="knownChannelsList">
+  <option value="Сайт"><option value="Instagram"><option value="Пинкертон"><option value="Сливки"><option value="Мир квестов"><option value="Бартер"><option value="Телефон">
+</datalist>
+<datalist id="knownActorNamesList"></datalist>
+
 <script>
 (function(){
   const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
@@ -677,6 +785,20 @@
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} в ${hh}:${mm}`;
+  }
+  function toNum(v){
+    const n = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+    return Number.isFinite(n) ? n : 0;
+  }
+  // "160 Br (Нал 100 + Безнал 60)" when a payment breakdown is on record,
+  // otherwise just the plain total — same as before this feature existed.
+  function formatPriceBreakdown(b){
+    if (!b.price) return '—';
+    const parts = [];
+    if (toNum(b.payCash) > 0) parts.push(`Нал ${b.payCash}`);
+    if (toNum(b.payCard) > 0) parts.push(`Безнал ${b.payCard}`);
+    if (toNum(b.payErip) > 0) parts.push(`ЕРИП ${b.payErip}`);
+    return parts.length ? `${b.price} Br (${parts.join(' + ')})` : `${b.price} Br`;
   }
   // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
   // booking entered by hand ends up in the same shape as ones from the site.
@@ -763,6 +885,7 @@
     loginScreen.style.display = 'none';
     panel.style.display = 'block';
     loadBookings();
+    loadKnownActorNames();
   }
 
   // ---------- loading & rendering the bookings list ----------
@@ -982,7 +1105,7 @@
       alert('Нет броней для экспорта — измените фильтр поиска или дату.');
       return;
     }
-    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Комментарий','Источник','Перенос'];
+    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Комментарий','Как создано','Перенос'];
     const lines = [header.join(';')];
     rows.forEach(b => {
       const isTech = b.type === 'technical';
@@ -998,6 +1121,14 @@
         isTech ? '' : (b.phone || ''),
         isTech ? '' : (b.players || ''),
         isTech ? '' : (b.price != null ? b.price : ''),
+        isTech ? '' : (b.payCash || ''),
+        isTech ? '' : (b.payCard || ''),
+        isTech ? '' : (b.payErip || ''),
+        isTech ? '' : (b.channel || ''),
+        isTech ? '' : (b.discountNote || ''),
+        isTech ? '' : (b.workedActor || ''),
+        isTech ? '' : (b.workedActress || ''),
+        isTech ? '' : (b.handledByAdmin || ''),
         b.comment || '',
         b.source === 'admin' ? 'вручную' : (b.source || ''),
         moveNote
@@ -1058,8 +1189,31 @@
     document.getElementById('dvName').textContent = booking.name || '—';
     document.getElementById('dvPhone').textContent = booking.phone || '—';
     document.getElementById('dvPlayers').textContent = booking.players || '—';
-    document.getElementById('dvPrice').textContent = booking.price ? `${booking.price} Br` : '—';
+    document.getElementById('dvPrice').textContent = formatPriceBreakdown(booking);
     document.getElementById('dvComment').textContent = booking.comment || '—';
+
+    const dvChannelRow = document.getElementById('dvChannelRow');
+    const dvDiscountRow = document.getElementById('dvDiscountRow');
+    const dvWorkedRow = document.getElementById('dvWorkedRow');
+    const dvHandledRow = document.getElementById('dvHandledRow');
+    if (isTech) {
+      dvChannelRow.style.display = 'none';
+      dvDiscountRow.style.display = 'none';
+      dvWorkedRow.style.display = 'none';
+      dvHandledRow.style.display = 'none';
+    } else {
+      dvChannelRow.style.display = '';
+      document.getElementById('dvChannel').textContent = booking.channel || '—';
+      dvDiscountRow.style.display = '';
+      document.getElementById('dvDiscount').textContent = booking.discountNote || '—';
+      dvWorkedRow.style.display = '';
+      const workedParts = [];
+      if (booking.workedActor) workedParts.push(`Актёр: ${booking.workedActor}`);
+      if (booking.workedActress) workedParts.push(`Актриса: ${booking.workedActress}`);
+      document.getElementById('dvWorked').textContent = workedParts.length ? workedParts.join(' · ') : '—';
+      dvHandledRow.style.display = '';
+      document.getElementById('dvHandled').textContent = booking.handledByAdmin || '—';
+    }
 
     const dvReminderRow = document.getElementById('dvReminderRow');
     const dvReminder = document.getElementById('dvReminder');
@@ -1099,6 +1253,16 @@
   detailOverlay.addEventListener('click', e => { if (e.target === detailOverlay) closeDetail(); });
 
   // -- edit --
+  function updateEditPayTotal(){
+    const cash = toNum(document.getElementById('editPayCash').value);
+    const card = toNum(document.getElementById('editPayCard').value);
+    const erip = toNum(document.getElementById('editPayErip').value);
+    document.getElementById('editPayTotal').textContent = String(cash + card + erip);
+  }
+  ['editPayCash','editPayCard','editPayErip'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateEditPayTotal);
+  });
+
   document.getElementById('editBtn').addEventListener('click', () => {
     if (!activeBooking) return;
     detailView.style.display = 'none';
@@ -1106,13 +1270,26 @@
     document.getElementById('editName').value = activeBooking.name || '';
     document.getElementById('editPhone').value = activeBooking.phone || '';
     document.getElementById('editPlayers').value = activeBooking.players || '';
-    document.getElementById('editPrice').value = activeBooking.price || '';
+    // No breakdown recorded yet (a booking from before this feature, or
+    // one nobody has touched since) — default the "Нал" field to the
+    // existing single price so saving without changes doesn't zero it out.
+    const hasBreakdown = activeBooking.payCash || activeBooking.payCard || activeBooking.payErip;
+    document.getElementById('editPayCash').value = hasBreakdown ? (activeBooking.payCash || '') : (activeBooking.price || '');
+    document.getElementById('editPayCard').value = activeBooking.payCard || '';
+    document.getElementById('editPayErip').value = activeBooking.payErip || '';
+    updateEditPayTotal();
+    document.getElementById('editDiscountNote').value = activeBooking.discountNote || '';
+    document.getElementById('editChannel').value = activeBooking.channel || '';
+    document.getElementById('editWorkedActor').value = activeBooking.workedActor || '';
+    document.getElementById('editWorkedActress').value = activeBooking.workedActress || '';
+    document.getElementById('editHandledByAdmin').value = activeBooking.handledByAdmin || localStorage.getItem('lastHandledByAdmin') || '';
     document.getElementById('editComment').value = activeBooking.comment || '';
   });
   document.getElementById('cancelEditBtn').addEventListener('click', resetDetailViews);
 
   document.getElementById('saveEditBtn').addEventListener('click', async () => {
     if (!activeBooking) return;
+    const handledByAdmin = document.getElementById('editHandledByAdmin').value;
     const payload = {
       action:'edit',
       dateISO: activeBooking.dateISO,
@@ -1120,13 +1297,21 @@
       name: document.getElementById('editName').value,
       phone: document.getElementById('editPhone').value,
       players: document.getElementById('editPlayers').value,
-      price: document.getElementById('editPrice').value,
+      payCash: document.getElementById('editPayCash').value,
+      payCard: document.getElementById('editPayCard').value,
+      payErip: document.getElementById('editPayErip').value,
+      discountNote: document.getElementById('editDiscountNote').value,
+      channel: document.getElementById('editChannel').value,
+      workedActor: document.getElementById('editWorkedActor').value,
+      workedActress: document.getElementById('editWorkedActress').value,
+      handledByAdmin,
       comment: document.getElementById('editComment').value,
     };
     try{
       const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось сохранить.'; detailMsg.className = 'modal-msg err'; return; }
+      if (handledByAdmin.trim()) localStorage.setItem('lastHandledByAdmin', handledByAdmin.trim());
       await loadBookings();
       closeDetail();
     } catch(err){
@@ -2079,6 +2264,149 @@
   document.getElementById('shiftsBtn').addEventListener('click', openShiftsModal);
   document.querySelectorAll('[data-close="shifts"]').forEach(b => b.addEventListener('click', () => shiftsOverlay.classList.remove('show')));
   shiftsOverlay.addEventListener('click', e => { if (e.target === shiftsOverlay) shiftsOverlay.classList.remove('show'); });
+
+  // Best-effort: populates the "Кто отыграл" autocomplete with names of
+  // actors already registered in the shift schedule (see api/admin/shifts.js).
+  // Never blocks anything if it fails — it's just a typing shortcut.
+  async function loadKnownActorNames(){
+    try{
+      const res = await fetch(`/api/admin/shifts?from=${todayISO()}&days=1`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const names = Object.values(out.actors || {}).map(a => a.displayName).filter(Boolean);
+      document.getElementById('knownActorNamesList').innerHTML =
+        [...new Set(names)].map(n => `<option value="${escapeHtml(n)}">`).join('');
+    } catch(err){ /* best-effort only */ }
+  }
+
+  // ---------- cash register ("Касса") ----------
+  const financeOverlay = document.getElementById('financeOverlay');
+  const financeBalance = document.getElementById('financeBalance');
+  const financeBalanceSub = document.getElementById('financeBalanceSub');
+  const financeList = document.getElementById('financeList');
+  const financeMsg = document.getElementById('financeMsg');
+  let financeKind = 'expense';
+
+  document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      financeKind = btn.dataset.kind;
+      document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  function renderFinanceState(state){
+    financeBalance.textContent = `${Math.round(state.balance)} Br`;
+    financeBalanceSub.textContent =
+      `С ${formatDateHeading(state.sinceDateISO)}: +${Math.round(state.cashIn)} наличными от броней, −${Math.round(state.cashOut)} расходов и выплат`;
+    document.getElementById('financeOpeningDate').value = state.sinceDateISO || '';
+    document.getElementById('financeOpeningBalance').value = state.openingBalance || 0;
+
+    const list = state.recentCashouts || [];
+    if (!list.length){
+      financeList.innerHTML = '<div class="empty-note">Записей пока нет.</div>';
+      return;
+    }
+    financeList.innerHTML = list.map(c => `
+      <div class="finance-row" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}">
+        <div class="fr-date">${escapeHtml(c.dateISO)}</div>
+        <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${c.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'}</div>
+        <div class="fr-label">${escapeHtml(c.label)}</div>
+        <div class="fr-amount">−${Math.round(c.amount)} Br</div>
+        <button type="button" class="fr-del" title="Удалить">✕</button>
+      </div>
+    `).join('');
+    financeList.querySelectorAll('.fr-del').forEach(btn => {
+      btn.addEventListener('click', () => deleteCashout(btn.closest('.finance-row')));
+    });
+  }
+
+  async function loadFinance(){
+    financeList.innerHTML = '<div class="load-note">Загрузка…</div>';
+    financeMsg.textContent = '';
+    financeMsg.className = 'modal-msg';
+    try{
+      const res = await fetch('/api/admin/finance', { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        financeList.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить кассу.')}</div>`;
+        return;
+      }
+      renderFinanceState(out);
+    } catch(err){
+      financeList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
+
+  function openFinanceModal(){
+    document.getElementById('financeCashoutDate').value = todayISO();
+    document.getElementById('financeCashoutLabel').value = '';
+    document.getElementById('financeCashoutAmount').value = '';
+    financeOverlay.classList.add('show');
+    loadFinance();
+  }
+  document.getElementById('financeBtn').addEventListener('click', openFinanceModal);
+  document.querySelectorAll('[data-close="finance"]').forEach(b => b.addEventListener('click', () => financeOverlay.classList.remove('show')));
+  financeOverlay.addEventListener('click', e => { if (e.target === financeOverlay) financeOverlay.classList.remove('show'); });
+
+  document.getElementById('financeOpeningSave').addEventListener('click', async () => {
+    const sinceDateISO = document.getElementById('financeOpeningDate').value;
+    const balance = document.getElementById('financeOpeningBalance').value;
+    if (!sinceDateISO){
+      financeMsg.textContent = 'Укажите дату.'; financeMsg.className = 'modal-msg err'; return;
+    }
+    try{
+      const res = await fetch('/api/admin/finance', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'setOpening', balance, sinceDateISO })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ financeMsg.textContent = out.error || 'Не удалось сохранить.'; financeMsg.className = 'modal-msg err'; return; }
+      financeMsg.textContent = 'Точка отсчёта сохранена.'; financeMsg.className = 'modal-msg ok';
+      renderFinanceState(out);
+    } catch(err){
+      financeMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; financeMsg.className = 'modal-msg err';
+    }
+  });
+
+  document.getElementById('financeCashoutAdd').addEventListener('click', async () => {
+    const dateISO = document.getElementById('financeCashoutDate').value;
+    const label = document.getElementById('financeCashoutLabel').value.trim();
+    const amount = document.getElementById('financeCashoutAmount').value;
+    if (!dateISO || !label || !(toNum(amount) > 0)){
+      financeMsg.textContent = 'Укажите дату, описание и сумму больше нуля.'; financeMsg.className = 'modal-msg err'; return;
+    }
+    try{
+      const res = await fetch('/api/admin/finance', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'addCashout', dateISO, kind: financeKind, label, amount })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ financeMsg.textContent = out.error || 'Не удалось сохранить.'; financeMsg.className = 'modal-msg err'; return; }
+      document.getElementById('financeCashoutLabel').value = '';
+      document.getElementById('financeCashoutAmount').value = '';
+      financeMsg.textContent = ''; financeMsg.className = 'modal-msg';
+      renderFinanceState(out);
+    } catch(err){
+      financeMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; financeMsg.className = 'modal-msg err';
+    }
+  });
+
+  async function deleteCashout(row){
+    if (!row) return;
+    const dateISO = row.dataset.date;
+    const id = row.dataset.id;
+    try{
+      const res = await fetch('/api/admin/finance', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'deleteCashout', dateISO, id })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ financeMsg.textContent = out.error || 'Не удалось удалить.'; financeMsg.className = 'modal-msg err'; return; }
+      renderFinanceState(out);
+    } catch(err){
+      financeMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; financeMsg.className = 'modal-msg err';
+    }
+  }
 
   // ---------- boot ----------
   const savedPassword = localStorage.getItem('adminPassword');

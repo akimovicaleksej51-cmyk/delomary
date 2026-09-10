@@ -85,6 +85,20 @@ export default async function handler(req, res) {
     phone: cleanPhone,
     players: cleanPlayers,
     price: cleanPrice,
+    // Payment breakdown, discount notes, and who actually worked the
+    // session aren't known yet at booking time — the admin fills these in
+    // later via the admin panel's "Редактировать" (see the Касса feature
+    // in api/admin/bookings.js / api/admin/finance.js). `channel` defaults
+    // to 'Сайт' here since that's simply true for every booking that goes
+    // through this endpoint.
+    payCash: '',
+    payCard: '',
+    payErip: '',
+    channel: 'Сайт',
+    discountNote: '',
+    workedActor: '',
+    workedActress: '',
+    handledByAdmin: '',
     comment: cleanComment,
     dateISO: cleanDateISO,
     dateLabel: cleanDateLabel,
