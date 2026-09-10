@@ -4,6 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Дело Мэри. Скажи им, что я здесь — квест Loony Games, Минск</title>
+<meta name="description" content="Квест-перформанс с живым актёром «Дело Мэри. Скажи им, что я здесь» от Loony Games в Минске. Психиатрическая клиника «Дредвуд», 1960-е — за час выясните, кто здесь действительно болен. 1–6 игроков, от 140 Br. Бронирование онлайн.">
+<link rel="canonical" href="https://loonygames.by/">
+
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:site_name" content="Loony Games">
+<meta property="og:url" content="https://loonygames.by/">
+<meta property="og:title" content="Дело Мэри. Скажи им, что я здесь — квест Loony Games, Минск">
+<meta property="og:description" content="Квест-перформанс с живым актёром в психиатрической клинике «Дредвуд», 1960-е. За час выясните, кто здесь действительно болен — пациентка Мэри или система. 1–6 игроков, от 140 Br.">
+<meta property="og:image" content="https://loonygames.by/assets/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Дело Мэри. Скажи им, что я здесь — квест Loony Games, Минск">
+<meta name="twitter:description" content="Квест-перформанс с живым актёром в психиатрической клинике «Дредвуд», 1960-е. 1–6 игроков, от 140 Br.">
+<meta name="twitter:image" content="https://loonygames.by/assets/og-image.jpg">
+
 <link rel="icon" href="/assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16x16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.png">
@@ -12,6 +30,34 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "EntertainmentBusiness",
+  "name": "Loony Games — квест «Дело Мэри. Скажи им, что я здесь»",
+  "image": "https://loonygames.by/assets/og-image.jpg",
+  "url": "https://loonygames.by/",
+  "telephone": "+375447803000",
+  "priceRange": "от 140 BYN",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "ул. Октябрьская, 16к23",
+    "addressLocality": "Минск",
+    "addressCountry": "BY"
+  },
+  "geo": {
+    "@type": "GeoCoordinates",
+    "latitude": 53.890180,
+    "longitude": 27.573620
+  },
+  "openingHoursSpecification": {
+    "@type": "OpeningHoursSpecification",
+    "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],
+    "opens": "11:00",
+    "closes": "23:59"
+  }
+}
+</script>
 <style>
   :root{
     --black: #000000;
@@ -111,6 +157,7 @@
   .hero-bg{
     position:absolute; inset:0; z-index:0; overflow:hidden;
     background-image: url('assets/photo-exit-light.jpg');
+    background-image: image-set('assets/photo-exit-light.webp' type('image/webp'), 'assets/photo-exit-light.jpg' type('image/jpeg'));
     background-size:cover; background-position:center 30%;
   }
   .hero-bg::after{
@@ -122,6 +169,12 @@
   .hero-video{
     position:absolute; inset:0; z-index:1; width:100%; height:100%;
     object-fit:cover; object-position:center 30%;
+  }
+  /* Respect the visitor's OS-level "reduce motion" setting: fall back to the
+     static photo already set as .hero-bg's background-image instead of the
+     looping zoom. */
+  @media (prefers-reduced-motion: reduce){
+    .hero-video{display:none;}
   }
   .hero > .wrap{position:relative; z-index:1; padding-bottom:56px; padding-top:140px; width:100%;}
   .case-tag{
@@ -428,6 +481,7 @@
 
   /* ===== REVIEWS ===== */
   .reviews-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px;}
+  .reviews-more{text-align:center; margin-top:28px;}
   .review{border:1px solid var(--line); padding:26px; border-radius:18px; background:var(--black-2); transition:border-color .25s, transform .25s;}
   .review:hover{border-color:var(--ochre); transform:translateY(-4px);}
   .review p{color:var(--muted); font-size:15px; margin:0 0 18px;}
@@ -621,13 +675,33 @@
     footer .brand img{height:76px;}
   }
 </style>
+
+<!--
+  Аналитика (Яндекс.Метрика / Google Analytics) — ЗАГОТОВКА, СЕЙЧАС ВЫКЛЮЧЕНА.
+
+  Ничего не подключено, счётчик никуда ничего не отправляет. Когда заведёте
+  свой счётчик, вставьте сюда его код (обычно даётся на сайте metrika.yandex.ru
+  или analytics.google.com в разделе «Установка счётчика» — там будет готовый
+  <script> для вставки, просто скопируйте его целиком на это место).
+
+  Для Яндекс.Метрики это обычно выглядит так (замените XXXXXXXX на номер
+  вашего счётчика):
+    <script>
+      (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+      m[i].l=1*new Date();...})(window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+      ym(XXXXXXXX, "init", { clickmap:true, trackLinks:true, accurateTrackBounce:true });
+    </script>
+
+  Для Google Analytics (GA4) — вставьте код с analytics.google.com, он
+  начинается с <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXX">.
+-->
 </head>
 <body>
 <div id="progress"></div>
 
 <header>
   <div class="nav">
-    <a class="brand" href="#top"><img src="assets/logo.jpg" alt="Loony Games"></a>
+    <a class="brand" href="#top"><picture><source srcset="assets/logo.webp" type="image/webp"><img src="assets/logo.jpg" alt="Loony Games"></picture></a>
     <div class="nav-right">
       <nav class="nav-links">
         <a href="#about">О квесте</a>
@@ -709,7 +783,7 @@
           <span class="tag">атмосферный хоррор без скримеров</span>
         </div>
       </div>
-      <figure class="about-photo"><img src="assets/photo-doctors.jpg" alt="Практиканты клиники Дредвуд"></figure>
+      <figure class="about-photo"><picture><source srcset="assets/photo-doctors.webp" type="image/webp"><img src="assets/photo-doctors.jpg" alt="Практиканты клиники Дредвуд" loading="lazy"></picture></figure>
     </div>
   </div>
 </section>
@@ -727,14 +801,14 @@
     <h2>Внутри Дредвуда</h2>
     <p class="gallery-hint">Листайте ленту в сторону, нажмите на кадр — откроется просмотр с переключением стрелками.</p>
     <div class="gallery-grid">
-      <figure><img src="assets/photo-hallway-chase.jpg" alt="Коридор клиники Дредвуд"></figure>
-      <figure><img src="assets/photo-actor-grab.jpg" alt="Актёр в образе пациентки"></figure>
-      <figure><img src="assets/photo-under-light.jpg" alt="Мэри под лампой"></figure>
-      <figure><img src="assets/photo-piano.jpg" alt="Мэри играет на пианино"></figure>
-      <figure><img src="assets/photo-armchair.jpg" alt="Мэри в кресле"></figure>
-      <figure><img src="assets/photo-corner-cry.jpg" alt="Пациентка в палате"></figure>
-      <figure><img src="assets/photo-exit-light.jpg" alt="Коридор с выходом"></figure>
-      <figure><img src="assets/photo-doctors.jpg" alt="Врачи клиники Дредвуд"></figure>
+      <figure><picture><source srcset="assets/photo-hallway-chase.webp" type="image/webp"><img src="assets/photo-hallway-chase.jpg" alt="Коридор клиники Дредвуд" loading="lazy"></picture></figure>
+      <figure><picture><source srcset="assets/photo-actor-grab.webp" type="image/webp"><img src="assets/photo-actor-grab.jpg" alt="Актёр в образе пациентки" loading="lazy"></picture></figure>
+      <figure><picture><source srcset="assets/photo-under-light.webp" type="image/webp"><img src="assets/photo-under-light.jpg" alt="Мэри под лампой" loading="lazy"></picture></figure>
+      <figure><picture><source srcset="assets/photo-piano.webp" type="image/webp"><img src="assets/photo-piano.jpg" alt="Мэри играет на пианино" loading="lazy"></picture></figure>
+      <figure><picture><source srcset="assets/photo-armchair.webp" type="image/webp"><img src="assets/photo-armchair.jpg" alt="Мэри в кресле" loading="lazy"></picture></figure>
+      <figure><picture><source srcset="assets/photo-corner-cry.webp" type="image/webp"><img src="assets/photo-corner-cry.jpg" alt="Пациентка в палате" loading="lazy"></picture></figure>
+      <figure><picture><source srcset="assets/photo-exit-light.webp" type="image/webp"><img src="assets/photo-exit-light.jpg" alt="Коридор с выходом" loading="lazy"></picture></figure>
+      <figure><picture><source srcset="assets/photo-doctors.webp" type="image/webp"><img src="assets/photo-doctors.jpg" alt="Врачи клиники Дредвуд" loading="lazy"></picture></figure>
     </div>
   </div>
 </section>
@@ -791,11 +865,11 @@
   </div>
 </section>
 
-<div class="booking-modal-overlay" id="bookingModalOverlay">
+<div class="booking-modal-overlay" id="bookingModalOverlay" role="dialog" aria-modal="true" aria-labelledby="bookingModalTitle">
   <button type="button" class="booking-modal-close" id="bookingModalClose" aria-label="Закрыть">✕</button>
   <div class="booking-modal-box">
     <div class="booking-modal-date" id="bookingModalDate"></div>
-    <h3 class="booking-modal-title">Забронировать игру</h3>
+    <h3 class="booking-modal-title" id="bookingModalTitle">Забронировать игру</h3>
 
     <div class="field-block step step-hidden" id="step2Block">
       <span class="field-label"><span class="num">2</span>Время сеанса</span>
@@ -848,6 +922,15 @@
         <p>Атмосфера настоящей психиатрической клиники 60-х продумана до мелочей. Сюжет цепляет с первых минут, актёрская игра выше всяких похвал.</p>
         <div class="who"><span>Екатерина</span><span>8.6 / 10</span></div>
       </div>
+    </div>
+    <!--
+      ЗАМЕНИТЕ ССЫЛКУ: вставьте сюда адрес вашей страницы на Яндекс.Картах,
+      Google-профиле или 2ГИС, где реально можно почитать отзывы — так
+      посетитель сможет сам всё проверить, и подборка выше перестанет
+      выглядеть как просто текст на сайте.
+    -->
+    <div class="reviews-more">
+      <a href="#" class="btn btn-ghost" target="_blank" rel="noopener">Все отзывы →</a>
     </div>
   </div>
 </section>
@@ -919,7 +1002,7 @@
 </section>
 
 <footer>
-  <a class="brand" href="#top"><img src="assets/logo.jpg" alt="Loony Games"></a>
+  <a class="brand" href="#top"><picture><source srcset="assets/logo.webp" type="image/webp"><img src="assets/logo.jpg" alt="Loony Games"></picture></a>
   <div class="foot-links">
     <a href="#booking">Бронирование</a>
     <a href="#reviews">Отзывы</a>
@@ -932,6 +1015,20 @@
 </footer>
 
 <script>
+  // Reduced-motion visitors get the static hero photo (already the
+  // background-image of .hero-bg) instead of the looping zoom video — CSS
+  // hides the <video>, and this stops it from even downloading/playing.
+  (function(){
+    const heroVideo = document.querySelector('.hero-video');
+    if (heroVideo && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      heroVideo.pause();
+      heroVideo.removeAttribute('autoplay');
+      heroVideo.setAttribute('preload', 'none');
+      heroVideo.src = '';
+      heroVideo.querySelectorAll('source').forEach(s => s.remove());
+    }
+  })();
+
   const navToggle = document.getElementById('navToggle');
   const mobileMenu = document.getElementById('mobileMenu');
   navToggle.addEventListener('click', () => {
@@ -1070,7 +1167,39 @@
   const bookingModalDate = document.getElementById('bookingModalDate');
   const bookingModalClose = document.getElementById('bookingModalClose');
 
+  // Element that had focus right before the modal opened, so we can hand
+  // focus back to it (e.g. the calendar day the person clicked) on close —
+  // otherwise keyboard/screen-reader users get dropped back at the top of
+  // the page with no sense of where they left off.
+  let bookingModalOpenerEl = null;
+
+  function getFocusableInModal(){
+    return Array.from(bookingModalOverlay.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(el => el.offsetParent !== null);
+  }
+
+  function trapBookingModalFocus(e){
+    if(e.key !== 'Tab') return;
+    const focusable = getFocusableInModal();
+    if(!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if(e.shiftKey){
+      if(document.activeElement === first || !bookingModalOverlay.contains(document.activeElement)){
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if(document.activeElement === last || !bookingModalOverlay.contains(document.activeElement)){
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
   function openBookingModal(){
+    bookingModalOpenerEl = document.activeElement;
     bookingModalDate.textContent = selectedDateLabel;
     step2Block.classList.remove('step-hidden');
     step3Wrap.classList.add('step-hidden');
@@ -1090,11 +1219,20 @@
     const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
     document.body.style.overflow = 'hidden';
     if(scrollBarWidth > 0){ document.body.style.paddingRight = scrollBarWidth + 'px'; }
+    // Move focus into the dialog so keyboard/screen-reader users land
+    // somewhere sensible instead of staying on the (now-hidden) trigger.
+    bookingModalClose.focus();
+    document.addEventListener('keydown', trapBookingModalFocus);
   }
   function closeBookingModal(){
     bookingModalOverlay.classList.remove('show');
     document.body.style.overflow = '';
     document.body.style.paddingRight = '';
+    document.removeEventListener('keydown', trapBookingModalFocus);
+    if(bookingModalOpenerEl && typeof bookingModalOpenerEl.focus === 'function'){
+      bookingModalOpenerEl.focus();
+    }
+    bookingModalOpenerEl = null;
   }
   bookingModalClose.addEventListener('click', closeBookingModal);
   bookingModalOverlay.addEventListener('click', (e) => { if(e.target === bookingModalOverlay) closeBookingModal(); });
@@ -1277,6 +1415,36 @@
     }
   }
 
+  // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
+  // booking arrives in Telegram in one consistent shape instead of whatever
+  // format each visitor happened to type.
+  function formatByPhone(raw){
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('375')) digits = digits.slice(3);
+    else if (digits.startsWith('80')) digits = digits.slice(2);
+    else if (digits.startsWith('0')) digits = digits.slice(1);
+    digits = digits.slice(0, 9);
+    if (!digits) return '';
+    let out = '+375 (' + digits.slice(0, 2);
+    if (digits.length >= 2) out += ')';
+    if (digits.length > 2) out += ' ' + digits.slice(2, 5);
+    if (digits.length > 5) out += '-' + digits.slice(5, 7);
+    if (digits.length > 7) out += '-' + digits.slice(7, 9);
+    return out;
+  }
+  function phoneDigitCount(raw){
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('375')) digits = digits.slice(3);
+    else if (digits.startsWith('80')) digits = digits.slice(2);
+    else if (digits.startsWith('0')) digits = digits.slice(1);
+    return digits.length;
+  }
+  function attachPhoneMask(el){
+    if (!el) return;
+    el.addEventListener('input', () => { el.value = formatByPhone(el.value); });
+  }
+  attachPhoneMask(document.getElementById('bookPhone'));
+
   const submitBtn = document.getElementById('submitBtn');
   const submitBtnDefaultText = submitBtn.textContent;
 
@@ -1292,8 +1460,8 @@
 
     msg.classList.remove('show', 'err');
 
-    if(!name || !phone){
-      msg.textContent = 'Укажите имя и телефон — без них мы не сможем перезвонить.';
+    if(!name || phoneDigitCount(phone) !== 9){
+      msg.textContent = 'Укажите имя и телефон полностью — без них мы не сможем перезвонить.';
       msg.classList.add('show', 'err');
       (name ? phoneField : nameField).focus();
       return;

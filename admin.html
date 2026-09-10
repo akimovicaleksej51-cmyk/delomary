@@ -62,6 +62,7 @@
     background:transparent; color:var(--paper); border:1px solid #3a3a3a; width:auto;
   }
   .btn-secondary:hover{background:var(--black-3); border-color:#4a4a4a;}
+  .btn-secondary:disabled{opacity:.4; cursor:not-allowed;}
   .btn-danger{background:var(--danger); color:#fff;}
   .btn-danger:hover{background:var(--danger-bright);}
   .err-msg{
@@ -77,6 +78,15 @@
   .topbar h1{font-size:24px;}
   .topbar-actions{display:flex; gap:10px; flex-wrap:wrap;}
   .btn-secondary, .btn-danger{padding:11px 18px;}
+
+  .list-toolbar{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;}
+  .list-toolbar input{
+    flex:1 1 220px; min-width:0; padding:10px 14px; border-radius:9px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:14px; font-family:var(--sans);
+  }
+  .list-toolbar input:focus{outline:none; border-color:var(--ochre);}
+  .list-toolbar .btn-secondary{padding:10px 16px; font-size:13.5px; flex:0 0 auto;}
+  .list-toolbar .btn-secondary.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
 
   /* ---------- Bookings list ---------- */
   .day-group{margin-bottom:26px;}
@@ -160,6 +170,43 @@
   .slot-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
   .slot-btn.taken{opacity:.35; cursor:not-allowed; text-decoration:line-through; pointer-events:none;}
 
+  .day-status{
+    background:var(--black-3); border:1px solid #2a2a2a; border-radius:10px;
+    padding:12px 14px; font-size:13.5px; color:var(--muted); margin-bottom:14px; line-height:1.5;
+  }
+  .day-status b{color:var(--paper);}
+
+  /* ---------- Stats dashboard ---------- */
+  .stats-kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px;}
+  .stat-tile{background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px; padding:14px 12px;}
+  .stat-tile .stat-label{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); margin-bottom:6px;}
+  .stat-tile .stat-value{font-family:var(--display); font-weight:400; font-size:26px; color:var(--paper); line-height:1;}
+  .stat-tile.stat-completed .stat-value{color:#3ecb5e;}
+  .stat-tile.stat-cancelled .stat-value{color:#e66767;}
+  .stats-meter-wrap{margin-bottom:20px;}
+  .stats-meter-label{display:flex; justify-content:space-between; font-size:13px; color:var(--muted); margin-bottom:6px;}
+  .stats-meter-label b{color:var(--paper);}
+  .stats-meter-track{height:10px; border-radius:6px; background:rgba(230,103,103,.16); overflow:hidden;}
+  .stats-meter-fill{height:100%; background:#e66767; border-radius:6px; transition:width .3s ease;}
+  .stats-source{font-size:13px; color:var(--muted); margin-bottom:22px;}
+  .stats-source b{color:var(--paper);}
+  .stats-chart-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;}
+  .stats-chart-title{font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
+  .stats-legend{display:flex; gap:14px; font-size:12.5px; color:var(--muted);}
+  .stats-legend span{display:inline-flex; align-items:center; gap:6px;}
+  .stats-legend i{width:10px; height:10px; border-radius:3px; display:inline-block;}
+  .stats-toggle-table{background:none; border:1px solid #3a3a3a; color:var(--muted); font-size:12px; padding:6px 10px; border-radius:7px;}
+  .stats-toggle-table:hover{color:var(--paper); border-color:#4a4a4a;}
+  .stats-table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:10px;}
+  .stats-table th, .stats-table td{padding:6px 8px; text-align:right; border-bottom:1px solid #232323; font-variant-numeric:tabular-nums;}
+  .stats-table th:first-child, .stats-table td:first-child{text-align:left;}
+  .stats-table th{color:var(--muted); font-weight:700; font-size:11px; text-transform:uppercase;}
+  .stats-empty{color:var(--muted); font-size:13.5px; padding:20px 0; text-align:center;}
+
+  @media (max-width:560px){
+    .stats-kpis{grid-template-columns:repeat(2,1fr);}
+  }
+
   /* ---------- Month calendar (reused for reschedule + new-booking date pick) ---------- */
   .cal-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;}
   .cal-month{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:15px; letter-spacing:.02em; color:var(--paper);}
@@ -221,9 +268,16 @@
       <h1>Брони — Дело Мэри</h1>
       <div class="topbar-actions">
         <button class="btn-secondary" id="refreshBtn">Обновить</button>
+        <button class="btn-secondary" id="statsBtn">Статистика</button>
+        <button class="btn-secondary" id="closeDayBtn">Закрыть день</button>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
+    </div>
+    <div class="list-toolbar">
+      <input type="text" id="searchBox" placeholder="Поиск по имени или телефону…">
+      <button class="btn-secondary" id="todayToggleBtn">Сегодня</button>
+      <button class="btn-secondary" id="exportCsvBtn">Экспорт CSV</button>
     </div>
     <div id="listContainer"><div class="load-note">Загрузка…</div></div>
   </div>
@@ -347,6 +401,49 @@
   </div>
 </div>
 
+<!-- Close/open a whole day -->
+<div class="modal-overlay" id="closeDayOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="closeDay">✕</button>
+    <h2>Закрыть или открыть день</h2>
+
+    <div class="detail-field">
+      <label>Дата</label>
+      <div class="cal-head">
+        <button type="button" class="cal-nav" id="closeDayCalPrev" aria-label="Предыдущий месяц">‹</button>
+        <span class="cal-month" id="closeDayCalMonthLabel"></span>
+        <button type="button" class="cal-nav" id="closeDayCalNext" aria-label="Следующий месяц">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+      </div>
+      <div class="cal-grid" id="closeDayCalGrid"></div>
+    </div>
+
+    <div class="day-status" id="closeDayStatus"></div>
+
+    <div class="detail-field">
+      <label>Комментарий (необязательно)</label>
+      <textarea id="closeDayComment" rows="2" maxlength="500" placeholder="Например: выходной, техобслуживание"></textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" id="closeDaySubmitBtn">Закрыть весь день</button>
+      <button class="btn-secondary" id="openDaySubmitBtn">Открыть день</button>
+    </div>
+    <div class="modal-msg" id="closeDayMsg"></div>
+  </div>
+</div>
+
+<!-- Stats dashboard -->
+<div class="modal-overlay" id="statsOverlay">
+  <div class="modal-box" style="max-width:720px;">
+    <button class="modal-close-x" data-close="stats">✕</button>
+    <h2>Статистика броней</h2>
+    <div id="statsBody"><div class="load-note">Загрузка…</div></div>
+  </div>
+</div>
+
 <script>
 (function(){
   const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
@@ -373,6 +470,8 @@
   let adminPassword = null;
   let allBookings = [];
   let activeBooking = null; // the booking currently open in the detail modal
+  let searchQuery = '';
+  let showTodayOnly = false;
 
   // ---------- helpers ----------
   function todayISO(){
@@ -403,6 +502,26 @@
     const d = parseISO(iso);
     const wd = WEEKDAY_NAMES[d.getDay()];
     return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${wd}`;
+  }
+  // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
+  // booking entered by hand ends up in the same shape as ones from the site.
+  function formatByPhone(raw){
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('375')) digits = digits.slice(3);
+    else if (digits.startsWith('80')) digits = digits.slice(2);
+    else if (digits.startsWith('0')) digits = digits.slice(1);
+    digits = digits.slice(0, 9);
+    if (!digits) return '';
+    let out = '+375 (' + digits.slice(0, 2);
+    if (digits.length >= 2) out += ')';
+    if (digits.length > 2) out += ' ' + digits.slice(2, 5);
+    if (digits.length > 5) out += '-' + digits.slice(5, 7);
+    if (digits.length > 7) out += '-' + digits.slice(7, 9);
+    return out;
+  }
+  function attachPhoneMask(el){
+    if (!el) return;
+    el.addEventListener('input', () => { el.value = formatByPhone(el.value); });
   }
   function escapeHtml(s){
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
@@ -500,13 +619,38 @@
       .map(b => b.time);
   }
 
+  // Applies the search box and "today only" toggle on top of allBookings.
+  // Kept separate from renderList so CSV export can reuse exactly what's
+  // currently on screen.
+  function getFilteredBookings(){
+    let list = allBookings;
+    if (showTodayOnly){
+      const today = todayISO();
+      list = list.filter(b => b.dateISO === today);
+    }
+    const q = searchQuery.trim().toLowerCase();
+    if (q){
+      list = list.filter(b => {
+        const name = (b.name || '').toLowerCase();
+        const phone = (b.phone || '').toLowerCase();
+        return name.includes(q) || phone.includes(q);
+      });
+    }
+    return list;
+  }
+
   function renderList(){
     if (!allBookings.length){
       listContainer.innerHTML = '<div class="empty-note">Броней пока нет.</div>';
       return;
     }
+    const filtered = getFilteredBookings();
+    if (!filtered.length){
+      listContainer.innerHTML = '<div class="empty-note">Ничего не найдено — попробуйте изменить поиск или отключить фильтр «Сегодня».</div>';
+      return;
+    }
     const byDate = {};
-    allBookings.forEach(b => {
+    filtered.forEach(b => {
       (byDate[b.dateISO] = byDate[b.dateISO] || []).push(b);
     });
     const dates = Object.keys(byDate).sort();
@@ -552,6 +696,64 @@
   }
 
   document.getElementById('refreshBtn').addEventListener('click', loadBookings);
+
+  // ---------- toolbar: search, "today only" toggle, CSV export ----------
+  const searchBox = document.getElementById('searchBox');
+  const todayToggleBtn = document.getElementById('todayToggleBtn');
+  const exportCsvBtn = document.getElementById('exportCsvBtn');
+
+  searchBox.addEventListener('input', () => {
+    searchQuery = searchBox.value;
+    renderList();
+  });
+
+  todayToggleBtn.addEventListener('click', () => {
+    showTodayOnly = !showTodayOnly;
+    todayToggleBtn.classList.toggle('active', showTodayOnly);
+    renderList();
+  });
+
+  function csvEscape(value){
+    const s = String(value == null ? '' : value);
+    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  exportCsvBtn.addEventListener('click', () => {
+    const rows = getFilteredBookings().slice().sort((a,b) => {
+      return a.dateISO === b.dateISO ? a.time.localeCompare(b.time) : a.dateISO.localeCompare(b.dateISO);
+    });
+    if (!rows.length){
+      alert('Нет броней для экспорта — измените фильтр поиска.');
+      return;
+    }
+    const header = ['Дата','Время','Тип','Имя','Телефон','Игроки','Цена','Комментарий','Источник'];
+    const lines = [header.join(';')];
+    rows.forEach(b => {
+      const isTech = b.type === 'technical';
+      lines.push([
+        b.dateISO || '',
+        b.time || '',
+        isTech ? 'Техническая' : 'Клиент',
+        isTech ? '' : (b.name || ''),
+        isTech ? '' : (b.phone || ''),
+        isTech ? '' : (b.players || ''),
+        isTech ? '' : (b.price != null ? b.price : ''),
+        b.comment || '',
+        b.source === 'admin' ? 'вручную' : (b.source || '')
+      ].map(csvEscape).join(';'));
+    });
+    // Leading BOM so Excel opens Cyrillic text as UTF-8 instead of guessing wrong.
+    const csvContent = '﻿' + lines.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `брони_${todayISO()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
 
   // ---------- detail modal ----------
   const detailOverlay = document.getElementById('detailOverlay');
@@ -966,6 +1168,285 @@
       techMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; techMsg.className = 'modal-msg err';
     }
   });
+
+  attachPhoneMask(document.getElementById('editPhone'));
+  attachPhoneMask(document.getElementById('techPhone'));
+
+  // ---------- close / open a whole day ----------
+  const closeDayOverlay = document.getElementById('closeDayOverlay');
+  const closeDayStatus = document.getElementById('closeDayStatus');
+  const closeDayComment = document.getElementById('closeDayComment');
+  const closeDayMsg = document.getElementById('closeDayMsg');
+  const closeDaySubmitBtn = document.getElementById('closeDaySubmitBtn');
+  const openDaySubmitBtn = document.getElementById('openDaySubmitBtn');
+  let closeDaySelectedDateISO = null;
+
+  const closeDayCalGrid = document.getElementById('closeDayCalGrid');
+  const closeDayCalMonthLabel = document.getElementById('closeDayCalMonthLabel');
+  const closeDayCalPrev = document.getElementById('closeDayCalPrev');
+  const closeDayCalNext = document.getElementById('closeDayCalNext');
+  let closeDayCalViewYear, closeDayCalViewMonth;
+
+  function renderCloseDayCalendar(){
+    closeDayCalGrid.innerHTML = '';
+    closeDayCalMonthLabel.textContent = MONTH_NAMES_NOM[closeDayCalViewMonth] + ' ' + closeDayCalViewYear;
+
+    const firstOfMonth = new Date(closeDayCalViewYear, closeDayCalViewMonth, 1);
+    const leadEmpty = (firstOfMonth.getDay() + 6) % 7;
+    for (let i = 0; i < leadEmpty; i++) {
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      closeDayCalGrid.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(closeDayCalViewYear, closeDayCalViewMonth + 1, 0).getDate();
+    const minD = parseISO(todayISO());
+    const maxD = parseISO(maxDateISO());
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(closeDayCalViewYear, closeDayCalViewMonth, dnum);
+      const iso = isoDate(d);
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const inRange = d >= minD && d <= maxD;
+      const isSelected = iso === closeDaySelectedDateISO;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + (isSelected ? ' active' : '');
+      btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
+      if (!inRange) {
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', () => {
+          closeDaySelectedDateISO = iso;
+          renderCloseDayCalendar();
+          updateCloseDayStatus();
+        });
+      }
+      closeDayCalGrid.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(closeDayCalViewYear, closeDayCalViewMonth, 0);
+    closeDayCalPrev.disabled = prevMonthLastDay < new Date(minD.getFullYear(), minD.getMonth(), 1);
+    const nextMonthFirstDay = new Date(closeDayCalViewYear, closeDayCalViewMonth + 1, 1);
+    closeDayCalNext.disabled = nextMonthFirstDay > maxD;
+  }
+  closeDayCalPrev.addEventListener('click', () => {
+    if (closeDayCalPrev.disabled) return;
+    closeDayCalViewMonth--; if (closeDayCalViewMonth < 0){ closeDayCalViewMonth = 11; closeDayCalViewYear--; }
+    renderCloseDayCalendar();
+  });
+  closeDayCalNext.addEventListener('click', () => {
+    if (closeDayCalNext.disabled) return;
+    closeDayCalViewMonth++; if (closeDayCalViewMonth > 11){ closeDayCalViewMonth = 0; closeDayCalViewYear++; }
+    renderCloseDayCalendar();
+  });
+
+  function updateCloseDayStatus(){
+    if (!closeDaySelectedDateISO){ closeDayStatus.innerHTML = ''; return; }
+    const dayBookings = allBookings.filter(b => b.dateISO === closeDaySelectedDateISO);
+    const technical = dayBookings.filter(b => b.type === 'technical').length;
+    const customer = dayBookings.filter(b => b.type !== 'technical').length;
+    const open = Math.max(0, SLOTS.length - technical - customer);
+    closeDayStatus.innerHTML = `<b>${formatDateHeading(closeDaySelectedDateISO)}</b>: занято клиентами — ${customer}, закрыто технически — ${technical}, свободно — ${open} из ${SLOTS.length}.`;
+    openDaySubmitBtn.disabled = technical === 0;
+    closeDaySubmitBtn.disabled = open === 0;
+  }
+
+  function openCloseDayModal(){
+    const t = parseISO(todayISO());
+    closeDayCalViewYear = t.getFullYear();
+    closeDayCalViewMonth = t.getMonth();
+    closeDaySelectedDateISO = todayISO();
+    closeDayComment.value = '';
+    closeDayMsg.textContent = '';
+    closeDayMsg.className = 'modal-msg';
+    renderCloseDayCalendar();
+    updateCloseDayStatus();
+    closeDayOverlay.classList.add('show');
+  }
+  document.getElementById('closeDayBtn').addEventListener('click', openCloseDayModal);
+  document.querySelectorAll('[data-close="closeDay"]').forEach(b => b.addEventListener('click', () => closeDayOverlay.classList.remove('show')));
+  closeDayOverlay.addEventListener('click', e => { if (e.target === closeDayOverlay) closeDayOverlay.classList.remove('show'); });
+
+  closeDaySubmitBtn.addEventListener('click', async () => {
+    if (!closeDaySelectedDateISO) return;
+    closeDaySubmitBtn.disabled = true;
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'blockDay', dateISO: closeDaySelectedDateISO, comment: closeDayComment.value })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ closeDayMsg.textContent = out.error || 'Не удалось закрыть день.'; closeDayMsg.className = 'modal-msg err'; return; }
+      closeDayMsg.textContent = `Закрыто слотов: ${out.blocked}${out.alreadyTaken ? `, уже было занято: ${out.alreadyTaken}` : ''}.`;
+      closeDayMsg.className = 'modal-msg ok';
+      await loadBookings();
+      updateCloseDayStatus();
+    } catch(err){
+      closeDayMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; closeDayMsg.className = 'modal-msg err';
+    } finally {
+      closeDaySubmitBtn.disabled = false;
+    }
+  });
+
+  openDaySubmitBtn.addEventListener('click', async () => {
+    if (!closeDaySelectedDateISO) return;
+    openDaySubmitBtn.disabled = true;
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'unblockDay', dateISO: closeDaySelectedDateISO })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ closeDayMsg.textContent = out.error || 'Не удалось открыть день.'; closeDayMsg.className = 'modal-msg err'; return; }
+      closeDayMsg.textContent = `Открыто слотов: ${out.unblocked}.`;
+      closeDayMsg.className = 'modal-msg ok';
+      await loadBookings();
+      updateCloseDayStatus();
+    } catch(err){
+      closeDayMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; closeDayMsg.className = 'modal-msg err';
+    } finally {
+      openDaySubmitBtn.disabled = false;
+    }
+  });
+
+  // ---------- stats dashboard ----------
+  const statsOverlay = document.getElementById('statsOverlay');
+  const statsBody = document.getElementById('statsBody');
+
+  function fmtShortDate(iso){
+    const d = parseISO(iso);
+    return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function buildStatsChartSvg(byDay){
+    const W = 640, H = 200, padBottom = 26, padTop = 6;
+    const chartH = H - padBottom - padTop;
+    const n = byDay.length;
+    const slot = W / n;
+    const barW = Math.min(24, slot - 4);
+    const maxTotal = Math.max(1, ...byDay.map(d => d.completed + d.cancelled));
+    const gap = 2;
+    const radius = 4;
+    const baseline = padTop + chartH;
+
+    let bars = '';
+    byDay.forEach((d, i) => {
+      const x = i * slot + (slot - barW) / 2;
+      const total = d.completed + d.cancelled;
+      const completedH = total > 0 ? (d.completed / maxTotal) * chartH : 0;
+      const cancelledH = total > 0 ? (d.cancelled / maxTotal) * chartH : 0;
+      const title = escapeHtml(formatDateHeading(d.dateISO)) + ': завершено ' + d.completed + ', отменено ' + d.cancelled;
+
+      if (total === 0) {
+        bars += `<rect x="${x}" y="${baseline - 1}" width="${barW}" height="1" fill="#2a2a2a"><title>${title}</title></rect>`;
+        return;
+      }
+
+      let cursorY = baseline;
+      if (d.completed > 0) {
+        const y = cursorY - completedH;
+        if (d.cancelled === 0) {
+          const rr = Math.min(radius, completedH, barW / 2);
+          bars += `<rect x="${x}" y="${y}" width="${barW}" height="${completedH}" rx="${rr}" fill="#008300"><title>${title}</title></rect>`;
+          if (completedH > rr) bars += `<rect x="${x}" y="${y + completedH - rr}" width="${barW}" height="${rr}" fill="#008300"/>`;
+        } else {
+          bars += `<rect x="${x}" y="${y}" width="${barW}" height="${completedH}" fill="#008300"><title>${title}</title></rect>`;
+        }
+        cursorY = y - gap;
+      }
+      if (d.cancelled > 0) {
+        const y = cursorY - cancelledH;
+        const rr = Math.min(radius, cancelledH, barW / 2);
+        bars += `<rect x="${x}" y="${y}" width="${barW}" height="${cancelledH}" rx="${rr}" fill="#e66767"><title>${title}</title></rect>`;
+        if (cancelledH > rr) bars += `<rect x="${x}" y="${y + cancelledH - rr}" width="${barW}" height="${rr}" fill="#e66767"/>`;
+      }
+    });
+
+    const labelIdxs = [0, Math.floor((n - 1) / 2), n - 1];
+    let labels = '';
+    labelIdxs.forEach(i => {
+      const x = i * slot + slot / 2;
+      labels += `<text x="${x}" y="${H - 8}" font-size="10" fill="#8a8a80" text-anchor="middle" font-family="Manrope, Arial, sans-serif">${fmtShortDate(byDay[i].dateISO)}</text>`;
+    });
+
+    const axisLine = `<line x1="0" y1="${baseline}" x2="${W}" y2="${baseline}" stroke="#2a2a2a" stroke-width="1"/>`;
+
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">${axisLine}${bars}${labels}</svg>`;
+  }
+
+  function renderStats(data){
+    const decided = data.completed + data.cancelled;
+    const rateText = decided > 0 ? String(data.cancelRate).replace(/\.0$/, '') + '%' : '—';
+    const kpis = `
+      <div class="stats-kpis">
+        <div class="stat-tile stat-completed"><div class="stat-label">Проведено</div><div class="stat-value">${data.completed}</div></div>
+        <div class="stat-tile stat-cancelled"><div class="stat-label">Отменено</div><div class="stat-value">${data.cancelled}</div></div>
+        <div class="stat-tile"><div class="stat-label">Предстоит</div><div class="stat-value">${data.upcoming}</div></div>
+        <div class="stat-tile"><div class="stat-label">Техн. закрыто</div><div class="stat-value">${data.technical}</div></div>
+      </div>
+      <div class="stats-meter-wrap">
+        <div class="stats-meter-label"><span>Доля отмен</span><b>${rateText}</b></div>
+        <div class="stats-meter-track"><div class="stats-meter-fill" style="width:${decided > 0 ? Math.min(100, data.cancelRate) : 0}%"></div></div>
+      </div>
+      <div class="stats-source">Источник броней: через сайт — <b>${data.sourceSite}</b>, вручную в админке — <b>${data.sourceAdmin}</b></div>
+      <div class="stats-chart-head">
+        <span class="stats-chart-title">Последние 21 день</span>
+        <div class="stats-legend">
+          <span><i style="background:#008300"></i>Завершено</span>
+          <span><i style="background:#e66767"></i>Отменено</span>
+        </div>
+      </div>
+    `;
+
+    const hasChartData = data.byDay.some(d => d.completed + d.cancelled > 0);
+    const chart = hasChartData
+      ? buildStatsChartSvg(data.byDay)
+      : '<div class="stats-empty">За последние 21 день пока нет ни одной завершённой или отменённой брони.</div>';
+
+    const tableRows = data.byDay.map(d =>
+      `<tr><td>${formatDateHeading(d.dateISO)}</td><td>${d.completed}</td><td>${d.cancelled}</td></tr>`
+    ).join('');
+    const table = `
+      <table class="stats-table" id="statsTable" hidden>
+        <thead><tr><th>Дата</th><th>Завершено</th><th>Отменено</th></tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    `;
+
+    statsBody.innerHTML = kpis + chart +
+      '<div style="text-align:right; margin-top:8px;"><button class="stats-toggle-table" id="statsToggleTableBtn">Показать таблицей</button></div>' +
+      table;
+
+    document.getElementById('statsToggleTableBtn').addEventListener('click', () => {
+      const t = document.getElementById('statsTable');
+      const btn = document.getElementById('statsToggleTableBtn');
+      const showing = !t.hidden;
+      t.hidden = showing;
+      btn.textContent = showing ? 'Показать таблицей' : 'Скрыть таблицу';
+    });
+  }
+
+  async function openStatsModal(){
+    statsBody.innerHTML = '<div class="load-note">Загрузка…</div>';
+    statsOverlay.classList.add('show');
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'stats' })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        statsBody.innerHTML = `<div class="stats-empty">${escapeHtml(out.error || 'Не удалось загрузить статистику.')}</div>`;
+        return;
+      }
+      renderStats(out);
+    } catch(err){
+      statsBody.innerHTML = '<div class="stats-empty">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
+  document.getElementById('statsBtn').addEventListener('click', openStatsModal);
+  document.querySelectorAll('[data-close="stats"]').forEach(b => b.addEventListener('click', () => statsOverlay.classList.remove('show')));
+  statsOverlay.addEventListener('click', e => { if (e.target === statsOverlay) statsOverlay.classList.remove('show'); });
 
   // ---------- boot ----------
   const savedPassword = localStorage.getItem('adminPassword');

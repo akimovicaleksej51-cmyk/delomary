@@ -9,6 +9,14 @@
 // Required environment variable (set in Vercel → Project → Settings →
 // Environment Variables):
 //   ADMIN_PASSWORD — whatever password you want to protect /admin.html with.
+//
+// Brute-force protection: failed attempts are counted per IP in KV (see
+// ../_ratelimit.js) and shared with api/admin/bookings.js, since that's the
+// endpoint that actually enforces the password on every request — an
+// attacker guessing passwords straight against it, without ever touching
+// this login screen, is throttled the same way.
+
+import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -30,9 +38,19 @@ export default async function handler(req, res) {
     });
   }
 
+  const ip = getClientIp(req);
+  const rate = await checkRateLimit(ip);
+  if (rate.limited) {
+    return res.status(429).json({
+      error: `Слишком много попыток входа. Попробуйте снова через ${retryAfterMinutesLabel(rate.retryAfterSeconds)}`,
+    });
+  }
+
   if (typeof body.password !== 'string' || body.password !== adminPassword) {
+    await recordFailedAttempt(ip);
     return res.status(401).json({ error: 'Неверный пароль.' });
   }
 
+  await clearAttempts(ip);
   return res.status(200).json({ ok: true });
 }
