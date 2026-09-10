@@ -306,6 +306,22 @@
   .slot .dot{width:6px; height:6px; border-radius:50%; background:#4caf50; animation:pulse 1.8s infinite;}
   .slot.active .dot{background:#151004;}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+  .slot.slot-taken{
+    opacity:.4; cursor:not-allowed; pointer-events:none;
+    text-decoration:line-through; text-decoration-color:rgba(245,239,228,0.4);
+  }
+  .slot.slot-taken .dot{background:#e06a6a; animation:none;}
+  .slot.slot-taken::after{
+    content:'занято'; text-decoration:none; font-size:11px; font-weight:700;
+    color:var(--muted); text-transform:uppercase; letter-spacing:.02em; margin-left:2px;
+  }
+  .slot-note{
+    display:none; margin-top:12px; padding:12px 16px; border-radius:12px;
+    background:rgba(224,106,106,0.08); border:1px solid #e06a6a; color:#e06a6a;
+    font-family:var(--sans); font-weight:600; font-size:13px;
+  }
+  .slot-note.show{display:block; animation:slidein .3s ease;}
+  .day.full{opacity:.35; cursor:not-allowed; pointer-events:none;}
 
   .price-panel{
     margin-top:36px; padding:28px; background:var(--black-2); border:1px solid var(--line); border-radius:18px;
@@ -711,6 +727,7 @@
         <div class="step-sub">
           <div class="sub-label">Время сеанса</div>
           <div class="slot-row" id="slotRow"></div>
+          <div class="slot-note" id="slotNote"></div>
         </div>
         <div class="step-sub">
           <div class="sub-label">Количество игроков</div>
@@ -953,6 +970,31 @@
     return list[list.length-1];
   }
 
+  const slots = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
+  const lateIdx = 8;
+
+  function isoDate(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return y + '-' + m + '-' + day;
+  }
+
+  /* ---- live slot availability (backed by /api/slots, so bookings made by
+     other visitors show up here too, without a full page reload) ---- */
+  let bookedSlots = {};
+  async function fetchBookedSlots(){
+    try{
+      const res = await fetch('/api/slots', { cache:'no-store' });
+      if(!res.ok) return;
+      bookedSlots = await res.json();
+      renderMonth();
+      refreshSlotAvailability();
+    } catch(err){
+      // Network hiccup — keep whatever we had, fail open rather than blocking bookings.
+    }
+  }
+
   const step2Block = document.getElementById('step2Block');
   const step3Wrap = document.getElementById('step3Wrap');
   function scrollToStep(el){
@@ -1050,11 +1092,13 @@
       const d = new Date(viewYear, viewMonth, dnum);
       const weekend = isWeekend(d);
       const bookable = inRange(d);
+      const bookedForDay = bookedSlots[isoDate(d)] || [];
+      const isFull = bookable && bookedForDay.length >= slots.length;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
+      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (isFull ? ' full':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
       btn.innerHTML = '<small>'+dayNames[mondayIdx(d)]+'</small>'+dnum;
-      if(!bookable){
+      if(!bookable || isFull){
         btn.disabled = true;
       } else {
         btn.addEventListener('click', ()=>{
@@ -1064,6 +1108,8 @@
           document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
           btn.classList.add('active');
           updatePrice();
+          slotNote.classList.remove('show');
+          refreshSlotAvailability();
           revealStep2AndScroll();
         });
       }
@@ -1088,27 +1134,52 @@
   });
 
   renderMonth();
+  fetchBookedSlots();
+  setInterval(fetchBookedSlots, 25000); // keep availability fresh across visitors
 
   const slotRow = document.getElementById('slotRow');
-  const slots = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
-  const lateIdx = 8;
+  const slotNote = document.getElementById('slotNote');
   let selectedSlot = null;
   let selectedSlotIsLate = false;
   slots.forEach((s,i)=>{
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'slot';
+    btn.dataset.time = s;
     btn.innerHTML = '<span class="dot"></span>' + s;
     btn.addEventListener('click', ()=>{
+      if(btn.classList.contains('slot-taken')) return;
       selectedSlot = s;
       selectedSlotIsLate = (i===lateIdx);
       document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
       btn.classList.add('active');
+      slotNote.classList.remove('show');
       updatePrice();
       maybeRevealStep3AndScroll();
     });
     slotRow.appendChild(btn);
   });
+
+  function refreshSlotAvailability(){
+    if(!selectedDate) return;
+    const takenNow = bookedSlots[isoDate(selectedDate)] || [];
+    let selectedGotTaken = false;
+    document.querySelectorAll('.slot').forEach(btn=>{
+      const taken = takenNow.includes(btn.dataset.time);
+      btn.classList.toggle('slot-taken', taken);
+      if(taken && btn.classList.contains('active')){
+        btn.classList.remove('active');
+        selectedGotTaken = true;
+      }
+    });
+    if(selectedGotTaken){
+      selectedSlot = null;
+      selectedSlotIsLate = false;
+      updatePrice();
+      slotNote.textContent = 'Это время только что заняли — пожалуйста, выберите другое.';
+      slotNote.classList.add('show');
+    }
+  }
 
   const submitBtn = document.getElementById('submitBtn');
   const submitBtnDefaultText = submitBtn.textContent;
@@ -1132,9 +1203,15 @@
       return;
     }
 
+    if(!selectedDate || !selectedSlot){
+      msg.textContent = 'Выберите дату и время сеанса — без этого нельзя отправить заявку.';
+      msg.classList.add('show', 'err');
+      return;
+    }
+
     const t = priceFor(selectedPlayers, selectedIsWeekend);
     const surcharge = selectedSlotIsLate ? 20 : 0;
-    const timeText = selectedSlot ? selectedSlot : 'время уточним по телефону';
+    const timeText = selectedSlot;
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Отправляем…';
@@ -1148,6 +1225,7 @@
           phone,
           players: selectedPlayers,
           date: selectedDateLabel,
+          dateISO: isoDate(selectedDate),
           time: timeText,
           price: (t.price + surcharge),
           comment,
@@ -1163,6 +1241,10 @@
         nameField.value = '';
         phoneField.value = '';
         commentField.value = '';
+      } else if(res.status === 409 || out.conflict){
+        msg.textContent = out.error || 'Это время только что заняли — пожалуйста, выберите другое.';
+        msg.classList.add('show', 'err');
+        await fetchBookedSlots();
       } else {
         msg.textContent = out.error || 'Не удалось отправить заявку. Позвоните нам напрямую.';
         msg.classList.add('show', 'err');
