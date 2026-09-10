@@ -289,6 +289,22 @@
   .cal-legend-swatch.busy{background:#d95926;}
   .cal-legend-swatch.closed{background:#3987e5;}
   .cal-legend-swatch.open{background:#199e70;}
+  /* Selected day in the overview grid keeps its status fill (that's the
+     whole point of the color) and gets a bright ring on top to show which
+     day the slot panel below belongs to. */
+  .day.overview-selected{box-shadow:0 0 0 2px var(--paper) inset;}
+  .overview-day-heading{
+    font-family:var(--sans); font-weight:800; font-size:13.5px; letter-spacing:.05em;
+    text-transform:uppercase; color:var(--ochre-bright); margin:18px 0 10px;
+    padding-top:16px; border-top:1px solid #2a2a2a;
+  }
+  /* Same three validated colors as the month grid, reused on the slot
+     buttons so the mapping (orange/blue/green -> booking/technical/open)
+     stays consistent everywhere in this modal. */
+  .slot-btn.slot-open{background:#199e70; border-color:#199e70; color:#fff;}
+  .slot-btn.slot-technical{background:#3987e5; border-color:#3987e5; color:#fff;}
+  .slot-btn.slot-customer{background:#d95926; border-color:#d95926; color:#fff;}
+  .slot-btn.overview-slot.picked{outline:2px solid #fff; outline-offset:1px;}
 
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
@@ -366,7 +382,14 @@
       <div class="cal-legend-item"><span class="cal-legend-swatch closed"></span>Закрыто технически</div>
       <div class="cal-legend-item"><span class="cal-legend-swatch open"></span>Полностью свободно</div>
     </div>
-    <p style="font-size:12.5px; color:var(--muted); margin-top:12px;">Нажмите на день, чтобы посмотреть все брони за эту дату в списке «Активные».</p>
+
+    <div id="overviewDayPanel" style="display:none;">
+      <div class="overview-day-heading" id="overviewDayHeading"></div>
+      <div class="slot-grid" id="overviewSlotGrid"></div>
+      <div class="day-status" id="overviewSlotDetail" style="display:none;"></div>
+    </div>
+
+    <p style="font-size:12.5px; color:var(--muted); margin-top:12px;" id="overviewHint">Нажмите на день, чтобы увидеть его слоты, а на слот — чтобы прочитать детали брони.</p>
   </div>
 </div>
 
@@ -1512,6 +1535,11 @@
   const overviewCalPrev = document.getElementById('overviewCalPrev');
   const overviewCalNext = document.getElementById('overviewCalNext');
   let overviewViewYear, overviewViewMonth;
+  let overviewSelectedDateISO = null;
+  const overviewDayPanel = document.getElementById('overviewDayPanel');
+  const overviewDayHeading = document.getElementById('overviewDayHeading');
+  const overviewSlotGrid = document.getElementById('overviewSlotGrid');
+  const overviewSlotDetail = document.getElementById('overviewSlotDetail');
 
   // Priority rule for a single day's color: any customer booking makes the
   // whole day "busy" (the thing staff actually care about at a glance);
@@ -1558,21 +1586,20 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       const statusCls = inRange ? ' cal-status-' + dayStatusFor(iso) : '';
-      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + statusCls;
+      const selectedCls = (inRange && iso === overviewSelectedDateISO) ? ' overview-selected' : '';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + statusCls + selectedCls;
       btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
       if (!inRange) {
         btn.disabled = true;
       } else {
         btn.title = dayStatusTooltip(iso);
         btn.addEventListener('click', () => {
-          // Jump straight to that day's active bookings — the overview is
-          // meant to be a launchpad into the list, not just decoration.
-          filterDateISO = iso;
-          activeTab = 'active';
-          syncTabsUI();
-          syncDayFilterUI();
-          renderList();
-          overviewOverlay.classList.remove('show');
+          // Select the day right here and show its slot breakdown below —
+          // everything stays inside this one calendar window instead of
+          // jumping out to the list.
+          overviewSelectedDateISO = iso;
+          renderOverviewCalendar();
+          renderOverviewDaySlots(iso);
         });
       }
       overviewCalGrid.appendChild(btn);
@@ -1594,10 +1621,75 @@
     renderOverviewCalendar();
   });
 
+  // Draws the 9-slot grid for one day (green = free, blue = technical,
+  // orange = customer booking) and wires each slot to show its own details
+  // right below — the comment on a technical slot, or the full booking info
+  // on a customer one — without leaving this modal.
+  function renderOverviewDaySlots(dateISO){
+    overviewDayHeading.textContent = formatDateHeading(dateISO);
+    overviewSlotDetail.style.display = 'none';
+    overviewSlotDetail.innerHTML = '';
+
+    const byTime = {};
+    allBookings
+      .filter(b => b.dateISO === dateISO && b.status === 'active')
+      .forEach(b => { byTime[b.time] = b; });
+
+    overviewSlotGrid.innerHTML = SLOTS.map(time => {
+      const b = byTime[time];
+      const cls = b ? (b.type === 'technical' ? 'slot-technical' : 'slot-customer') : 'slot-open';
+      return `<button type="button" class="slot-btn overview-slot ${cls}" data-time="${escapeHtml(time)}">${escapeHtml(time)}</button>`;
+    }).join('');
+
+    overviewSlotGrid.querySelectorAll('.overview-slot').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overviewSlotGrid.querySelectorAll('.overview-slot').forEach(b2 => b2.classList.remove('picked'));
+        btn.classList.add('picked');
+        const time = btn.dataset.time;
+        const b = byTime[time];
+        overviewSlotDetail.style.display = 'block';
+
+        if (!b){
+          overviewSlotDetail.innerHTML = `<b>${escapeHtml(time)}</b> — слот свободен, брони нет.`;
+          return;
+        }
+
+        const openInListBtn = `<div style="margin-top:10px;"><button type="button" class="btn-secondary" id="overviewOpenDetailBtn" style="width:auto; padding:8px 14px; font-size:12.5px;">Открыть карточку брони →</button></div>`;
+
+        if (b.type === 'technical'){
+          overviewSlotDetail.innerHTML =
+            `<b>${escapeHtml(time)} · Техническая бронь</b><br>` +
+            `Комментарий: ${b.comment ? escapeHtml(b.comment) : '—'}` +
+            openInListBtn;
+        } else {
+          overviewSlotDetail.innerHTML =
+            `<b>${escapeHtml(time)} · ${escapeHtml(b.name || 'Клиент')}</b><br>` +
+            `Телефон: ${escapeHtml(b.phone || '—')}<br>` +
+            `Игроков: ${escapeHtml(b.players || '—')}<br>` +
+            `Цена: ${b.price ? escapeHtml(b.price) + ' Br' : '—'}<br>` +
+            `Комментарий: ${b.comment ? escapeHtml(b.comment) : '—'}` +
+            openInListBtn;
+        }
+
+        const openBtn = document.getElementById('overviewOpenDetailBtn');
+        if (openBtn){
+          openBtn.addEventListener('click', () => {
+            overviewOverlay.classList.remove('show');
+            openDetail(b);
+          });
+        }
+      });
+    });
+
+    overviewDayPanel.style.display = 'block';
+  }
+
   function openOverviewModal(){
     const t = parseISO(todayISO());
     overviewViewYear = t.getFullYear();
     overviewViewMonth = t.getMonth();
+    overviewSelectedDateISO = null;
+    overviewDayPanel.style.display = 'none';
     renderOverviewCalendar();
     overviewOverlay.classList.add('show');
   }
