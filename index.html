@@ -377,14 +377,28 @@
   @media (max-width:860px){
     .nav-links{display:none;}
     .nav-toggle{display:flex;}
-    .about-grid, .rating-block, .loc-grid{grid-template-columns:1fr; gap:32px;}
+    .about-grid, .rating-block, .loc-grid{grid-template-columns:1fr; gap:24px;}
+    .about-photo{order:-1; aspect-ratio:16/10; max-height:230px;}
     .rating-hero{border-right:none; border-bottom:1px solid var(--line); padding-right:0; padding-bottom:24px;}
+    .rating-hero b{font-size:56px;}
     .reviews-grid{grid-template-columns:1fr;}
     .gallery-grid{grid-template-columns:repeat(2,1fr);}
     .contact-fields{grid-template-columns:1fr;}
-    .intake{padding:26px;}
-    .classified{padding:32px 24px;}
-    section{padding:56px 20px;}
+    .intake{padding:22px;}
+    .classified{padding:28px 20px;}
+    section{padding:48px 20px;}
+    h2{margin-bottom:18px;}
+    .map-frame{height:220px;}
+    .loc-grid li{font-size:14px;}
+  }
+
+  @media (max-width:480px){
+    .hero{min-height:auto;}
+    .hero > .wrap{padding-top:104px; padding-bottom:40px;}
+    .stat-strip{gap:8px;}
+    .stat{padding:11px 14px;}
+    .price-panel{flex-direction:column; align-items:flex-start;}
+    .price-tiers{text-align:left;}
   }
 </style>
 </head>
