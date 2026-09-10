@@ -11,32 +11,23 @@
 //                          open https://api.telegram.org/bot<TOKEN>/getUpdates
 //                          and look for "chat":{"id":...})
 //
-// Optional (needed for slot availability to work — see api/slots.js):
+// Optional (needed for slot availability + the admin panel to work — see
+// api/slots.js and api/admin/bookings.js):
 //   KV_REST_API_URL, KV_REST_API_TOKEN — added automatically once you
 //   connect a Vercel KV database (Storage tab → Create Database → KV) to
 //   this project. Without them, bookings still work, they just aren't
-//   checked against each other.
+//   checked against each other and won't show up in the admin panel.
+//
+// Bookings are stored in KV as a Redis HASH per date — key "bookings:<ISO
+// date>", one field per booked time, whose value is a JSON string with the
+// full booking details (name, phone, players, price, comment...). This lets
+// the admin panel list/view/cancel/reschedule bookings, while the public
+// api/slots.js endpoint only ever reads the field NAMES (the times), never
+// these JSON values, so customer details are never exposed publicly.
+
+import { kv } from './_kv.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
-
-async function kv(...args) {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null; // not connected — fail open, don't block bookings
-
-  const path = args.map((a) => encodeURIComponent(a)).join('/');
-  try {
-    const res = await fetch(`${url}/${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.result;
-  } catch (err) {
-    console.error('KV request failed:', err);
-    return null;
-  }
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -63,6 +54,9 @@ export default async function handler(req, res) {
   const cleanComment = typeof comment === 'string' ? comment.trim().slice(0, 500) : '';
   const cleanDateISO = typeof dateISO === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateISO) ? dateISO : '';
   const cleanTime = typeof time === 'string' ? time.trim().slice(0, 20) : '';
+  const cleanDateLabel = typeof date === 'string' ? date.trim().slice(0, 60) : '';
+  const cleanPlayers = players != null ? String(players).slice(0, 10) : '';
+  const cleanPrice = price != null ? String(price).slice(0, 20) : '';
 
   if (!cleanName || !cleanPhone) {
     return res.status(400).json({ error: 'Укажите имя и телефон.' });
@@ -78,13 +72,27 @@ export default async function handler(req, res) {
     });
   }
 
-  // Reserve the slot atomically: SADD returns 1 only if this (date, time)
-  // pair was not already in the set, so two simultaneous requests can never
-  // both "win" the same slot.
-  const slotKey = cleanDateISO && cleanTime ? `booked:${cleanDateISO}` : null;
+  // Reserve the slot atomically: HSETNX only sets the field if it doesn't
+  // already exist in the hash, so two simultaneous requests can never both
+  // "win" the same (date, time) pair.
+  const hashKey = cleanDateISO && cleanTime ? `bookings:${cleanDateISO}` : null;
   let reserved = false;
-  if (slotKey) {
-    const added = await kv('sadd', slotKey, cleanTime);
+
+  const record = {
+    type: 'customer',
+    name: cleanName,
+    phone: cleanPhone,
+    players: cleanPlayers,
+    price: cleanPrice,
+    comment: cleanComment,
+    dateISO: cleanDateISO,
+    dateLabel: cleanDateLabel,
+    time: cleanTime,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (hashKey) {
+    const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));
     if (added === 0) {
       return res.status(409).json({
         conflict: true,
@@ -99,10 +107,10 @@ export default async function handler(req, res) {
   const fields = [
     `👤 Имя: ${escapeMd(cleanName)}`,
     `📞 Телефон: ${escapeMd(cleanPhone)}`,
-    players ? `👥 Игроков: ${escapeMd(String(players).slice(0, 10))}` : null,
-    date ? `📅 Дата: ${escapeMd(String(date).slice(0, 60))}` : null,
+    cleanPlayers ? `👥 Игроков: ${escapeMd(cleanPlayers)}` : null,
+    cleanDateLabel ? `📅 Дата: ${escapeMd(cleanDateLabel)}` : null,
     cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
-    price ? `💰 Цена: ${escapeMd(String(price).slice(0, 20))} ₽` : null,
+    cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} ₽` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
   ].filter(Boolean).join('\n');
 
@@ -122,18 +130,18 @@ export default async function handler(req, res) {
 
     if (!tgData.ok) {
       console.error('Telegram API error:', tgData);
-      if (reserved) await kv('srem', slotKey, cleanTime); // release — the owner never got notified
+      if (reserved) await kv('hdel', hashKey, cleanTime); // release — the owner never got notified
       return res.status(502).json({
         error: 'Не удалось отправить заявку. Попробуйте позвонить нам.',
       });
     }
 
-    if (reserved) await kv('expire', slotKey, SLOT_TTL_SECONDS);
+    if (reserved) await kv('expire', hashKey, SLOT_TTL_SECONDS);
 
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error('Failed to reach Telegram API:', err);
-    if (reserved) await kv('srem', slotKey, cleanTime); // release — the owner never got notified
+    if (reserved) await kv('hdel', hashKey, cleanTime); // release — the owner never got notified
     return res.status(500).json({
       error: 'Внутренняя ошибка. Попробуйте ещё раз позже.',
     });

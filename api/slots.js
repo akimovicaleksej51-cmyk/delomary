@@ -3,6 +3,11 @@
 // site's booking window, so the front-end can grey them out for every
 // visitor — not just the one who booked them.
 //
+// This is public and unauthenticated, so it only ever reads the booked
+// TIMES (the hash field names, via HKEYS) — never the customer details
+// stored as the hash values. Those are only readable through the
+// password-protected api/admin/bookings.js endpoint.
+//
 // Backed by Vercel KV (a Redis database you connect from the Vercel
 // dashboard: Storage tab → Create Database → KV). Once connected, Vercel
 // automatically adds the required environment variables to this project:
@@ -12,6 +17,8 @@
 // If those variables are not set yet, this endpoint simply reports "no
 // bookings" for everyone — nothing on the site breaks, slots just aren't
 // blocked until the database is connected.
+
+import { kvPipeline } from './_kv.js';
 
 const BOOKING_DAYS_AHEAD = 65; // small buffer beyond the site's 60-day window
 
@@ -30,14 +37,6 @@ export default async function handler(req, res) {
 
   res.setHeader('Cache-Control', 'no-store');
 
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-
-  if (!url || !token) {
-    // Database not connected yet — report no bookings rather than failing.
-    return res.status(200).json({});
-  }
-
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const dates = [];
@@ -47,34 +46,22 @@ export default async function handler(req, res) {
     dates.push(isoDate(d));
   }
 
-  try {
-    const commands = dates.map((iso) => ['SMEMBERS', `booked:${iso}`]);
-    const pipeRes = await fetch(`${url}/pipeline`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(commands),
-    });
+  const commands = dates.map((iso) => ['HKEYS', `bookings:${iso}`]);
+  const results = await kvPipeline(commands);
 
-    if (!pipeRes.ok) {
-      console.error('KV pipeline request failed:', pipeRes.status);
-      return res.status(200).json({});
-    }
-
-    const results = await pipeRes.json();
-    const out = {};
-    results.forEach((entry, i) => {
-      const members = entry && entry.result;
-      if (Array.isArray(members) && members.length) {
-        out[dates[i]] = members;
-      }
-    });
-
-    return res.status(200).json(out);
-  } catch (err) {
-    console.error('Failed to read booked slots from KV:', err);
+  if (!results) {
+    // Database not connected (or the request failed) — report no bookings
+    // rather than failing the whole site.
     return res.status(200).json({});
   }
+
+  const out = {};
+  results.forEach((entry, i) => {
+    const times = entry && entry.result;
+    if (Array.isArray(times) && times.length) {
+      out[dates[i]] = times;
+    }
+  });
+
+  return res.status(200).json(out);
 }

@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Админка — Дело Мэри</title>
+<link rel="icon" href="/assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --black:#000000; --black-2:#0C0C0C; --black-3:#171717;
+    --ochre:#E0A722; --ochre-bright:#F5C518; --ochre-deep:#8a6a15;
+    --paper:#F3EFE4; --muted:#B9B4A6;
+    --danger:#e5484d; --danger-bright:#ff6b6f;
+    --display:'Anton','Arial Narrow',sans-serif;
+    --sans:'Manrope',Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; min-height:100vh; background:var(--black); color:var(--paper);
+    font-family:var(--sans); padding:24px 16px 60px;
+  }
+  h1,h2,h3{font-family:var(--display); font-weight:400; text-transform:uppercase; letter-spacing:.02em; margin:0;}
+  a{color:var(--ochre-bright);}
+  button{font-family:var(--sans); cursor:pointer;}
+  .wrap{max-width:920px; margin:0 auto;}
+
+  /* ---------- Login screen ---------- */
+  #loginScreen{
+    min-height:70vh; display:flex; align-items:center; justify-content:center;
+  }
+  .login-card{
+    width:100%; max-width:360px; background:var(--black-2); border:1px solid #2a2a2a;
+    border-radius:18px; padding:32px 28px; text-align:center;
+  }
+  .login-card h1{font-size:22px; margin-bottom:6px;}
+  .login-card p{color:var(--muted); font-size:14px; margin:0 0 22px;}
+  .pw-field{position:relative; margin-bottom:14px;}
+  .pw-field input{
+    width:100%; padding:13px 44px 13px 14px; border-radius:10px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:15px; font-family:var(--sans);
+  }
+  .pw-field input:focus{outline:none; border-color:var(--ochre);}
+  .pw-toggle{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    background:none; border:none; color:var(--muted); padding:8px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .pw-toggle:hover{color:var(--paper); background:#2a2a2a;}
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--ochre-bright); color:var(--black); border:none; font-weight:800;
+    font-size:14.5px; padding:13px 20px; border-radius:10px; width:100%;
+    transition:transform .15s, background .15s;
+  }
+  .btn:hover{background:var(--ochre);}
+  .btn:active{transform:scale(.98);}
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  .btn-secondary{
+    background:transparent; color:var(--paper); border:1px solid #3a3a3a; width:auto;
+  }
+  .btn-secondary:hover{background:var(--black-3); border-color:#4a4a4a;}
+  .btn-danger{background:var(--danger); color:#fff;}
+  .btn-danger:hover{background:var(--danger-bright);}
+  .err-msg{
+    color:var(--danger-bright); font-size:13.5px; margin-top:12px; min-height:1em;
+  }
+
+  /* ---------- Panel shell ---------- */
+  #panel{display:none;}
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
+    margin-bottom:26px; padding-bottom:18px; border-bottom:1px solid #262626;
+  }
+  .topbar h1{font-size:24px;}
+  .topbar-actions{display:flex; gap:10px; flex-wrap:wrap;}
+  .btn-secondary, .btn-danger{padding:11px 18px;}
+
+  /* ---------- Bookings list ---------- */
+  .day-group{margin-bottom:26px;}
+  .day-heading{
+    font-family:var(--sans); font-weight:800; font-size:13.5px; letter-spacing:.05em;
+    text-transform:uppercase; color:var(--ochre-bright); margin-bottom:10px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .day-heading .weekend-tag{color:var(--danger-bright);}
+  .booking-row{
+    display:flex; align-items:center; gap:14px; background:var(--black-2);
+    border:1px solid #262626; border-radius:12px; padding:13px 16px; margin-bottom:8px;
+    cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .booking-row:hover{border-color:#3d3d3d; background:#141414;}
+  .row-time{
+    font-family:var(--display); font-weight:400; font-size:17px; min-width:58px; color:var(--paper);
+  }
+  .row-type{
+    font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    padding:4px 9px; border-radius:999px; flex-shrink:0;
+  }
+  .row-type.customer{background:rgba(224,167,34,.18); color:var(--ochre-bright);}
+  .row-type.technical{background:rgba(185,180,166,.18); color:var(--muted);}
+  .row-main{flex:1; min-width:0;}
+  .row-name{font-weight:700; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row-sub{font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row-price{font-weight:800; color:var(--ochre-bright); font-size:14.5px; flex-shrink:0;}
+  .empty-note, .load-note{color:var(--muted); font-size:14.5px; padding:30px 0; text-align:center;}
+
+  /* ---------- Modal ---------- */
+  .modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.72);
+    align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; z-index:50;
+  }
+  .modal-overlay.show{display:flex;}
+  .modal-box{
+    width:100%; max-width:480px; background:var(--black-2); border:1px solid #2c2c2c;
+    border-radius:18px; padding:26px 24px; margin:auto;
+  }
+  .modal-box h2{font-size:19px; margin-bottom:18px;}
+  .modal-close-x{
+    float:right; background:none; border:none; color:var(--muted); font-size:20px; line-height:1;
+    padding:4px 8px; border-radius:8px;
+  }
+  .modal-close-x:hover{color:var(--paper); background:#2a2a2a;}
+  .detail-field{margin-bottom:14px;}
+  .detail-field label{
+    display:block; font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--muted); margin-bottom:5px;
+  }
+  .detail-field .value{font-size:15px; word-break:break-word;}
+  .detail-field input, .detail-field textarea{
+    width:100%; padding:10px 12px; border-radius:8px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:14.5px; font-family:var(--sans);
+  }
+  .detail-field textarea{resize:vertical; min-height:64px;}
+  .detail-field input:focus, .detail-field textarea:focus{outline:none; border-color:var(--ochre);}
+  .modal-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:20px;}
+  .modal-actions .btn, .modal-actions .btn-secondary, .modal-actions .btn-danger{width:auto; flex:1 1 auto;}
+  .modal-msg{font-size:13.5px; margin-top:12px; min-height:1em;}
+  .modal-msg.err{color:var(--danger-bright);}
+  .modal-msg.ok{color:var(--ochre-bright);}
+
+  /* ---------- Slot grid (reused for reschedule + technical booking) ---------- */
+  .slot-grid{display:flex; flex-wrap:wrap; gap:8px;}
+  .slot-btn{
+    padding:9px 14px; border-radius:9px; border:1px solid #333; background:var(--black-3);
+    color:var(--paper); font-weight:700; font-size:13.5px; font-family:var(--sans);
+  }
+  .slot-btn:hover{border-color:var(--ochre);}
+  .slot-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  .slot-btn.taken{opacity:.35; cursor:not-allowed; text-decoration:line-through; pointer-events:none;}
+
+  @media (max-width:480px){
+    .modal-box{padding:20px 16px;}
+    .row-sub{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>Админка</h1>
+    <p>Дело Мэри — вход по паролю</p>
+    <div class="pw-field">
+      <input type="password" id="loginPassword" placeholder="Пароль" autocomplete="current-password">
+      <button type="button" class="pw-toggle" id="loginPwToggle" aria-label="Показать пароль">
+        <svg id="loginEyeIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+    <button class="btn" id="loginSubmit">Войти</button>
+    <div class="err-msg" id="loginErr"></div>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="wrap">
+    <div class="topbar">
+      <h1>Брони — Дело Мэри</h1>
+      <div class="topbar-actions">
+        <button class="btn-secondary" id="refreshBtn">Обновить</button>
+        <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Техническая бронь</button>
+        <button class="btn-secondary" id="logoutBtn">Выйти</button>
+      </div>
+    </div>
+    <div id="listContainer"><div class="load-note">Загрузка…</div></div>
+  </div>
+</div>
+
+<!-- Booking detail modal -->
+<div class="modal-overlay" id="detailOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="detail">✕</button>
+    <h2 id="detailTitle">Бронь</h2>
+
+    <div id="detailView">
+      <div class="detail-field"><label>Тип</label><div class="value" id="dvType"></div></div>
+      <div class="detail-field"><label>Имя</label><div class="value" id="dvName"></div></div>
+      <div class="detail-field"><label>Телефон</label><div class="value" id="dvPhone"></div></div>
+      <div class="detail-field"><label>Игроков</label><div class="value" id="dvPlayers"></div></div>
+      <div class="detail-field"><label>Цена</label><div class="value" id="dvPrice"></div></div>
+      <div class="detail-field"><label>Комментарий</label><div class="value" id="dvComment"></div></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
+        <button class="btn-secondary" id="editBtn">Редактировать</button>
+        <button class="btn-danger" id="cancelBookingBtn">Отменить</button>
+      </div>
+    </div>
+
+    <div id="editView" style="display:none;">
+      <div class="detail-field"><label>Имя</label><input id="editName"></div>
+      <div class="detail-field"><label>Телефон</label><input id="editPhone"></div>
+      <div class="detail-field"><label>Игроков</label><input id="editPlayers"></div>
+      <div class="detail-field"><label>Цена</label><input id="editPrice"></div>
+      <div class="detail-field"><label>Комментарий</label><textarea id="editComment" rows="3"></textarea></div>
+      <div class="modal-actions">
+        <button class="btn" id="saveEditBtn">Сохранить</button>
+        <button class="btn-secondary" id="cancelEditBtn">Назад</button>
+      </div>
+    </div>
+
+    <div id="rescheduleView" style="display:none;">
+      <div class="detail-field">
+        <label>Новая дата</label>
+        <input type="date" id="rescheduleDate">
+      </div>
+      <div class="detail-field">
+        <label>Новое время</label>
+        <div class="slot-grid" id="rescheduleSlots"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="saveRescheduleBtn">Перенести бронь</button>
+        <button class="btn-secondary" id="cancelRescheduleBtn">Назад</button>
+      </div>
+    </div>
+
+    <div class="modal-msg" id="detailMsg"></div>
+  </div>
+</div>
+
+<!-- Cancel confirmation modal -->
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="modal-box" style="max-width:380px;">
+    <h2 style="font-size:17px;">Отменить бронь?</h2>
+    <p style="color:var(--muted); font-size:14px; margin:0 0 4px;" id="confirmText"></p>
+    <div class="modal-actions">
+      <button class="btn-danger" id="confirmYes">Да, отменить</button>
+      <button class="btn-secondary" id="confirmNo">Нет</button>
+    </div>
+  </div>
+</div>
+
+<!-- Technical booking modal -->
+<div class="modal-overlay" id="techOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="tech">✕</button>
+    <h2>Техническая бронь</h2>
+    <div class="detail-field">
+      <label>Дата</label>
+      <input type="date" id="techDate">
+    </div>
+    <div class="detail-field">
+      <label>Время</label>
+      <div class="slot-grid" id="techSlots"></div>
+    </div>
+    <div class="detail-field">
+      <label>Комментарий (необязательно)</label>
+      <textarea id="techComment" rows="3" maxlength="500" placeholder="Например: уборка, съёмки, ремонт"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="techSubmitBtn">Заблокировать слот</button>
+      <button class="btn-secondary" id="techCancelBtn">Отмена</button>
+    </div>
+    <div class="modal-msg" id="techMsg"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
+  const BOOKING_DAYS_AHEAD = 65;
+  const WEEKDAY_NAMES = ['вс','пн','вт','ср','чт','пт','сб'];
+  const MONTH_NAMES = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+
+  let adminPassword = null;
+  let allBookings = [];
+  let activeBooking = null; // the booking currently open in the detail modal
+
+  // ---------- helpers ----------
+  function todayISO(){
+    const d = new Date();
+    d.setHours(0,0,0,0);
+    return isoDate(d);
+  }
+  function isoDate(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  function maxDateISO(){
+    const d = new Date();
+    d.setDate(d.getDate() + BOOKING_DAYS_AHEAD);
+    return isoDate(d);
+  }
+  function parseISO(iso){
+    const [y,m,d] = iso.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+  function isWeekendISO(iso){
+    const dow = parseISO(iso).getDay();
+    return dow === 0 || dow === 6;
+  }
+  function formatDateHeading(iso){
+    const d = parseISO(iso);
+    const wd = WEEKDAY_NAMES[d.getDay()];
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${wd}`;
+  }
+  function escapeHtml(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function authHeaders(){
+    return { 'Content-Type':'application/json', 'X-Admin-Password': adminPassword || '' };
+  }
+
+  // ---------- login ----------
+  const loginScreen = document.getElementById('loginScreen');
+  const panel = document.getElementById('panel');
+  const loginPassword = document.getElementById('loginPassword');
+  const loginPwToggle = document.getElementById('loginPwToggle');
+  const loginEyeIcon = document.getElementById('loginEyeIcon');
+  const loginSubmit = document.getElementById('loginSubmit');
+  const loginErr = document.getElementById('loginErr');
+
+  loginPwToggle.addEventListener('click', () => {
+    const showing = loginPassword.type === 'text';
+    loginPassword.type = showing ? 'password' : 'text';
+    loginEyeIcon.innerHTML = showing
+      ? '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>'
+      : '<path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.24 4.24"/><path d="M9.9 4.24A11 11 0 0 1 12 4c7 0 11 7 11 7a13.4 13.4 0 0 1-3.17 3.88M6.6 6.6C3.87 8.36 2 11 2 11s4 7 11 7a10.9 10.9 0 0 0 5.4-1.4"/>';
+  });
+
+  async function tryLogin(){
+    const pw = loginPassword.value;
+    if (!pw){ loginErr.textContent = 'Введите пароль.'; return; }
+    loginSubmit.disabled = true;
+    loginErr.textContent = '';
+    try{
+      const res = await fetch('/api/admin/login', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pw })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok){
+        adminPassword = pw;
+        localStorage.setItem('adminPassword', pw);
+        showPanel();
+      } else {
+        loginErr.textContent = out.error || 'Неверный пароль.';
+      }
+    } catch(err){
+      loginErr.textContent = 'Не удалось связаться с сервером. Попробуйте ещё раз.';
+    } finally {
+      loginSubmit.disabled = false;
+    }
+  }
+  loginSubmit.addEventListener('click', tryLogin);
+  loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    adminPassword = null;
+    localStorage.removeItem('adminPassword');
+    panel.style.display = 'none';
+    loginScreen.style.display = 'flex';
+    loginPassword.value = '';
+  });
+
+  function showPanel(){
+    loginScreen.style.display = 'none';
+    panel.style.display = 'block';
+    loadBookings();
+  }
+
+  // ---------- loading & rendering the bookings list ----------
+  const listContainer = document.getElementById('listContainer');
+
+  async function loadBookings(){
+    listContainer.innerHTML = '<div class="load-note">Загрузка…</div>';
+    try{
+      const res = await fetch('/api/admin/bookings', { headers: authHeaders(), cache:'no-store' });
+      if (res.status === 401){
+        adminPassword = null;
+        localStorage.removeItem('adminPassword');
+        panel.style.display = 'none';
+        loginScreen.style.display = 'flex';
+        loginErr.textContent = 'Сессия истекла — войдите снова.';
+        return;
+      }
+      const out = await res.json().catch(() => ({}));
+      allBookings = Array.isArray(out.bookings) ? out.bookings : [];
+      renderList();
+    } catch(err){
+      listContainer.innerHTML = '<div class="empty-note">Не удалось загрузить брони. Проверьте соединение и нажмите «Обновить».</div>';
+    }
+  }
+
+  function takenTimesFor(dateISO, excludeBooking){
+    return allBookings
+      .filter(b => b.dateISO === dateISO && b !== excludeBooking)
+      .map(b => b.time);
+  }
+
+  function renderList(){
+    if (!allBookings.length){
+      listContainer.innerHTML = '<div class="empty-note">Броней пока нет.</div>';
+      return;
+    }
+    const byDate = {};
+    allBookings.forEach(b => {
+      (byDate[b.dateISO] = byDate[b.dateISO] || []).push(b);
+    });
+    const dates = Object.keys(byDate).sort();
+
+    listContainer.innerHTML = dates.map(dateISO => {
+      const weekend = isWeekendISO(dateISO);
+      const rows = byDate[dateISO]
+        .slice()
+        .sort((a,b) => a.time.localeCompare(b.time))
+        .map(b => {
+          const isTech = b.type === 'technical';
+          const name = isTech ? 'Техническая бронь' : (b.name || '—');
+          const sub = isTech ? (b.comment || '') : (b.phone || '');
+          const priceLabel = (!isTech && b.price) ? `${escapeHtml(b.price)} ₽` : '';
+          return `
+            <div class="booking-row" data-date="${dateISO}" data-time="${escapeHtml(b.time)}">
+              <div class="row-time">${escapeHtml(b.time)}</div>
+              <div class="row-type ${isTech ? 'technical' : 'customer'}">${isTech ? 'Техническая' : 'Клиент'}</div>
+              <div class="row-main">
+                <div class="row-name">${escapeHtml(name)}${!isTech && b.players ? ` · ${escapeHtml(b.players)} чел.` : ''}</div>
+                ${sub ? `<div class="row-sub">${escapeHtml(sub)}</div>` : ''}
+              </div>
+              ${priceLabel ? `<div class="row-price">${priceLabel}</div>` : ''}
+            </div>`;
+        }).join('');
+
+      return `
+        <div class="day-group">
+          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : ''}</div>
+          ${rows}
+        </div>`;
+    }).join('');
+
+    listContainer.querySelectorAll('.booking-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const { date, time } = row.dataset;
+        const booking = allBookings.find(b => b.dateISO === date && b.time === time);
+        if (booking) openDetail(booking);
+      });
+    });
+  }
+
+  document.getElementById('refreshBtn').addEventListener('click', loadBookings);
+
+  // ---------- detail modal ----------
+  const detailOverlay = document.getElementById('detailOverlay');
+  const detailView = document.getElementById('detailView');
+  const editView = document.getElementById('editView');
+  const rescheduleView = document.getElementById('rescheduleView');
+  const detailMsg = document.getElementById('detailMsg');
+
+  function resetDetailViews(){
+    detailView.style.display = 'block';
+    editView.style.display = 'none';
+    rescheduleView.style.display = 'none';
+    detailMsg.textContent = '';
+    detailMsg.className = 'modal-msg';
+  }
+
+  function openDetail(booking){
+    activeBooking = booking;
+    resetDetailViews();
+    const isTech = booking.type === 'technical';
+    document.getElementById('detailTitle').textContent =
+      `${isTech ? 'Техническая бронь' : 'Бронь'} · ${formatDateHeading(booking.dateISO)} в ${booking.time}`;
+    document.getElementById('dvType').textContent = isTech ? 'Техническая (слот заблокирован)' : 'Клиентская бронь';
+    document.getElementById('dvName').textContent = booking.name || '—';
+    document.getElementById('dvPhone').textContent = booking.phone || '—';
+    document.getElementById('dvPlayers').textContent = booking.players || '—';
+    document.getElementById('dvPrice').textContent = booking.price ? `${booking.price} ₽` : '—';
+    document.getElementById('dvComment').textContent = booking.comment || '—';
+    detailOverlay.classList.add('show');
+  }
+
+  function closeDetail(){
+    detailOverlay.classList.remove('show');
+    activeBooking = null;
+  }
+
+  document.querySelectorAll('[data-close="detail"]').forEach(b => b.addEventListener('click', closeDetail));
+  detailOverlay.addEventListener('click', e => { if (e.target === detailOverlay) closeDetail(); });
+
+  // -- edit --
+  document.getElementById('editBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    detailView.style.display = 'none';
+    editView.style.display = 'block';
+    document.getElementById('editName').value = activeBooking.name || '';
+    document.getElementById('editPhone').value = activeBooking.phone || '';
+    document.getElementById('editPlayers').value = activeBooking.players || '';
+    document.getElementById('editPrice').value = activeBooking.price || '';
+    document.getElementById('editComment').value = activeBooking.comment || '';
+  });
+  document.getElementById('cancelEditBtn').addEventListener('click', resetDetailViews);
+
+  document.getElementById('saveEditBtn').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    const payload = {
+      action:'edit',
+      dateISO: activeBooking.dateISO,
+      time: activeBooking.time,
+      name: document.getElementById('editName').value,
+      phone: document.getElementById('editPhone').value,
+      players: document.getElementById('editPlayers').value,
+      price: document.getElementById('editPrice').value,
+      comment: document.getElementById('editComment').value,
+    };
+    try{
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось сохранить.'; detailMsg.className = 'modal-msg err'; return; }
+      await loadBookings();
+      closeDetail();
+    } catch(err){
+      detailMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; detailMsg.className = 'modal-msg err';
+    }
+  });
+
+  // -- reschedule --
+  const rescheduleDate = document.getElementById('rescheduleDate');
+  const rescheduleSlots = document.getElementById('rescheduleSlots');
+  let rescheduleSelectedTime = null;
+
+  function renderRescheduleSlots(){
+    const dateISO = rescheduleDate.value;
+    const taken = dateISO ? takenTimesFor(dateISO, activeBooking) : [];
+    rescheduleSlots.innerHTML = SLOTS.map(s => {
+      const isTaken = taken.includes(s);
+      const isActive = s === rescheduleSelectedTime;
+      return `<button type="button" class="slot-btn ${isTaken ? 'taken':''} ${isActive ? 'active':''}" data-time="${s}">${s}</button>`;
+    }).join('');
+    rescheduleSlots.querySelectorAll('.slot-btn:not(.taken)').forEach(btn => {
+      btn.addEventListener('click', () => {
+        rescheduleSelectedTime = btn.dataset.time;
+        renderRescheduleSlots();
+      });
+    });
+  }
+
+  document.getElementById('rescheduleBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    detailView.style.display = 'none';
+    rescheduleView.style.display = 'block';
+    rescheduleDate.min = todayISO();
+    rescheduleDate.max = maxDateISO();
+    rescheduleDate.value = activeBooking.dateISO;
+    rescheduleSelectedTime = null;
+    renderRescheduleSlots();
+  });
+  rescheduleDate.addEventListener('change', () => { rescheduleSelectedTime = null; renderRescheduleSlots(); });
+  document.getElementById('cancelRescheduleBtn').addEventListener('click', resetDetailViews);
+
+  document.getElementById('saveRescheduleBtn').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    if (!rescheduleDate.value || !rescheduleSelectedTime){
+      detailMsg.textContent = 'Выберите дату и время.'; detailMsg.className = 'modal-msg err'; return;
+    }
+    const payload = {
+      action:'reschedule',
+      fromDateISO: activeBooking.dateISO,
+      fromTime: activeBooking.time,
+      toDateISO: rescheduleDate.value,
+      toTime: rescheduleSelectedTime,
+    };
+    try{
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось перенести бронь.'; detailMsg.className = 'modal-msg err'; return; }
+      await loadBookings();
+      closeDetail();
+    } catch(err){
+      detailMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; detailMsg.className = 'modal-msg err';
+    }
+  });
+
+  // -- cancel --
+  const confirmOverlay = document.getElementById('confirmOverlay');
+  document.getElementById('cancelBookingBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    document.getElementById('confirmText').textContent =
+      `${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}${activeBooking.name ? ' — ' + activeBooking.name : ''}`;
+    confirmOverlay.classList.add('show');
+  });
+  document.getElementById('confirmNo').addEventListener('click', () => confirmOverlay.classList.remove('show'));
+  confirmOverlay.addEventListener('click', e => { if (e.target === confirmOverlay) confirmOverlay.classList.remove('show'); });
+
+  document.getElementById('confirmYes').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'cancel', dateISO: activeBooking.dateISO, time: activeBooking.time })
+      });
+      const out = await res.json().catch(() => ({}));
+      confirmOverlay.classList.remove('show');
+      if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось отменить бронь.'; detailMsg.className = 'modal-msg err'; return; }
+      await loadBookings();
+      closeDetail();
+    } catch(err){
+      confirmOverlay.classList.remove('show');
+      detailMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; detailMsg.className = 'modal-msg err';
+    }
+  });
+
+  // ---------- technical booking modal ----------
+  const techOverlay = document.getElementById('techOverlay');
+  const techDate = document.getElementById('techDate');
+  const techSlots = document.getElementById('techSlots');
+  const techComment = document.getElementById('techComment');
+  const techMsg = document.getElementById('techMsg');
+  let techSelectedTime = null;
+
+  function renderTechSlots(){
+    const dateISO = techDate.value;
+    const taken = dateISO ? takenTimesFor(dateISO, null) : [];
+    techSlots.innerHTML = SLOTS.map(s => {
+      const isTaken = taken.includes(s);
+      const isActive = s === techSelectedTime;
+      return `<button type="button" class="slot-btn ${isTaken ? 'taken':''} ${isActive ? 'active':''}" data-time="${s}">${s}</button>`;
+    }).join('');
+    techSlots.querySelectorAll('.slot-btn:not(.taken)').forEach(btn => {
+      btn.addEventListener('click', () => {
+        techSelectedTime = btn.dataset.time;
+        renderTechSlots();
+      });
+    });
+  }
+
+  function openTechModal(){
+    techDate.min = todayISO();
+    techDate.max = maxDateISO();
+    techDate.value = todayISO();
+    techSelectedTime = null;
+    techComment.value = '';
+    techMsg.textContent = '';
+    techMsg.className = 'modal-msg';
+    renderTechSlots();
+    techOverlay.classList.add('show');
+  }
+  document.getElementById('addTechBtn').addEventListener('click', openTechModal);
+  document.getElementById('techCancelBtn').addEventListener('click', () => techOverlay.classList.remove('show'));
+  document.querySelectorAll('[data-close="tech"]').forEach(b => b.addEventListener('click', () => techOverlay.classList.remove('show')));
+  techOverlay.addEventListener('click', e => { if (e.target === techOverlay) techOverlay.classList.remove('show'); });
+  techDate.addEventListener('change', () => { techSelectedTime = null; renderTechSlots(); });
+
+  document.getElementById('techSubmitBtn').addEventListener('click', async () => {
+    if (!techDate.value || !techSelectedTime){
+      techMsg.textContent = 'Выберите дату и время.'; techMsg.className = 'modal-msg err'; return;
+    }
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'create', dateISO: techDate.value, time: techSelectedTime, comment: techComment.value })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ techMsg.textContent = out.error || 'Не удалось создать бронь.'; techMsg.className = 'modal-msg err'; return; }
+      await loadBookings();
+      techOverlay.classList.remove('show');
+    } catch(err){
+      techMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; techMsg.className = 'modal-msg err';
+    }
+  });
+
+  // ---------- boot ----------
+  const savedPassword = localStorage.getItem('adminPassword');
+  if (savedPassword){
+    adminPassword = savedPassword;
+    showPanel();
+  }
+})();
+</script>
+</body>
+</html>
