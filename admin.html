@@ -80,6 +80,19 @@
   .topbar-actions{display:flex; gap:10px; flex-wrap:wrap;}
   .btn-secondary, .btn-danger{padding:11px 18px;}
 
+  /* ---------- Status tabs (active / cancelled / rescheduled) ---------- */
+  /* Splitting the list by status is the actual fix for "everything blurs
+     together" — each tab is homogeneous, so a row doesn't need a status
+     badge fighting for attention on top of its type badge. */
+  .list-tabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .list-tab{
+    padding:10px 16px; border-radius:9px; border:1.5px solid #333; background:var(--black-3);
+    color:var(--muted); font-weight:800; font-size:13.5px; font-family:var(--sans);
+  }
+  .list-tab:hover{border-color:#454545;}
+  .list-tab.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  .tab-count{opacity:.75; font-weight:700;}
+
   .list-toolbar{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;}
   .list-toolbar input[type="text"]{
     flex:1 1 220px; min-width:0; padding:10px 14px; border-radius:9px; border:1px solid #333;
@@ -260,6 +273,23 @@
   .day.empty{visibility:hidden; border:none; background:none; pointer-events:none;}
   .day.disabled{opacity:.25; cursor:not-allowed; pointer-events:none;}
 
+  /* ---------- Month overview: busy / closed / open per day ---------- */
+  /* Colors are the dataviz-validated triple (all-pairs CVD-safe on this
+     dark surface): orange = has a customer booking, blue = closed
+     technically, green = fully open. White text on all three keeps the day
+     number readable regardless of which fill it sits on. */
+  .day.cal-status-busy{background:#d95926; border-color:#d95926; color:#fff;}
+  .day.cal-status-closed{background:#3987e5; border-color:#3987e5; color:#fff;}
+  .day.cal-status-open{background:#199e70; border-color:#199e70; color:#fff;}
+  .day.cal-status-busy small, .day.cal-status-closed small, .day.cal-status-open small{color:rgba(255,255,255,.75);}
+  .day.cal-status-busy:hover, .day.cal-status-closed:hover, .day.cal-status-open:hover{filter:brightness(1.15); border-color:#fff;}
+  .cal-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid #2a2a2a; font-size:13px; color:var(--muted);}
+  .cal-legend-item{display:flex; align-items:center; gap:8px;}
+  .cal-legend-swatch{width:14px; height:14px; border-radius:4px; flex-shrink:0;}
+  .cal-legend-swatch.busy{background:#d95926;}
+  .cal-legend-swatch.closed{background:#3987e5;}
+  .cal-legend-swatch.open{background:#199e70;}
+
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
     .row-sub{display:none;}
@@ -292,11 +322,17 @@
       <h1>Брони — Дело Мэри</h1>
       <div class="topbar-actions">
         <button class="btn-secondary" id="refreshBtn">Обновить</button>
+        <button class="btn-secondary" id="calendarBtn">Календарь</button>
         <button class="btn-secondary" id="statsBtn">Статистика</button>
         <button class="btn-secondary" id="closeDayBtn">Закрыть день</button>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
+    </div>
+    <div class="list-tabs">
+      <button type="button" class="list-tab active" data-tab="active">Активные <span class="tab-count" id="tabCountActive"></span></button>
+      <button type="button" class="list-tab" data-tab="cancelled">Отменённые <span class="tab-count" id="tabCountCancelled"></span></button>
+      <button type="button" class="list-tab" data-tab="rescheduled">Перенесённые <span class="tab-count" id="tabCountRescheduled"></span></button>
     </div>
     <div class="list-toolbar">
       <input type="text" id="searchBox" placeholder="Поиск по имени или телефону…">
@@ -308,6 +344,29 @@
       <button class="btn-secondary" id="exportCsvBtn">Экспорт CSV</button>
     </div>
     <div id="listContainer"><div class="load-note">Загрузка…</div></div>
+  </div>
+</div>
+
+<!-- Month overview calendar: color-coded busy / closed / open per day -->
+<div class="modal-overlay" id="overviewOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="overview">✕</button>
+    <h2>Календарь на месяц</h2>
+    <div class="cal-head">
+      <button type="button" class="cal-nav" id="overviewCalPrev" aria-label="Предыдущий месяц">‹</button>
+      <span class="cal-month" id="overviewCalMonthLabel"></span>
+      <button type="button" class="cal-nav" id="overviewCalNext" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="cal-weekdays">
+      <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+    </div>
+    <div class="cal-grid" id="overviewCalGrid"></div>
+    <div class="cal-legend">
+      <div class="cal-legend-item"><span class="cal-legend-swatch busy"></span>Есть бронь клиента</div>
+      <div class="cal-legend-item"><span class="cal-legend-swatch closed"></span>Закрыто технически</div>
+      <div class="cal-legend-item"><span class="cal-legend-swatch open"></span>Полностью свободно</div>
+    </div>
+    <p style="font-size:12.5px; color:var(--muted); margin-top:12px;">Нажмите на день, чтобы посмотреть все брони за эту дату в списке «Активные».</p>
   </div>
 </div>
 
@@ -651,11 +710,21 @@
       .map(b => b.time);
   }
 
-  // Applies the search box and the day filter on top of allBookings. Kept
-  // separate from renderList so CSV export can reuse exactly what's
+  let activeTab = 'active'; // 'active' | 'cancelled' | 'rescheduled' — which tab is showing
+
+  const TAB_EMPTY_LABELS = {
+    active: 'Активных броней',
+    cancelled: 'Отменённых броней',
+    rescheduled: 'Перенесённых броней',
+  };
+
+  // Applies the current tab, the search box, and the day filter on top of
+  // allBookings. `status` defaults to the active tab but can be overridden
+  // (used to compute the OTHER tabs' counts without switching the view).
+  // Kept separate from renderList so CSV export can reuse exactly what's
   // currently on screen.
-  function getFilteredBookings(){
-    let list = allBookings;
+  function getFilteredBookings(status){
+    let list = allBookings.filter(b => b.status === (status || activeTab));
     if (filterDateISO){
       list = list.filter(b => b.dateISO === filterDateISO);
     }
@@ -670,23 +739,30 @@
     return list;
   }
 
-  // Status-specific bits of a row: the badge (class + label) and any extra
-  // line describing what happened (where a reschedule came from / went to).
-  function statusBadge(b){
-    if (b.status === 'cancelled') return { cls: 'status-cancelled', label: 'Отменена' };
-    if (b.status === 'rescheduled') return { cls: 'status-rescheduled', label: 'Перенесена' };
+  // Each tab is already one status, so the row badge goes back to plain
+  // TYPE (Клиент / Техническая) — repeating the status on every row was
+  // exactly the clutter this tab split was meant to fix.
+  function typeBadge(b){
     return b.type === 'technical' ? { cls: 'technical', label: 'Техническая' } : { cls: 'customer', label: 'Клиент' };
   }
 
+  function updateTabCounts(){
+    document.getElementById('tabCountActive').textContent = getFilteredBookings('active').length;
+    document.getElementById('tabCountCancelled').textContent = getFilteredBookings('cancelled').length;
+    document.getElementById('tabCountRescheduled').textContent = getFilteredBookings('rescheduled').length;
+  }
+
   function renderList(){
+    updateTabCounts();
+
     if (!allBookings.length){
       listContainer.innerHTML = '<div class="empty-note">Броней пока нет.</div>';
       return;
     }
     const filtered = getFilteredBookings();
     if (!filtered.length){
-      const reason = filterDateISO ? 'на выбранную дату' : 'по вашему запросу';
-      listContainer.innerHTML = `<div class="empty-note">Ничего не найдено ${reason} — попробуйте изменить поиск или дату.</div>`;
+      const reason = filterDateISO ? ' на выбранную дату' : (searchQuery.trim() ? ' по вашему запросу' : '');
+      listContainer.innerHTML = `<div class="empty-note">${TAB_EMPTY_LABELS[activeTab]} не найдено${reason}.</div>`;
       return;
     }
     const byDate = {};
@@ -719,7 +795,7 @@
           }
           const sub = subParts.filter(Boolean).join(' · ');
           const priceLabel = (!isTech && b.price && !isHistory) ? `${escapeHtml(b.price)} Br` : '';
-          const badge = statusBadge(b);
+          const badge = typeBadge(b);
           return `
             <div class="booking-row${isHistory ? ' is-history' : ''}" data-id="${escapeHtml(b.id)}">
               <div class="row-time">${escapeHtml(b.time)}</div>
@@ -746,6 +822,19 @@
       });
     });
   }
+
+  // ---------- status tabs ----------
+  const listTabs = document.querySelectorAll('.list-tab');
+  function syncTabsUI(){
+    listTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === activeTab));
+  }
+  listTabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTab = btn.dataset.tab;
+      syncTabsUI();
+      renderList();
+    });
+  });
 
   document.getElementById('refreshBtn').addEventListener('click', loadBookings);
 
@@ -1415,6 +1504,106 @@
       openDaySubmitBtn.disabled = false;
     }
   });
+
+  // ---------- month overview calendar (busy / closed / open) ----------
+  const overviewOverlay = document.getElementById('overviewOverlay');
+  const overviewCalGrid = document.getElementById('overviewCalGrid');
+  const overviewCalMonthLabel = document.getElementById('overviewCalMonthLabel');
+  const overviewCalPrev = document.getElementById('overviewCalPrev');
+  const overviewCalNext = document.getElementById('overviewCalNext');
+  let overviewViewYear, overviewViewMonth;
+
+  // Priority rule for a single day's color: any customer booking makes the
+  // whole day "busy" (the thing staff actually care about at a glance);
+  // otherwise a technical block makes it "closed"; only a day with neither
+  // is "open". A day is almost never purely one of these — the tooltip on
+  // each cell spells out the actual split.
+  function dayStatusFor(dateISO){
+    const dayBookings = allBookings.filter(b => b.dateISO === dateISO && b.status === 'active');
+    const customer = dayBookings.filter(b => b.type !== 'technical').length;
+    const technical = dayBookings.filter(b => b.type === 'technical').length;
+    if (customer > 0) return 'busy';
+    if (technical > 0) return 'closed';
+    return 'open';
+  }
+
+  function dayStatusTooltip(dateISO){
+    const dayBookings = allBookings.filter(b => b.dateISO === dateISO && b.status === 'active');
+    const customer = dayBookings.filter(b => b.type !== 'technical').length;
+    const technical = dayBookings.filter(b => b.type === 'technical').length;
+    const open = Math.max(0, SLOTS.length - customer - technical);
+    return `${formatDateHeading(dateISO)}: занято клиентами — ${customer}, закрыто технически — ${technical}, свободно — ${open} из ${SLOTS.length}`;
+  }
+
+  function renderOverviewCalendar(){
+    overviewCalGrid.innerHTML = '';
+    overviewCalMonthLabel.textContent = MONTH_NAMES_NOM[overviewViewMonth] + ' ' + overviewViewYear;
+
+    const firstOfMonth = new Date(overviewViewYear, overviewViewMonth, 1);
+    const leadEmpty = (firstOfMonth.getDay() + 6) % 7;
+    for (let i = 0; i < leadEmpty; i++) {
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      overviewCalGrid.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(overviewViewYear, overviewViewMonth + 1, 0).getDate();
+    const minD = parseISO(todayISO());
+    const maxD = parseISO(maxDateISO());
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(overviewViewYear, overviewViewMonth, dnum);
+      const iso = isoDate(d);
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const inRange = d >= minD && d <= maxD;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const statusCls = inRange ? ' cal-status-' + dayStatusFor(iso) : '';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + statusCls;
+      btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
+      if (!inRange) {
+        btn.disabled = true;
+      } else {
+        btn.title = dayStatusTooltip(iso);
+        btn.addEventListener('click', () => {
+          // Jump straight to that day's active bookings — the overview is
+          // meant to be a launchpad into the list, not just decoration.
+          filterDateISO = iso;
+          activeTab = 'active';
+          syncTabsUI();
+          syncDayFilterUI();
+          renderList();
+          overviewOverlay.classList.remove('show');
+        });
+      }
+      overviewCalGrid.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(overviewViewYear, overviewViewMonth, 0);
+    overviewCalPrev.disabled = prevMonthLastDay < new Date(minD.getFullYear(), minD.getMonth(), 1);
+    const nextMonthFirstDay = new Date(overviewViewYear, overviewViewMonth + 1, 1);
+    overviewCalNext.disabled = nextMonthFirstDay > maxD;
+  }
+  overviewCalPrev.addEventListener('click', () => {
+    if (overviewCalPrev.disabled) return;
+    overviewViewMonth--; if (overviewViewMonth < 0){ overviewViewMonth = 11; overviewViewYear--; }
+    renderOverviewCalendar();
+  });
+  overviewCalNext.addEventListener('click', () => {
+    if (overviewCalNext.disabled) return;
+    overviewViewMonth++; if (overviewViewMonth > 11){ overviewViewMonth = 0; overviewViewYear++; }
+    renderOverviewCalendar();
+  });
+
+  function openOverviewModal(){
+    const t = parseISO(todayISO());
+    overviewViewYear = t.getFullYear();
+    overviewViewMonth = t.getMonth();
+    renderOverviewCalendar();
+    overviewOverlay.classList.add('show');
+  }
+  document.getElementById('calendarBtn').addEventListener('click', openOverviewModal);
+  document.querySelectorAll('[data-close="overview"]').forEach(b => b.addEventListener('click', () => overviewOverlay.classList.remove('show')));
+  overviewOverlay.addEventListener('click', e => { if (e.target === overviewOverlay) overviewOverlay.classList.remove('show'); });
 
   // ---------- stats dashboard ----------
   const statsOverlay = document.getElementById('statsOverlay');
