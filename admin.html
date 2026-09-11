@@ -877,10 +877,30 @@
     if (toNum(b.payErip) > 0) parts.push(`ЕРИП ${b.payErip}`);
     return parts.length ? `${b.price} Br (${parts.join(' + ')})` : `${b.price} Br`;
   }
+  // A booking's own per-game sverka is scheduled independently for EACH
+  // performer covering it (see scheduleGameCloseout() in api/_closeout.js)
+  // — a two-person booking (actor + actress) gets two separate jobs, each
+  // with its own send status, same idea as the reminders row above. Shows
+  // "—" per performer only once something has actually happened for them
+  // (scheduled/sent/failed) so an untouched booking's row stays quiet.
+  function formatCloseoutList(b){
+    const closeouts = Array.isArray(b.closeouts) ? b.closeouts : [];
+    if (!closeouts.length) return null;
+    return closeouts.map(c => {
+      if (c.sentStatus === 'awaiting') return `@${c.actorUsername}: отправлено, ждём ответа`;
+      if (c.sentStatus === 'send-failed') return `@${c.actorUsername}: ⚠️ не удалось отправить`;
+      if (c.sentStatus === 'actor-not-registered') return `@${c.actorUsername}: ⚠️ не подключил бота`;
+      if (c.status === 'scheduled') return `@${c.actorUsername}: запланировано${c.fireAt ? ', ' + formatReminderMoment(c.fireAt) : ''}`;
+      if (c.status === 'pending') return `@${c.actorUsername}: запланируется позже (бронь дальше чем на 7 дней)`;
+      if (c.status === 'actor-not-registered') return `@${c.actorUsername}: не подключил бота — сверка не запланирована`;
+      return `@${c.actorUsername}`;
+    }).join('; ');
+  }
   // null → no shift/closeout ever touched this booking, so the row stays
   // hidden entirely (see api/_closeout.js for the underlying states).
   function formatCloseoutStatus(b){
-    if (!b.closeoutStatus) return null;
+    const list = formatCloseoutList(b);
+    if (!b.closeoutStatus) return list;
     const parts = [];
     if (b.closeoutStatus === 'edited') parts.push('Актёр исправил игроков/цену');
     else if (b.closeoutStatus === 'awaiting') parts.push('Отправлено актёру, ждём ответа');
@@ -891,7 +911,15 @@
     if (b.closeoutCashCollected != null && b.closeoutCashCollected !== '') {
       parts.push(`наличными: ${b.closeoutCashCollected} Br`);
     }
-    return parts.join(' · ');
+    // Whoever's chat actually answered "как оплатили" — useful when a
+    // booking has both an actor and an actress assigned (the other one
+    // gets told payment is already recorded instead of being asked again,
+    // so only one of them ever reports it — see api/telegram-webhook.js).
+    if (b.paymentReportedBy) {
+      parts.push(`оплату принял(а): @${b.paymentReportedBy}`);
+    }
+    const summary = parts.join(' · ');
+    return list ? `${list} — ${summary}` : summary;
   }
   // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
   // booking entered by hand ends up in the same shape as ones from the site.
