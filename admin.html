@@ -102,6 +102,29 @@
   .topbar-actions{display:flex; gap:10px; flex-wrap:wrap;}
   .btn-secondary, .btn-danger{padding:11px 18px;}
 
+  /* ---------- Source tracker (Сайт / Мир квестов / ExtraReality) ---------- */
+  /* Always visible on the main screen — no need to open Статистика just to
+     see "сколько броней с какого источника в этом месяце". Пересчитывается
+     по тем же данным, что и вкладка Финансы (тот же /api/admin/report), но
+     сгруппировано ровно на 3 названных источника + «Другое» на всё
+     остальное, чтобы ничего не потерялось. */
+  .source-tracker{
+    background:var(--black-2); border:1px solid #262626; border-radius:14px;
+    padding:14px 16px; margin-bottom:16px;
+  }
+  .source-tracker-head{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;}
+  .source-tracker-title{font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
+  .source-tracker-title span{color:var(--paper);}
+  .source-tracker-more{background:none; border:none; color:var(--ochre-bright); font-size:12.5px; font-weight:700; padding:0;}
+  .source-tracker-more:hover{text-decoration:underline;}
+  .source-tracker-items{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
+  .source-item{background:var(--black-3); border:1px solid #262626; border-radius:10px; padding:10px 12px;}
+  .source-item .si-label{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .source-item .si-count{font-family:var(--display); font-weight:400; font-size:22px; color:var(--paper); line-height:1;}
+  .source-item .si-sum{font-size:11.5px; color:var(--muted); margin-top:2px;}
+  .source-item.si-site .si-count{color:var(--ochre-bright);}
+  @media (max-width:640px){ .source-tracker-items{grid-template-columns:repeat(2,1fr);} }
+
   /* ---------- Status tabs (active / cancelled / rescheduled) ---------- */
   /* Splitting the list by status is the actual fix for "everything blurs
      together" — each tab is homogeneous, so a row doesn't need a status
@@ -434,6 +457,13 @@
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
+    </div>
+    <div class="source-tracker" id="sourceTracker">
+      <div class="source-tracker-head">
+        <span class="source-tracker-title">Источники броней — <span id="sourceTrackerMonth"></span></span>
+        <button type="button" class="source-tracker-more" id="sourceTrackerMore">Все месяцы и суммы →</button>
+      </div>
+      <div class="source-tracker-items" id="sourceTrackerItems"><div class="load-note">Загрузка…</div></div>
     </div>
     <div class="list-tabs">
       <button type="button" class="list-tab active" data-tab="active">Активные <span class="tab-count" id="tabCountActive"></span></button>
@@ -948,6 +978,7 @@
     panel.style.display = 'block';
     loadBookings();
     loadKnownActorNames();
+    loadSourceTracker();
   }
 
   // ---------- loading & rendering the bookings list ----------
@@ -1114,7 +1145,7 @@
     });
   });
 
-  document.getElementById('refreshBtn').addEventListener('click', loadBookings);
+  document.getElementById('refreshBtn').addEventListener('click', () => { loadBookings(); loadSourceTracker(); });
 
   // ---------- toolbar: search, day filter, CSV export ----------
   const searchBox = document.getElementById('searchBox');
@@ -2290,6 +2321,48 @@
     const last = new Date(year, month + 1, 0);
     return { fromISO: isoDate(first), toISO: isoDate(last), days: last.getDate() };
   }
+
+  // ---------- always-visible source tracker (main screen, not inside a modal) ----------
+  // Same underlying numbers as the "Источники броней" table inside
+  // Статистика → Финансы, just surfaced right on the main screen — grouped
+  // onto exactly the 3 sources that matter (Сайт / Мир квестов /
+  // ExtraReality) plus one "Другое" catch-all for anything typed
+  // differently, so nothing silently disappears from the total.
+  const TRACKED_SOURCES = ['Сайт', 'Мир квестов', 'ExtraReality'];
+
+  async function loadSourceTracker(){
+    const itemsEl = document.getElementById('sourceTrackerItems');
+    const monthEl = document.getElementById('sourceTrackerMonth');
+    const now = new Date();
+    monthEl.textContent = MONTH_NAMES_NOM[now.getMonth()] + ' ' + now.getFullYear();
+    try{
+      const { toISO, days } = monthRangeISO(now.getFullYear(), now.getMonth());
+      const res = await fetch(`/api/admin/report?to=${toISO}&days=${days}`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        itemsEl.innerHTML = `<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">${escapeHtml(out.error || 'Не удалось загрузить.')}</div>`;
+        return;
+      }
+      const channels = out.channels || {};
+      const other = { count: 0, total: 0 };
+      Object.entries(channels).forEach(([name, v]) => {
+        if (!TRACKED_SOURCES.includes(name)) { other.count += v.count; other.total += v.total; }
+      });
+      const tiles = TRACKED_SOURCES.map(name => {
+        const v = channels[name] || { count: 0, total: 0 };
+        const cls = name === 'Сайт' ? ' si-site' : '';
+        return `<div class="source-item${cls}"><div class="si-label">${escapeHtml(name)}</div><div class="si-count">${v.count}</div><div class="si-sum">${Math.round(v.total)} Br</div></div>`;
+      }).join('') + `<div class="source-item"><div class="si-label">Другое</div><div class="si-count">${other.count}</div><div class="si-sum">${Math.round(other.total)} Br</div></div>`;
+      itemsEl.innerHTML = tiles;
+    } catch(err){
+      itemsEl.innerHTML = '<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">Ошибка сети.</div>';
+    }
+  }
+
+  document.getElementById('sourceTrackerMore').addEventListener('click', async () => {
+    await openStatsModal();
+    document.querySelector('#statsTabToggle [data-stats-tab="finance"]').click();
+  });
 
   async function loadReport(){
     document.getElementById('reportMonthLabel').textContent = MONTH_NAMES_NOM[reportViewMonth] + ' ' + reportViewYear;

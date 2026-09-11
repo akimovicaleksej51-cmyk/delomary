@@ -29,7 +29,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/assets/favicon-192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Stalinist+One&family=Anton&family=Caveat:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Anton&family=Caveat:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -100,14 +100,17 @@
     --muted: #B9B4A6;
     --line: rgba(245,197,24,0.22);
     --display: 'Anton', 'Arial Narrow', sans-serif;
-    /* Big marketing headings only (h1/h2/section titles) — a decorative
-       Soviet-stencil-style face that actually supports Cyrillic, picked to
-       fit the 1960s-Minsk-psychiatric-clinic setting instead of the
-       generic bold sans "Дело Мэри" used to sit in. Kept separate from
-       --display (still Anton) because Stalinist One is a single dense
-       weight that gets hard to read at small UI sizes (calendar labels,
-       stat numbers, the booking modal title) — those stay on Anton. */
-    --display-heading: 'Stalinist One', 'Anton', 'Arial Narrow', sans-serif;
+    /* Big marketing headings only (h1/h2/section titles). First pick here
+       was 'Stalinist One' (a Soviet-stencil look) — too hard to read at a
+       glance, swapped for Russo One: still a bold, distinctive geometric
+       display face (not the plain default sans "Дело Мэри" used to sit
+       in), but far more legible — it's a standard choice for bold
+       Russian-language headings/branding, with proper Cyrillic support.
+       Kept separate from --display (still Anton) because a single dense
+       display weight like this gets cramped at small UI sizes (calendar
+       labels, stat numbers, the booking modal title) — those stay on
+       Anton. */
+    --display-heading: 'Russo One', 'Anton', 'Arial Narrow', sans-serif;
     --script: 'Caveat', cursive;
     --sans: 'Manrope', Arial, sans-serif;
     --radius: 18px;
