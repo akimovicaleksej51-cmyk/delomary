@@ -36,7 +36,15 @@
 // A closeout's own progress lives directly on the booking record (same
 // JSON as bookings:<date> / history:<date>):
 //   closeoutStatus        — 'awaiting' (message sent, no reply yet),
-//                             'confirmed', or 'edited'.
+//                             'confirmed', 'edited', 'actor-not-registered'
+//                             (shift has this performer assigned but they
+//                             never sent /start to the bot, so there's no
+//                             chat to deliver to), or 'send-failed' (a chat
+//                             id exists but Telegram rejected the message —
+//                             e.g. the actor blocked the bot). The last two
+//                             exist so a delivery failure is always visible
+//                             on the booking instead of just silently never
+//                             showing up.
 //   closeoutCashCollected — the cash amount the actor reported.
 //   closeoutRepliedAt     — ISO timestamp of the actor's response.
 //

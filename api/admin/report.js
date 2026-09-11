@@ -6,11 +6,22 @@
 // Same auth pattern as the other admin/* endpoints: every request needs
 // the X-Admin-Password header, rate-limited per IP.
 //
-// GET ?to=<ISO date>&days=<n>
+// GET ?to=<ISO date>&days=<n>&detailed=<0|1>
 //   Returns { from, to, days: [{dateISO, bookings, cash, card, erip,
 //   expenses, payroll, netChange}, ...], channels: {name: {count, total}},
 //   actors: {name: gamesCount} } for `days` days ending at `to` (default:
-//   today, 30 days back).
+//   today, 30 days back). The admin panel's "Финансы" tab drives this with
+//   one calendar month at a time (from=1st, to=last day) so the counts
+//   naturally reset at the start of every new month — this endpoint itself
+//   is range-agnostic, the month semantics live entirely in the caller.
+//
+//   With detailed=1, the response ALSO includes `bookings: [...]` — every
+//   raw booking/technical record in the range (both `type:'customer'` and
+//   `type:'technical'`, active/cancelled/rescheduled alike), each with its
+//   dateISO/time attached. This is what powers "скачать таблицу за период"
+//   in the admin panel: the client-side booking list only ever caches
+//   ~2 months of history, so a real period export has to come from the
+//   server instead.
 
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { toAmount } from '../_finance.js';
@@ -89,9 +100,13 @@ export default async function handler(req, res) {
 
   const channelTotals = {};
   const actorTotals = {};
+  const wantDetailed = String((req.query && req.query.detailed) || '') === '1';
+  const detailedRows = [];
 
   function ingestRecord(record, dateISO) {
-    if (!record || record.type !== 'customer') return;
+    if (!record) return;
+    if (wantDetailed) detailedRows.push({ ...record, dateISO, time: record.time || '' });
+    if (record.type !== 'customer') return;
     const day = byDay[dateISO];
     if (day) {
       day.bookings += 1;
@@ -152,5 +167,6 @@ export default async function handler(req, res) {
     days: daysOut,
     channels: channelTotals,
     actors: actorTotals,
+    ...(wantDetailed ? { bookings: detailedRows } : {}),
   });
 }

@@ -29,7 +29,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/assets/favicon-192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Caveat:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Stalinist+One&family=Anton&family=Caveat:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -100,6 +100,14 @@
     --muted: #B9B4A6;
     --line: rgba(245,197,24,0.22);
     --display: 'Anton', 'Arial Narrow', sans-serif;
+    /* Big marketing headings only (h1/h2/section titles) — a decorative
+       Soviet-stencil-style face that actually supports Cyrillic, picked to
+       fit the 1960s-Minsk-psychiatric-clinic setting instead of the
+       generic bold sans "Дело Мэри" used to sit in. Kept separate from
+       --display (still Anton) because Stalinist One is a single dense
+       weight that gets hard to read at small UI sizes (calendar labels,
+       stat numbers, the booking modal title) — those stay on Anton. */
+    --display-heading: 'Stalinist One', 'Anton', 'Arial Narrow', sans-serif;
     --script: 'Caveat', cursive;
     --sans: 'Manrope', Arial, sans-serif;
     --radius: 18px;
@@ -172,7 +180,7 @@
   }
   .eyebrow::before{content:""; width:16px; height:2px; background:var(--ochre-bright); display:inline-block;}
   h2{
-    font-family:var(--display); font-weight:400; text-transform:uppercase;
+    font-family:var(--display-heading); font-weight:400; text-transform:uppercase;
     font-size:clamp(30px,4vw,44px); letter-spacing:.01em;
     margin:0 0 24px; color:var(--paper);
   }
@@ -216,7 +224,7 @@
   .case-tag::before{content:"●"; font-size:9px; animation:blink 2.4s infinite;}
   @keyframes blink{0%,100%{opacity:1;}50%{opacity:.15;}}
   .hero h1{
-    font-family:var(--display); font-weight:400; text-transform:uppercase;
+    font-family:var(--display-heading); font-weight:400; text-transform:uppercase;
     font-size:clamp(48px, 8.5vw, 98px);
     line-height:.94; letter-spacing:.02em;
     margin:0; color:var(--paper);
@@ -328,7 +336,7 @@
     padding:44px; box-shadow:0 30px 80px rgba(0,0,0,.5);
   }
   .intake-head{display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px; margin-bottom:36px; padding-bottom:28px; border-bottom:1px solid var(--line);}
-  .intake-head h3{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:26px; margin:0 0 6px; color:var(--paper);}
+  .intake-head h3{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:26px; margin:0 0 6px; color:var(--paper);}
   .intake-head p{margin:0; color:var(--muted); font-size:14.5px; max-width:420px;}
   .intake-badge{font-family:var(--sans); font-weight:700; font-size:12px; color:var(--black); background:var(--ochre-bright); padding:8px 16px; border-radius:999px; white-space:nowrap;}
 
@@ -562,7 +570,7 @@
     display:inline-block; background:var(--ochre-bright); color:#151004; font-family:var(--sans); font-weight:800;
     font-size:12.5px; letter-spacing:.06em; text-transform:uppercase; padding:8px 18px; border-radius:999px; margin-bottom:20px;
   }
-  .classified h3{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:clamp(28px,4vw,38px); color:var(--paper); margin:0 0 16px; max-width:560px;}
+  .classified h3{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:clamp(28px,4vw,38px); color:var(--paper); margin:0 0 16px; max-width:560px;}
   .classified p{color:var(--muted); max-width:540px; margin:0 0 28px; font-size:16px;}
   .room-feats{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:32px;}
   .room-feats div{font-family:var(--sans); font-weight:600; font-size:13px; color:var(--muted); background:var(--black-2); border:1px solid var(--line); padding:12px 18px; border-radius:14px;}
@@ -585,6 +593,24 @@
      bottom-left caption here would sit right on top of it. */
   .map-cap{position:absolute; top:14px; left:14px; z-index:2; font-family:var(--sans); font-weight:700; font-size:12px; color:var(--paper); background:rgba(0,0,0,.75); padding:6px 14px; border-radius:999px; pointer-events:none;}
   .map-col .btn{align-self:flex-start;}
+  /* ---------- "Как добраться" video — placeholder until a real clip exists ---------- */
+  .video-frame{
+    position:relative; height:260px; border-radius:20px; overflow:hidden;
+    border:1px dashed var(--line); margin-top:28px; background:var(--black-3);
+  }
+  .video-frame-poster{width:100%; height:100%; object-fit:cover; opacity:.4; display:block;}
+  .video-frame-play{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  }
+  .video-frame-play span{
+    width:64px; height:64px; border-radius:50%; background:var(--ochre-bright);
+    color:var(--black); display:flex; align-items:center; justify-content:center;
+  }
+  .video-frame-cap{
+    position:absolute; left:16px; bottom:14px; font-family:var(--sans); font-weight:700;
+    font-size:12.5px; color:var(--paper); background:rgba(0,0,0,.55); padding:6px 12px; border-radius:999px;
+  }
+  @media (max-width:560px){ .video-frame{height:200px;} }
 
   /* ===== FOOTER ===== */
   footer{padding:56px 28px 36px; text-align:center; border-top:1px solid var(--line);}
@@ -1055,6 +1081,31 @@
         </div>
         <a class="btn btn-ghost" href="https://yandex.by/maps/157/minsk/?ll=27.573620%2C53.890180&z=17&pt=27.573620,53.890180,pm2rdm&rtext=~53.890180,27.573620&rtt=auto" target="_blank" rel="noopener">Проложить маршрут →</a>
       </div>
+    </div>
+
+    <!-- ЗАГОТОВКА ПОД ВИДЕО «КАК ДОБРАТЬСЯ» ------------------------------
+         Пока это просто заглушка — как только появится готовое видео,
+         замените блок ниже (весь <div class="video-frame">...</div>)
+         одним из двух вариантов:
+
+         1) Свой файл видео (mp4/webm), по образцу видео в шапке сайта:
+              <div class="video-frame" style="height:auto;">
+                <video controls playsinline poster="assets/ваш-кадр.jpg" style="width:100%; display:block; border-radius:20px;">
+                  <source src="assets/how-to-get-here.webm" type="video/webm">
+                  <source src="assets/how-to-get-here.mp4" type="video/mp4">
+                </video>
+              </div>
+
+         2) Видео с YouTube/VK — вставьте их код <iframe> вместо всего
+            блока ниже, оставив на обёртке class="video-frame" для рамки
+            и скруглённых углов.
+    -->
+    <div class="video-frame">
+      <img class="video-frame-poster" src="assets/photo-exit-light.jpg" alt="" loading="lazy">
+      <div class="video-frame-play" aria-hidden="true">
+        <span><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+      </div>
+      <span class="video-frame-cap">Видео «Как добраться» — скоро</span>
     </div>
   </div>
 </section>

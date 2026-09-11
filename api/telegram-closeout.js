@@ -26,20 +26,47 @@ function formatDateLabel(iso) {
   return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
 }
 
+// Returns the parsed Telegram API response, or { ok:false } if the request
+// itself couldn't even be made (network error, no bot token) — either way
+// the caller can check `.ok` to know whether the message actually went out.
+// This used to just log-and-swallow every failure, which meant an actor who
+// blocked the bot (or whose chat id had gone stale) silently never got their
+// end-of-shift sverka with NOTHING recorded anywhere to explain why — see
+// the closeoutStatus 'send-failed' handling below, which exists specifically
+// so that failure becomes visible in the admin panel instead of invisible.
 async function tg(method, payload) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return null;
+  if (!token) return { ok: false };
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({}));
+    if (!data.ok) console.error(`telegram-closeout: ${method} returned not-ok:`, data);
+    return data;
   } catch (err) {
     console.error(`telegram-closeout: ${method} failed:`, err);
-    return null;
+    return { ok: false };
   }
+}
+
+// Stamps every booking in `bookings` with the same closeoutStatus — used
+// for the two failure modes that affect the whole shift at once (actor
+// never registered with the bot / the chat is unreachable), so the admin
+// panel has something concrete to show instead of just... nothing.
+async function markAllBookings(hashKey, bookings, status) {
+  await Promise.all(bookings.map(async (b) => {
+    const current = await kv('hget', hashKey, b.time);
+    if (!current) return;
+    try {
+      const currentRecord = JSON.parse(current);
+      await kv('hset', hashKey, b.time, JSON.stringify({ ...currentRecord, closeoutStatus: status }));
+    } catch {
+      // skip malformed entry
+    }
+  }));
 }
 
 export default async function handler(req, res) {
@@ -71,11 +98,8 @@ export default async function handler(req, res) {
   const slotData = shiftsMap[slot];
   if (!slotData || !slotData.actorUsername) return; // slot was cleared/changed since scheduling
 
-  const actors = await getActorsMap();
-  const actor = actors[slotData.actorUsername];
-  if (!actor || !actor.chatId) return; // never connected the bot — nothing we can send
-
-  const bookingsRaw = await kv('hgetall', `bookings:${dateISO}`);
+  const hashKey = `bookings:${dateISO}`;
+  const bookingsRaw = await kv('hgetall', hashKey);
   const bookings = [];
   if (Array.isArray(bookingsRaw)) {
     for (let i = 0; i < bookingsRaw.length - 1; i += 2) {
@@ -99,13 +123,31 @@ export default async function handler(req, res) {
 
   bookings.sort((a, b) => a.time.localeCompare(b.time));
 
+  // From here on, every early-return that skips actually sending a message
+  // ALSO stamps closeoutStatus on the affected bookings — this used to just
+  // silently do nothing, which is indistinguishable (from the admin panel)
+  // from "nothing needed sending". Now a failure is always visible on the
+  // booking itself: "актёр ещё не подключил бота" or "не удалось отправить".
+  const actors = await getActorsMap();
+  const actor = actors[slotData.actorUsername];
+  if (!actor || !actor.chatId) {
+    await markAllBookings(hashKey, bookings, 'actor-not-registered');
+    return;
+  }
+
   const dateLabel = formatDateLabel(dateISO);
-  await tg('sendMessage', {
+  const introResult = await tg('sendMessage', {
     chat_id: actor.chatId,
     text: `🎬 Смена ${dateLabel} завершена — сверьте, пожалуйста, ${bookings.length === 1 ? 'игру' : 'игры'}:`,
   });
+  if (!introResult || !introResult.ok) {
+    // Chat unreachable (actor blocked the bot, deleted their account, etc.)
+    // — every per-booking message below would fail the same way, so don't
+    // bother trying; just record the failure so it's visible.
+    await markAllBookings(hashKey, bookings, 'send-failed');
+    return;
+  }
 
-  const hashKey = `bookings:${dateISO}`;
   for (const b of bookings) {
     const lines = [
       `🎮 ${b.time} · ${b.name || 'без имени'}`,
@@ -114,7 +156,7 @@ export default async function handler(req, res) {
     ].filter(Boolean);
 
     // eslint-disable-next-line no-await-in-loop
-    await tg('sendMessage', {
+    const sendResult = await tg('sendMessage', {
       chat_id: actor.chatId,
       text: lines.join('\n'),
       reply_markup: {
@@ -130,9 +172,10 @@ export default async function handler(req, res) {
     if (current) {
       try {
         const currentRecord = JSON.parse(current);
-        if (!currentRecord.closeoutStatus) {
+        if (!currentRecord.closeoutStatus || currentRecord.closeoutStatus === 'send-failed') {
+          const nextStatus = (sendResult && sendResult.ok) ? 'awaiting' : 'send-failed';
           // eslint-disable-next-line no-await-in-loop
-          await kv('hset', hashKey, b.time, JSON.stringify({ ...currentRecord, closeoutStatus: 'awaiting' }));
+          await kv('hset', hashKey, b.time, JSON.stringify({ ...currentRecord, closeoutStatus: nextStatus }));
         }
       } catch {
         // skip malformed entry

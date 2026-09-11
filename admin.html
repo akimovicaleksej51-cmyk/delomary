@@ -524,7 +524,7 @@
         <div class="pay-split-total">Итого: <b id="editPayTotal">0</b> Br</div>
       </div>
       <div class="detail-field"><label>Скидка / номер сертификата</label><input id="editDiscountNote" placeholder="Например: скидка 10% или серт. №123"></div>
-      <div class="detail-field"><label>Источник брони</label><input id="editChannel" list="knownChannelsList" placeholder="Сайт, Instagram, Пинкертон…"></div>
+      <div class="detail-field"><label>Источник брони</label><input id="editChannel" list="knownChannelsList" placeholder="Сайт, Мир квестов, ExtraReality…"></div>
       <div class="detail-field">
         <label>Кто отыграл</label>
         <div class="pay-split">
@@ -670,7 +670,21 @@
       <button type="button" class="type-toggle-btn" data-stats-tab="finance">Финансы</button>
     </div>
     <div id="statsBody"><div class="load-note">Загрузка…</div></div>
-    <div id="reportBody" style="display:none;"><div class="load-note">Загрузка…</div></div>
+    <div id="reportBody" style="display:none;">
+      <div class="cal-head" style="margin-bottom:14px;">
+        <button type="button" class="cal-nav" id="reportMonthPrev" aria-label="Предыдущий месяц">‹</button>
+        <span class="cal-month" id="reportMonthLabel"></span>
+        <button type="button" class="cal-nav" id="reportMonthNext" aria-label="Следующий месяц">›</button>
+      </div>
+      <div id="reportContent"><div class="load-note">Загрузка…</div></div>
+      <div class="stats-chart-head" style="margin-top:22px;"><span class="stats-chart-title">Скачать таблицу за период</span></div>
+      <div class="pay-split" style="margin-bottom:10px;">
+        <div class="pay-split-item" style="flex:1 1 130px;"><span>С</span><input type="date" id="reportDownloadFrom"></div>
+        <div class="pay-split-item" style="flex:1 1 130px;"><span>По</span><input type="date" id="reportDownloadTo"></div>
+      </div>
+      <button class="btn-secondary" id="reportDownloadBtn">Скачать таблицу CSV</button>
+      <div class="modal-msg" id="reportDownloadMsg"></div>
+    </div>
   </div>
 </div>
 
@@ -746,7 +760,7 @@
   </div>
 </div>
 <datalist id="knownChannelsList">
-  <option value="Сайт"><option value="Instagram"><option value="Пинкертон"><option value="Сливки"><option value="Мир квестов"><option value="Бартер"><option value="Телефон">
+  <option value="Сайт"><option value="Мир квестов"><option value="ExtraReality"><option value="Instagram"><option value="Пинкертон"><option value="Сливки"><option value="Бартер"><option value="Телефон">
 </datalist>
 <datalist id="knownActorNamesList"></datalist>
 
@@ -839,7 +853,10 @@
     const parts = [];
     if (b.closeoutStatus === 'edited') parts.push('Актёр исправил игроков/цену');
     else if (b.closeoutStatus === 'awaiting') parts.push('Отправлено актёру, ждём ответа');
-    else parts.push('Актёр подтвердил игру');
+    else if (b.closeoutStatus === 'confirmed') parts.push('Актёр подтвердил игру');
+    else if (b.closeoutStatus === 'actor-not-registered') parts.push('⚠️ Не отправлено — актёр ещё не подключил бота (нужно /start)');
+    else if (b.closeoutStatus === 'send-failed') parts.push('⚠️ Не удалось отправить в Telegram (возможно, актёр заблокировал бота)');
+    else parts.push(b.closeoutStatus);
     if (b.closeoutCashCollected != null && b.closeoutCashCollected !== '') {
       parts.push(`наличными: ${b.closeoutCashCollected} Br`);
     }
@@ -998,6 +1015,12 @@
   // TYPE (Клиент / Техническая) — repeating the status on every row was
   // exactly the clutter this tab split was meant to fix.
   function typeBadge(b){
+    // A cancelled/rescheduled booking gets its own clearly-colored plaque
+    // (red "Отменена" / blue "Перенесена") instead of just fading its
+    // normal Клиент/Техническая badge — the CSS for status-cancelled and
+    // status-rescheduled already existed, this just actually uses it.
+    if (b.status === 'cancelled') return { cls: 'status-cancelled', label: 'Отменена' };
+    if (b.status === 'rescheduled') return { cls: 'status-rescheduled', label: 'Перенесена' };
     return b.type === 'technical' ? { cls: 'technical', label: 'Техническая' } : { cls: 'customer', label: 'Клиент' };
   }
 
@@ -1174,7 +1197,7 @@
         isTech ? '' : (b.workedActor || ''),
         isTech ? '' : (b.workedActress || ''),
         isTech ? '' : (b.handledByAdmin || ''),
-        isTech ? '' : (b.closeoutStatus === 'edited' ? 'Исправлено' : b.closeoutStatus === 'confirmed' ? 'Подтверждено' : b.closeoutStatus === 'awaiting' ? 'Ожидает' : ''),
+        isTech ? '' : (b.closeoutStatus === 'edited' ? 'Исправлено' : b.closeoutStatus === 'confirmed' ? 'Подтверждено' : b.closeoutStatus === 'awaiting' ? 'Ожидает' : b.closeoutStatus === 'actor-not-registered' ? 'Не отправлено — актёр не подключил бота' : b.closeoutStatus === 'send-failed' ? 'Не удалось отправить' : ''),
         b.comment || '',
         b.source === 'admin' ? 'вручную' : (b.source || ''),
         moveNote
@@ -2181,6 +2204,15 @@
   statsOverlay.addEventListener('click', e => { if (e.target === statsOverlay) statsOverlay.classList.remove('show'); });
 
   // ---------- financial report ("Финансы" tab inside Статистика) ----------
+  // Shows one CALENDAR MONTH at a time (not a rolling N-day window) so
+  // "сколько броней/денег в этом месяце" always starts back at zero the
+  // moment a new month begins, exactly like the owner's old paper ledger —
+  // navigating with ‹ › just re-queries /api/admin/report for that month's
+  // exact date range.
+  const today0 = new Date();
+  let reportViewYear = today0.getFullYear();
+  let reportViewMonth = today0.getMonth(); // 0-indexed
+
   document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
@@ -2191,8 +2223,18 @@
     });
   });
 
+  document.getElementById('reportMonthPrev').addEventListener('click', () => {
+    reportViewMonth--; if (reportViewMonth < 0){ reportViewMonth = 11; reportViewYear--; }
+    loadReport();
+  });
+  document.getElementById('reportMonthNext').addEventListener('click', () => {
+    reportViewMonth++; if (reportViewMonth > 11){ reportViewMonth = 0; reportViewYear++; }
+    loadReport();
+  });
+
   function renderReport(data){
     const days = data.days || [];
+    const totalBookings = days.reduce((s,d) => s + d.bookings, 0);
     const totalCash = days.reduce((s,d) => s + d.cash, 0);
     const totalCard = days.reduce((s,d) => s + d.card, 0);
     const totalErip = days.reduce((s,d) => s + d.erip, 0);
@@ -2214,8 +2256,9 @@
           <td>${Math.round(d.netChange)}</td>
         </tr>`).join('');
 
-    document.getElementById('reportBody').innerHTML = `
+    document.getElementById('reportContent').innerHTML = `
       <div class="stats-kpis">
+        <div class="stat-tile"><div class="stat-label">Всего броней</div><div class="stat-value">${totalBookings}</div></div>
         <div class="stat-tile"><div class="stat-label">Нал</div><div class="stat-value">${Math.round(totalCash)}</div></div>
         <div class="stat-tile"><div class="stat-label">Безнал</div><div class="stat-value">${Math.round(totalCard)}</div></div>
         <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(totalErip)}</div></div>
@@ -2228,12 +2271,12 @@
           <tbody>${dayRows || '<tr><td colspan="8" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
         </table>
       </div>
-      <div class="stats-chart-head" style="margin-top:20px;"><span class="stats-chart-title">Источники броней</span></div>
+      <div class="stats-chart-head" style="margin-top:20px;"><span class="stats-chart-title">Источники броней в этом месяце</span></div>
       <table class="stats-table">
         <thead><tr><th>Источник</th><th>Броней</th><th>Сумма</th></tr></thead>
         <tbody>${channelRows || '<tr><td colspan="3" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
       </table>
-      <div class="stats-chart-head" style="margin-top:20px;"><span class="stats-chart-title">Кто сколько отыграл</span></div>
+      <div class="stats-chart-head" style="margin-top:20px;"><span class="stats-chart-title">Кто сколько отыграл в этом месяце</span></div>
       <table class="stats-table">
         <thead><tr><th>Имя</th><th>Игр</th></tr></thead>
         <tbody>${actorRows || '<tr><td colspan="2" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
@@ -2241,20 +2284,116 @@
     `;
   }
 
+  // First/last ISO date of the given calendar month, plus how many days it has.
+  function monthRangeISO(year, month){
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    return { fromISO: isoDate(first), toISO: isoDate(last), days: last.getDate() };
+  }
+
   async function loadReport(){
-    document.getElementById('reportBody').innerHTML = '<div class="load-note">Загрузка…</div>';
+    document.getElementById('reportMonthLabel').textContent = MONTH_NAMES_NOM[reportViewMonth] + ' ' + reportViewYear;
+    // Can't navigate past the current month — there's nothing to report yet.
+    const isCurrentMonth = reportViewYear === today0.getFullYear() && reportViewMonth === today0.getMonth();
+    document.getElementById('reportMonthNext').disabled = isCurrentMonth ||
+      (reportViewYear > today0.getFullYear()) ||
+      (reportViewYear === today0.getFullYear() && reportViewMonth > today0.getMonth());
+    document.getElementById('reportContent').innerHTML = '<div class="load-note">Загрузка…</div>';
+    const { toISO, days } = monthRangeISO(reportViewYear, reportViewMonth);
     try{
-      const res = await fetch('/api/admin/report?days=30', { headers: authHeaders(), cache:'no-store' });
+      const res = await fetch(`/api/admin/report?to=${toISO}&days=${days}`, { headers: authHeaders(), cache:'no-store' });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){
-        document.getElementById('reportBody').innerHTML = `<div class="stats-empty">${escapeHtml(out.error || 'Не удалось загрузить отчёт.')}</div>`;
+        document.getElementById('reportContent').innerHTML = `<div class="stats-empty">${escapeHtml(out.error || 'Не удалось загрузить отчёт.')}</div>`;
         return;
       }
       renderReport(out);
     } catch(err){
-      document.getElementById('reportBody').innerHTML = '<div class="stats-empty">Ошибка сети. Попробуйте ещё раз.</div>';
+      document.getElementById('reportContent').innerHTML = '<div class="stats-empty">Ошибка сети. Попробуйте ещё раз.</div>';
     }
   }
+
+  // ---------- download a full detailed table for an arbitrary period ----------
+  // Reuses the exact same rich per-booking columns as "Экспорт CSV" above,
+  // but is sourced from the server (via ?detailed=1 on the same report
+  // endpoint) instead of the admin panel's own client-side booking cache —
+  // that cache only ever holds ~2 months of history, so this is the only
+  // way to pull, say, a whole quarter or a month from further back.
+  const reportDownloadFrom = document.getElementById('reportDownloadFrom');
+  const reportDownloadTo = document.getElementById('reportDownloadTo');
+  (function initDownloadRange(){
+    const { fromISO, toISO } = monthRangeISO(today0.getFullYear(), today0.getMonth());
+    reportDownloadFrom.value = fromISO;
+    reportDownloadTo.value = toISO;
+  })();
+
+  document.getElementById('reportDownloadBtn').addEventListener('click', async () => {
+    const msg = document.getElementById('reportDownloadMsg');
+    const fromISO = reportDownloadFrom.value;
+    const toISO = reportDownloadTo.value;
+    if (!fromISO || !toISO || fromISO > toISO){
+      msg.textContent = 'Укажите корректный период — «С» не позже «По».';
+      return;
+    }
+    const daysSpan = Math.round((parseISO(toISO) - parseISO(fromISO)) / 86400000) + 1;
+    if (daysSpan > 92){
+      msg.textContent = 'Период не может быть больше 92 дней — выберите период покороче.';
+      return;
+    }
+    msg.textContent = 'Готовим файл…';
+    try{
+      const res = await fetch(`/api/admin/report?to=${toISO}&days=${daysSpan}&detailed=1`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        msg.textContent = out.error || 'Не удалось получить данные за этот период.';
+        return;
+      }
+      const rows = (out.bookings || []).slice().sort((a,b) => {
+        return a.dateISO === b.dateISO ? String(a.time).localeCompare(b.time) : a.dateISO.localeCompare(b.dateISO);
+      });
+      if (!rows.length){
+        msg.textContent = 'За этот период нет ни одной брони.';
+        return;
+      }
+      const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Сверка актёра','Комментарий'];
+      const lines = [header.join(';')];
+      rows.forEach(b => {
+        const isTech = b.type === 'technical';
+        lines.push([
+          b.dateISO || '', b.time || '',
+          isTech ? 'Техническая' : 'Клиент',
+          statusLabelForCsv(b),
+          isTech ? '' : (b.name || ''),
+          isTech ? '' : (b.phone || ''),
+          isTech ? '' : (b.players || ''),
+          isTech ? '' : (b.price != null ? b.price : ''),
+          isTech ? '' : (b.payCash || ''),
+          isTech ? '' : (b.payCard || ''),
+          isTech ? '' : (b.payErip || ''),
+          isTech ? '' : (b.channel || ''),
+          isTech ? '' : (b.discountNote || ''),
+          isTech ? '' : (b.workedActor || ''),
+          isTech ? '' : (b.workedActress || ''),
+          isTech ? '' : (b.handledByAdmin || ''),
+          isTech ? '' : (b.closeoutStatus === 'edited' ? 'Исправлено' : b.closeoutStatus === 'confirmed' ? 'Подтверждено' : b.closeoutStatus === 'awaiting' ? 'Ожидает' : b.closeoutStatus === 'actor-not-registered' ? 'Не отправлено — актёр не подключил бота' : b.closeoutStatus === 'send-failed' ? 'Не удалось отправить' : ''),
+          b.comment || '',
+        ].map(csvEscape).join(';'));
+      });
+      const csvContent = '﻿' + lines.join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `отчёт_${fromISO}_${toISO}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      msg.textContent = `Готово — ${rows.length} ${rows.length === 1 ? 'строка' : 'строк'} за ${fromISO} — ${toISO}.`;
+    } catch(err){
+      msg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+    }
+  });
 
   // ---------- shifts & actor reminders ----------
   const shiftsOverlay = document.getElementById('shiftsOverlay');
