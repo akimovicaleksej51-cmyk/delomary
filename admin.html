@@ -6,8 +6,30 @@
 <title>Админка — Дело Мэри</title>
 <link rel="icon" href="/assets/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.png">
+
+<!-- Позволяет добавить админку на главный экран телефона как отдельный
+     значок (без публикации в App Store/Google Play) — открывается в своём
+     окне, без адресной строки браузера, как обычное приложение. -->
+<link rel="manifest" href="/admin-manifest.json">
+<meta name="theme-color" content="#0C0C0C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Админка">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+  // Регистрирует сервис-воркер только для того, чтобы Android/Chrome
+  // предложил «Установить приложение» — сам он ничего не кэширует и не
+  // перехватывает, все данные всегда идут напрямую с сервера.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/admin-sw.js', { scope: '/admin.html' }).catch(() => {});
+    });
+  }
+</script>
 <style>
   :root{
     --black:#000000; --black-2:#0C0C0C; --black-3:#171717;
