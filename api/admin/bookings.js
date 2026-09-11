@@ -66,6 +66,7 @@
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
+import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields } from '../_closeout.js';
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime } from '../_time.js';
 
@@ -369,9 +370,13 @@ export default async function handler(req, res) {
 
       let finalRecord = record;
       if (isCustomer) {
-        const reminderPatch = await scheduleReminder(record);
-        if (Object.keys(reminderPatch).length) {
-          finalRecord = { ...record, ...reminderPatch };
+        const [reminderPatch, closeoutPatch] = await Promise.all([
+          scheduleReminder(record),
+          scheduleGameCloseout(record),
+        ]);
+        const patch = { ...reminderPatch, ...closeoutPatch };
+        if (Object.keys(patch).length) {
+          finalRecord = { ...record, ...patch };
           await kv('hset', hashKey, cleanTime, JSON.stringify(finalRecord));
         }
       }
@@ -394,7 +399,7 @@ export default async function handler(req, res) {
         let existing;
         try { existing = JSON.parse(existingRaw); } catch { existing = null; }
         if (existing) {
-          await cancelReminder(existing);
+          await Promise.all([cancelReminder(existing), cancelGameCloseout(existing)]);
           const cancelledAt = new Date().toISOString();
           const cancelled = { ...existing, status: 'cancelled', cancelledAt };
           const historyKey = `history:${cleanDateISO}`;
@@ -553,12 +558,13 @@ export default async function handler(req, res) {
       try { existing = JSON.parse(existingRaw); } catch { existing = {}; }
 
       // A moved booking may now fall under a different (or no) shift, so
-      // the old reminder — if one was scheduled — is cancelled outright;
-      // a fresh one gets scheduled below for the new date/time.
-      await cancelReminder(existing);
+      // the old reminder AND the old per-game sverka — if either was
+      // scheduled — are cancelled outright; fresh ones get scheduled below
+      // for the new date/time.
+      await Promise.all([cancelReminder(existing), cancelGameCloseout(existing)]);
 
       let updated = {
-        ...stripReminderFields(existing),
+        ...stripCloseoutFields(stripReminderFields(existing)),
         dateISO: toDateISO,
         time: toTime,
         rescheduledFrom: { dateISO: fromDateISO, time: fromTime },
@@ -571,9 +577,13 @@ export default async function handler(req, res) {
       await kv('expire', toKey, SLOT_TTL_SECONDS);
 
       if (updated.type === 'customer') {
-        const reminderPatch = await scheduleReminder(updated);
-        if (Object.keys(reminderPatch).length) {
-          updated = { ...updated, ...reminderPatch };
+        const [reminderPatch, closeoutPatch] = await Promise.all([
+          scheduleReminder(updated),
+          scheduleGameCloseout(updated),
+        ]);
+        const patch = { ...reminderPatch, ...closeoutPatch };
+        if (Object.keys(patch).length) {
+          updated = { ...updated, ...patch };
           await kv('hset', toKey, toTime, JSON.stringify(updated));
         }
       }

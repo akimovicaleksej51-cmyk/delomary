@@ -1,62 +1,90 @@
-// Shared helpers for the actor "shift closeout" feature: once a shift ends,
-// the actor gets a Telegram message listing that shift's bookings and can
-// confirm each one, or correct the player count and price — then reports
-// how much cash they collected, which feeds straight into the "Касса"
-// running balance (see api/_finance.js).
+// Shared helpers for the actor "game closeout" (sverka) feature: a set
+// time after EACH GAME ITSELF starts, every performer who covered that
+// booking gets a private Telegram message with "✅ Верно" / "✏️
+// Исправить" buttons, so they can confirm or correct the player count and
+// price, then report how the game was paid for (cash / card / ERIP, or a
+// split — see parsePayment() in api/telegram-webhook.js) — which feeds
+// straight into "Касса" (see api/_finance.js) and, once confirmed, also
+// fills in "Кто отыграл" (see resolveWorkedField() in
+// api/telegram-webhook.js) for the per-actor games-this-month stat.
+//
+// This used to fire once at the END OF THE WHOLE SHIFT, batching every
+// booking from that shift into one round of messages. Per the site
+// owner's explicit request, it now works exactly like booking reminders
+// (api/_reminders.js) — one independent job PER BOOKING PER PERFORMER,
+// timed off that booking's own start time — so a sverka for an 11:00 game
+// arrives at 12:20 regardless of when the shift as a whole ends, instead
+// of everyone's sverka arriving in one batch at shift end.
 //
 // Not a route — Vercel ignores files starting with "_" — imported by
-// api/admin/shifts.js (schedules/cancels the QStash job whenever a shift
-// slot is set or cleared), api/telegram-closeout.js (the job QStash
-// actually calls), api/telegram-webhook.js (tracks the actor's in-progress
-// reply once they tap a button) and api/cron/reminders-sweep.js (safety
-// net for shifts set more than 7 days ahead — same QStash free-tier
-// ceiling as booking reminders).
+// api/book.js and api/admin/bookings.js (schedule/cancel a booking's
+// closeout jobs alongside its reminder jobs, at the same call sites),
+// api/telegram-closeout.js (the job QStash actually calls),
+// api/telegram-webhook.js (tracks the actor's in-progress reply once they
+// tap a button), api/admin/shifts.js (the admin's manual "Сверка сейчас"
+// button — still organized per shift slot in the UI, but now implemented
+// as "run the per-booking sender for every booking that slot covers") and
+// api/cron/reminders-sweep.js (schedules any 'pending' closeout that was
+// too far out to schedule immediately — same QStash 7-day ceiling as
+// reminders — and the missed-closeout safety net below).
 //
 // ── Data model ──────────────────────────────────────────────────────────
-//   closeout:<ISO date>:<slot>   STRING, JSON bookkeeping for the ONE
-//                                 scheduled/pending closeout job for that
-//                                 shift slot (slot is one of SHIFT_SLOTS
-//                                 in api/_reminders.js):
-//                                 { qstashMsgId, fireAt, actorUsername,
-//                                   status:'scheduled'|'pending' }
-//                                 Deleted the moment the job actually fires
-//                                 (api/telegram-closeout.js cleans up after
-//                                 itself) — there's nothing left to track
-//                                 once the messages are sent.
+// A booking's own closeout scheduling lives directly on its record (same
+// JSON as bookings:<date> / history:<date>, same shape as the pre-existing
+// `reminders` array in api/_reminders.js):
+//   closeouts   ARRAY, one entry per performer covering that booking:
+//                [{ actorUsername, msgId, fireAt, status }]
+//                status is 'scheduled' (msgId present — a precise QStash
+//                job is set), 'pending' (more than 7 days out — the daily
+//                sweep in api/cron/reminders-sweep.js schedules it for
+//                real once it's in range), or 'actor-not-registered'
+//                (assigned to the shift but never sent /start to the bot).
+//
 //   pendingActorReply:<chatId>   STRING, JSON conversation state, set
 //                                 while an actor is mid-reply to a
 //                                 closeout question (correcting a booking,
-//                                 or reporting cash collected):
+//                                 or reporting how it was paid):
 //                                 { dateISO, time, stage:'players_price'|
-//                                   'cash' }
-//                                 Short TTL — if the actor never replies,
-//                                 it just expires and the bot goes back to
-//                                 treating their messages as ordinary text.
+//                                   'payment'|'cash' }
+//                                 ('cash' is a legacy stage kept for any
+//                                 conversation already in flight from
+//                                 before the cash/card/ERIP split existed
+//                                 — see api/telegram-webhook.js.) Short
+//                                 TTL — if the actor never replies, it
+//                                 just expires.
 //
-// A closeout's own progress lives directly on the booking record (same
-// JSON as bookings:<date> / history:<date>):
+// A closeout's own progress lives directly on the booking record:
 //   closeoutStatus        — 'awaiting' (message sent, no reply yet),
 //                             'confirmed', 'edited', 'actor-not-registered'
-//                             (shift has this performer assigned but they
-//                             never sent /start to the bot, so there's no
-//                             chat to deliver to), or 'send-failed' (a chat
-//                             id exists but Telegram rejected the message —
-//                             e.g. the actor blocked the bot). The last two
-//                             exist so a delivery failure is always visible
-//                             on the booking instead of just silently never
-//                             showing up.
-//   closeoutCashCollected — the cash amount the actor reported.
+//                             (this performer never sent /start to the
+//                             bot, so there's no chat to deliver to), or
+//                             'send-failed' (a chat id exists but Telegram
+//                             rejected the message — e.g. the actor
+//                             blocked the bot). The last two exist so a
+//                             delivery failure is always visible on the
+//                             booking instead of just silently never
+//                             showing up. NOTE: this is a single field
+//                             shared by the booking, not one per performer
+//                             — if both an actor and an actress cover the
+//                             same booking, whichever of them last acted
+//                             on it "wins" this field; each still gets
+//                             their own independent message and buttons.
+//   closeoutCashCollected — the cash amount the actor reported (kept for
+//                             backward compatibility with the pre-split
+//                             flow; payCash/payCard/payErip below are what
+//                             Касса actually reads).
 //   closeoutRepliedAt     — ISO timestamp of the actor's response.
 //
-// Reporting cash collected writes straight into the booking's `payCash`
-// field — the same field the admin panel's edit form uses — so there's
-// only ever one number Касса reads, no matter who last touched it.
+// Reporting how a game was paid for writes straight into the booking's
+// `payCash`/`payCard`/`payErip` fields — the same fields the admin panel's
+// edit form uses — so there's only ever one set of numbers Касса reads,
+// no matter who last touched them.
 
 import { kv } from './_kv.js';
 import { businessDateTime } from './_time.js';
 import { getShiftsForDate, getActorsMap, resolveActorUsernamesForSlot } from './_reminders.js';
 
-const CLOSEOUT_TTL_SECONDS = 60 * 60 * 24 * 14;
+const CLOSEOUT_LEAD_MINUTES = 80; // 1 час 20 минут ПОСЛЕ начала игры
 const PENDING_REPLY_TTL_SECONDS = 60 * 60 * 6; // long enough for an actor to reply the same evening
 const QSTASH_MAX_DELAY_SECONDS = 7 * 24 * 60 * 60;
 
@@ -66,6 +94,17 @@ function formatDateLabel(iso) {
   const [y, m, d] = String(iso).split('-').map(Number);
   const date = new Date(y, (m || 1) - 1, d || 1);
   return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
+}
+
+// record.time / a shift slot's start-end are Minsk wall-clock time —
+// businessDateTime() (see api/_time.js) converts to the correct absolute
+// instant instead of letting the server's own (UTC) clock reinterpret
+// those numbers as UTC.
+function parseWallClock(dateISO, time) {
+  const [y, m, d] = String(dateISO).split('-').map(Number);
+  const [hh, mm] = String(time).split(':').map(Number);
+  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return businessDateTime(dateISO, hh, mm);
 }
 
 // Returns the parsed Telegram API response, or { ok:false } if the request
@@ -88,311 +127,326 @@ async function tg(method, payload) {
   }
 }
 
-// Stamps every booking in `bookings` with the same closeoutStatus — used
-// for failure modes that affect the whole shift at once (actor never
-// registered with the bot / the chat is unreachable), so the admin panel
-// has something concrete to show instead of just... nothing.
-async function markAllBookings(hashKey, bookings, status) {
-  await Promise.all(bookings.map(async (b) => {
-    const current = await kv('hget', hashKey, b.time);
-    if (!current) return;
-    try {
-      const currentRecord = JSON.parse(current);
-      await kv('hset', hashKey, b.time, JSON.stringify({ ...currentRecord, closeoutStatus: status }));
-    } catch {
-      // skip malformed entry
-    }
-  }));
-}
-
-// Every CUSTOMER booking covered by (dateISO, slot)'s actor, resolved
-// against the CURRENT shift schedule (not just this slot's own start/end),
-// so a booking is attributed to every performer actually covering it.
-async function collectShiftBookings(dateISO, slotData) {
-  const hashKey = `bookings:${dateISO}`;
-  const bookingsRaw = await kv('hgetall', hashKey);
-  const bookings = [];
-  if (Array.isArray(bookingsRaw)) {
-    for (let i = 0; i < bookingsRaw.length - 1; i += 2) {
-      const time = bookingsRaw[i];
-      let record;
-      try { record = JSON.parse(bookingsRaw[i + 1]); } catch { continue; }
-      if (record.type !== 'customer') continue;
-      const resolvedTime = record.time || time;
-      // eslint-disable-next-line no-await-in-loop
-      const resolvedActors = await resolveActorUsernamesForSlot(dateISO, resolvedTime);
-      if (resolvedActors.includes(slotData.actorUsername)) bookings.push({ ...record, time: resolvedTime });
-    }
-  }
-  bookings.sort((a, b) => a.time.localeCompare(b.time));
-  return { hashKey, bookings };
-}
-
-// slotData.end is Minsk wall-clock time — businessDateTime() (see
-// api/_time.js) converts it to the correct absolute instant instead of
-// letting the server's own (UTC) clock reinterpret those numbers as UTC,
-// which used to schedule the closeout message 3 hours later than the
-// shift actually ended.
-function parseShiftDateTime(dateISO, time) {
-  const [y, m, d] = String(dateISO).split('-').map(Number);
-  const [hh, mm] = String(time).split(':').map(Number);
-  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
-  return businessDateTime(dateISO, hh, mm);
-}
-
-function closeoutKey(dateISO, slot) {
-  return `closeout:${dateISO}:${slot}`;
-}
-
-export async function getCloseoutRecord(dateISO, slot) {
-  const raw = await kv('get', closeoutKey(dateISO, slot));
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
-// Schedules the end-of-shift check-in for one (date, slot). Safe to call
-// unconditionally whenever a slot is saved — silently does nothing if
-// QStash isn't configured, the slot has no actor, or the shift's already over.
-export async function scheduleCloseout(dateISO, slot, slotData) {
-  if (!slotData || !slotData.end || !slotData.actorUsername) return;
+// Schedules one job per performer covering a customer booking's slot — an
+// actor AND an actress are routinely on shift for the very same booking,
+// and each gets their own independent sverka, 80 minutes after the game
+// STARTS (not tied to when their shift ends). Returns a patch object
+// ({ closeouts: [...] }) to merge into the booking record — callers are
+// responsible for persisting it back to KV, exactly like scheduleReminder()
+// in api/_reminders.js. Safe to call unconditionally for every customer
+// booking, and safe to call repeatedly (the daily sweep does): a performer
+// who already has a successfully scheduled closeout is left untouched.
+export async function scheduleGameCloseout(record) {
+  if (!record || record.type !== 'customer' || !record.dateISO || !record.time) return {};
+  if (record.status === 'cancelled' || record.status === 'rescheduled') return {};
 
   const qstashToken = process.env.QSTASH_TOKEN;
   const siteUrl = process.env.SITE_URL;
   const webhookSecret = process.env.REMINDER_WEBHOOK_SECRET;
-  if (!qstashToken || !siteUrl || !webhookSecret) return;
+  if (!qstashToken || !siteUrl || !webhookSecret) return {};
 
-  const fireAt = parseShiftDateTime(dateISO, slotData.end);
-  if (!fireAt) return;
+  const startAt = parseWallClock(record.dateISO, record.time);
+  if (!startAt) return {};
+
+  const fireAt = new Date(startAt.getTime() + CLOSEOUT_LEAD_MINUTES * 60 * 1000);
   const now = Date.now();
-  if (fireAt.getTime() <= now) return; // shift's already over — nothing to schedule
+  if (fireAt.getTime() <= now) return {}; // already too late — nothing to schedule
 
-  const key = closeoutKey(dateISO, slot);
+  const actorUsernames = await resolveActorUsernamesForSlot(record.dateISO, record.time);
+  if (!actorUsernames.length) return {};
+
+  const actors = await getActorsMap();
+  const existingByActor = {};
+  (Array.isArray(record.closeouts) ? record.closeouts : []).forEach((c) => {
+    if (c && c.actorUsername) existingByActor[c.actorUsername] = c;
+  });
+
   const delaySeconds = Math.floor((fireAt.getTime() - now) / 1000);
-
-  if (delaySeconds > QSTASH_MAX_DELAY_SECONDS) {
-    // Further out than QStash's free-tier delay ceiling — the daily sweep
-    // (api/cron/reminders-sweep.js) schedules it for real once it's in range.
-    await kv('set', key, JSON.stringify({ fireAt: fireAt.toISOString(), actorUsername: slotData.actorUsername, status: 'pending' }));
-    await kv('expire', key, CLOSEOUT_TTL_SECONDS);
-    return;
-  }
-
-  const notBefore = Math.floor(fireAt.getTime() / 1000);
   const destination = `${siteUrl.replace(/\/$/, '')}/api/telegram-closeout`;
 
-  try {
-    const qsRes = await fetch(`https://qstash.upstash.io/v2/publish/${destination}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${qstashToken}`,
-        'Content-Type': 'application/json',
-        'Upstash-Not-Before': String(notBefore),
-        'Upstash-Forward-X-Reminder-Secret': webhookSecret,
-      },
-      body: JSON.stringify({ dateISO, slot }),
-    });
-    const qsData = await qsRes.json().catch(() => ({}));
-    if (!qsRes.ok || !qsData.messageId) {
-      console.error('QStash publish failed (closeout):', qsData);
-      await kv('set', key, JSON.stringify({ fireAt: fireAt.toISOString(), actorUsername: slotData.actorUsername, status: 'pending' }));
-      await kv('expire', key, CLOSEOUT_TTL_SECONDS);
-      return;
-    }
-    await kv('set', key, JSON.stringify({
-      qstashMsgId: qsData.messageId,
-      fireAt: fireAt.toISOString(),
-      actorUsername: slotData.actorUsername,
-      status: 'scheduled',
-    }));
-    await kv('expire', key, CLOSEOUT_TTL_SECONDS);
-  } catch (err) {
-    console.error('Failed to reach QStash (closeout):', err);
-  }
-}
+  const closeouts = await Promise.all(actorUsernames.map(async (actorUsername) => {
+    const already = existingByActor[actorUsername];
+    if (already && already.status === 'scheduled' && already.msgId) return already; // don't duplicate
 
-// Cancels a previously-scheduled closeout for a (date, slot) — called
-// whenever that slot is edited or cleared, so a stale job never fires for
-// a shift that no longer exists (or now belongs to someone else).
-export async function cancelCloseout(dateISO, slot) {
-  const record = await getCloseoutRecord(dateISO, slot);
-  if (record && record.qstashMsgId) {
-    const qstashToken = process.env.QSTASH_TOKEN;
-    if (qstashToken) {
-      try {
-        await fetch(`https://qstash.upstash.io/v2/messages/${record.qstashMsgId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${qstashToken}` },
-        });
-      } catch (err) {
-        console.error('Failed to cancel QStash closeout message:', err);
+    const actor = actors[actorUsername];
+    if (!actor || !actor.chatId) {
+      return { actorUsername, status: 'actor-not-registered' };
+    }
+
+    if (delaySeconds > QSTASH_MAX_DELAY_SECONDS) {
+      // Further out than QStash's free-tier delay ceiling — the daily
+      // sweep (api/cron/reminders-sweep.js) schedules it for real once
+      // it's in range, same as booking reminders.
+      return { actorUsername, fireAt: fireAt.toISOString(), status: 'pending' };
+    }
+
+    const notBefore = Math.floor(fireAt.getTime() / 1000);
+    try {
+      const qsRes = await fetch(`https://qstash.upstash.io/v2/publish/${destination}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${qstashToken}`,
+          'Content-Type': 'application/json',
+          'Upstash-Not-Before': String(notBefore),
+          'Upstash-Forward-X-Reminder-Secret': webhookSecret,
+        },
+        body: JSON.stringify({ dateISO: record.dateISO, time: record.time, actorUsername }),
+      });
+      const qsData = await qsRes.json().catch(() => ({}));
+      if (!qsRes.ok || !qsData.messageId) {
+        console.error('QStash publish failed (closeout):', qsData);
+        return { actorUsername, fireAt: fireAt.toISOString(), status: 'pending' };
       }
+      return { actorUsername, msgId: qsData.messageId, fireAt: fireAt.toISOString(), status: 'scheduled' };
+    } catch (err) {
+      console.error('Failed to reach QStash (closeout):', err);
+      return { actorUsername, fireAt: fireAt.toISOString(), status: 'pending' };
     }
+  }));
+
+  return { closeouts };
+}
+
+// Cancels every previously-scheduled closeout job for a booking (cancelled
+// or moved to a different date/time) — mirrors cancelReminder() in
+// api/_reminders.js. Safe to call even if the record never had any
+// closeouts scheduled.
+export async function cancelGameCloseout(record) {
+  const qstashToken = process.env.QSTASH_TOKEN;
+  if (!qstashToken || !record || !Array.isArray(record.closeouts) || !record.closeouts.length) return;
+
+  await Promise.all(record.closeouts.map(async (c) => {
+    if (!c || !c.msgId) return;
+    try {
+      await fetch(`https://qstash.upstash.io/v2/messages/${c.msgId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${qstashToken}` },
+      });
+    } catch (err) {
+      console.error('Failed to cancel QStash closeout message:', err);
+    }
+  }));
+}
+
+// Strips the closeout bookkeeping off a record — used when moving a
+// booking (reschedule) so the fresh scheduleGameCloseout() call starts
+// clean rather than inheriting stale scheduling info from the old slot.
+// Mirrors stripReminderFields() in api/_reminders.js.
+export function stripCloseoutFields(record) {
+  const { closeouts, ...rest } = record;
+  return rest;
+}
+
+// The actual "send ONE performer their sverka for ONE booking" logic —
+// the single-booking equivalent of what used to be a whole-shift batch.
+// Shared by: api/telegram-closeout.js (the automatic QStash job, firing
+// 80 minutes after that booking's start), api/admin/shifts.js's
+// "Сверка сейчас" button (via runCloseoutForSlot below, for whenever the
+// automatic one didn't go out or needs retrying), and the daily
+// missed-closeout safety net (sweepMissedCloseouts below). Always returns
+// a small result object describing what happened instead of silently
+// returning — so a failure is never invisible.
+export async function runCloseoutForBooking(dateISO, time, actorUsername) {
+  const hashKey = `bookings:${dateISO}`;
+  const raw = await kv('hget', hashKey, time);
+  if (!raw) return { ok: false, reason: 'no-booking', message: 'Эта бронь больше не существует.' };
+  let record;
+  try { record = JSON.parse(raw); } catch { return { ok: false, reason: 'bad-record', message: 'Повреждённая запись брони.' }; }
+  if (!record || record.type !== 'customer') return { ok: false, reason: 'not-customer', message: 'Это не клиентская бронь.' };
+  if (record.status === 'cancelled' || record.status === 'rescheduled') {
+    return { ok: false, reason: 'not-applicable', message: 'Бронь отменена или перенесена — сверка не нужна.' };
   }
-  await kv('del', closeoutKey(dateISO, slot));
+
+  // `closeoutStatus` (awaiting/confirmed/edited/...) is a single field
+  // SHARED across every performer covering this booking — see the data
+  // model comment at the top of this file. That's fine for tracking a
+  // REPLY (only one conversation happens at a time either way), but it
+  // must NOT be used to decide whether THIS performer has already been
+  // SENT their message — otherwise, on a booking covered by both an actor
+  // and an actress, the moment the first one's send flips closeoutStatus
+  // to 'awaiting', the second would look "already sent" and never get
+  // their own message at all. So the send-gate below is tracked
+  // per-performer, inside this booking's own `closeouts` array (the same
+  // array scheduleGameCloseout() populated), using each entry's
+  // `sentStatus` field — independent from the shared `closeoutStatus`.
+  const closeouts = Array.isArray(record.closeouts) ? record.closeouts : [];
+  const idx = closeouts.findIndex((c) => c && c.actorUsername === actorUsername);
+  const existing = idx >= 0 ? closeouts[idx] : null;
+
+  // Already sent to THIS performer (awaiting a reply) — don't re-send.
+  // 'send-failed'/'actor-not-registered' ARE retried (that's the point of
+  // the manual button and the safety net).
+  if (existing && existing.sentStatus && existing.sentStatus !== 'send-failed' && existing.sentStatus !== 'actor-not-registered') {
+    return { ok: true, reason: 'already-sent', message: 'По этой игре сверка уже отправлена или уже сверена.' };
+  }
+
+  function withCloseoutPatch(sentStatus) {
+    const nextCloseouts = [...closeouts];
+    if (idx >= 0) nextCloseouts[idx] = { ...existing, actorUsername, sentStatus };
+    else nextCloseouts.push({ actorUsername, sentStatus });
+    // closeoutStatus keeps its existing (reply-driven) value once one is
+    // set — a second performer's send attempt shouldn't reset an already-
+    // answered conversation back to 'awaiting'/'send-failed'.
+    const closeoutStatus = (record.closeoutStatus && record.closeoutStatus !== 'send-failed' && record.closeoutStatus !== 'actor-not-registered')
+      ? record.closeoutStatus
+      : sentStatus;
+    return { ...record, closeouts: nextCloseouts, closeoutStatus };
+  }
+
+  const actors = await getActorsMap();
+  const actor = actors[actorUsername];
+  if (!actor || !actor.chatId) {
+    await kv('hset', hashKey, time, JSON.stringify(withCloseoutPatch('actor-not-registered')));
+    return { ok: false, reason: 'actor-not-registered', message: `Актёр @${actorUsername} ещё не подключил бота (не отправил /start) — доставить некуда.` };
+  }
+
+  const dateLabel = formatDateLabel(dateISO);
+  const lines = [
+    `🎬 Сверка игры — ${dateLabel}, ${time}`,
+    record.name ? `👤 ${record.name}` : null,
+    record.players ? `👥 ${record.players}` : null,
+    record.price ? `💰 ${record.price} Br` : null,
+  ].filter(Boolean);
+
+  const sendResult = await tg('sendMessage', {
+    chat_id: actor.chatId,
+    text: lines.join('\n'),
+    reply_markup: {
+      inline_keyboard: [[
+        { text: '✅ Верно', callback_data: `co|ok|${dateISO}|${time}` },
+        { text: '✏️ Исправить', callback_data: `co|edit|${dateISO}|${time}` },
+      ]],
+    },
+  });
+
+  const nextSentStatus = (sendResult && sendResult.ok) ? 'awaiting' : 'send-failed';
+  await kv('hset', hashKey, time, JSON.stringify(withCloseoutPatch(nextSentStatus)));
+
+  if (!sendResult || !sendResult.ok) {
+    return { ok: false, reason: 'send-failed', message: `Не удалось отправить сверку актёру @${actorUsername} (возможно, заблокировал бота).` };
+  }
+  return { ok: true, reason: 'sent', message: `Сверка по игре ${time} отправлена актёру @${actorUsername}.` };
 }
 
-// Called by api/telegram-closeout.js once the job has actually fired —
-// there's nothing left to track after that (unlike a booking reminder, a
-// closeout job never needs to be looked up again by its own key).
-export async function clearCloseoutRecord(dateISO, slot) {
-  await kv('del', closeoutKey(dateISO, slot));
-}
-
-// The actual "send the end-of-shift sverka" logic — shared by three
-// callers: api/telegram-closeout.js (the QStash job firing at the exact
-// shift end), api/admin/shifts.js's "runCloseoutNow" action (the admin's
-// manual "Сверка сейчас" button — for whenever the automatic one didn't go
-// out: bookings only entered into the system AFTER the shift already
-// ended and the automatic job found nothing then, a wrong shift end time,
-// a QStash/Telegram hiccup, etc.), and the daily safety-net sweep in
-// api/cron/reminders-sweep.js (catches exactly that "found nothing at the
-// time, bookings appeared later" case automatically, without anyone
-// needing to notice and click the manual button).
-//
-// Always returns a small result object describing what happened instead of
-// just silently returning — every caller can show or log something
-// concrete rather than the old "nothing happened, no trace anywhere".
+// The admin's manual "Сверка сейчас" button is organized per shift slot
+// (that's the unit the "Смены и напоминания" screen shows), so this stays
+// the entry point for it — but now it just resolves every booking that
+// slot's actor covers on that date and runs the single-booking sender
+// (above) for each one that still needs it, aggregating the results. Also
+// used by the safety-net sweep for shifts caught by the "found nothing at
+// the time, bookings appeared later" pattern.
 export async function runCloseoutForSlot(dateISO, slot) {
-  await clearCloseoutRecord(dateISO, slot);
-
   const shiftsMap = await getShiftsForDate(dateISO);
   const slotData = shiftsMap[slot];
   if (!slotData || !slotData.actorUsername) {
     return { ok: false, reason: 'no-shift', message: 'На эту смену никто не назначен.' };
   }
 
-  const { hashKey, bookings } = await collectShiftBookings(dateISO, slotData);
-  if (!bookings.length) {
+  const hashKey = `bookings:${dateISO}`;
+  const bookingsRaw = await kv('hgetall', hashKey);
+  const bookingTimes = [];
+  if (Array.isArray(bookingsRaw)) {
+    for (let i = 0; i < bookingsRaw.length - 1; i += 2) {
+      const time = bookingsRaw[i];
+      let record;
+      try { record = JSON.parse(bookingsRaw[i + 1]); } catch { continue; }
+      if (record.type !== 'customer' || record.status === 'cancelled' || record.status === 'rescheduled') continue;
+      const resolvedTime = record.time || time;
+      // eslint-disable-next-line no-await-in-loop
+      const resolvedActors = await resolveActorUsernamesForSlot(dateISO, resolvedTime);
+      if (resolvedActors.includes(slotData.actorUsername)) bookingTimes.push(resolvedTime);
+    }
+  }
+  bookingTimes.sort((a, b) => a.localeCompare(b));
+
+  if (!bookingTimes.length) {
     return { ok: false, reason: 'no-bookings', message: 'На это время не нашлось броней для этой смены.', actorUsername: slotData.actorUsername };
   }
 
-  // Only (re)send for bookings that actually still need it — a booking
-  // already 'awaiting' a reply or already 'confirmed'/'edited' by the
-  // actor is left alone, so re-running this (the manual button, or the
-  // safety-net sweep picking up a newly-added booking in an otherwise
-  // already-sent shift) never spams the actor with duplicates of messages
-  // they've already got or already answered.
-  const toSend = bookings.filter((b) => !b.closeoutStatus || b.closeoutStatus === 'send-failed' || b.closeoutStatus === 'actor-not-registered');
-  if (!toSend.length) {
+  let sentCount = 0;
+  let alreadySentCount = 0;
+  const perBooking = [];
+  for (const time of bookingTimes) {
+    // eslint-disable-next-line no-await-in-loop
+    const result = await runCloseoutForBooking(dateISO, time, slotData.actorUsername);
+    perBooking.push({ time, ...result });
+    if (result.ok && result.reason === 'sent') sentCount++;
+    if (result.ok && result.reason === 'already-sent') alreadySentCount++;
+  }
+
+  if (sentCount === 0 && alreadySentCount === bookingTimes.length) {
     return {
       ok: true,
       reason: 'already-sent',
       message: 'Все брони по этой смене уже отправлены на сверку или уже сверены.',
-      bookingsCount: bookings.length,
+      bookingsCount: bookingTimes.length,
       actorUsername: slotData.actorUsername,
     };
-  }
-
-  const actors = await getActorsMap();
-  const actor = actors[slotData.actorUsername];
-  if (!actor || !actor.chatId) {
-    await markAllBookings(hashKey, toSend, 'actor-not-registered');
-    return {
-      ok: false,
-      reason: 'actor-not-registered',
-      message: `Актёр @${slotData.actorUsername} ещё не подключил бота (не отправил /start) — доставить некуда.`,
-      bookingsCount: bookings.length,
-      actorUsername: slotData.actorUsername,
-    };
-  }
-
-  const dateLabel = formatDateLabel(dateISO);
-  const introResult = await tg('sendMessage', {
-    chat_id: actor.chatId,
-    text: `🎬 Смена ${dateLabel} завершена — сверьте, пожалуйста, ${toSend.length === 1 ? 'игру' : 'игры'}:`,
-  });
-  if (!introResult || !introResult.ok) {
-    await markAllBookings(hashKey, toSend, 'send-failed');
-    return {
-      ok: false,
-      reason: 'send-failed',
-      message: `Не удалось отправить сообщение в Telegram актёру @${slotData.actorUsername} (возможно, заблокировал бота).`,
-      bookingsCount: bookings.length,
-      actorUsername: slotData.actorUsername,
-    };
-  }
-
-  let sentCount = 0;
-  for (const b of toSend) {
-    const lines = [
-      `🎮 ${b.time} · ${b.name || 'без имени'}`,
-      b.players ? `👥 ${b.players}` : null,
-      b.price ? `💰 ${b.price} Br` : null,
-    ].filter(Boolean);
-
-    // eslint-disable-next-line no-await-in-loop
-    const sendResult = await tg('sendMessage', {
-      chat_id: actor.chatId,
-      text: lines.join('\n'),
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '✅ Верно', callback_data: `co|ok|${dateISO}|${b.time}` },
-          { text: '✏️ Исправить', callback_data: `co|edit|${dateISO}|${b.time}` },
-        ]],
-      },
-    });
-    if (sendResult && sendResult.ok) sentCount++;
-
-    // eslint-disable-next-line no-await-in-loop
-    const current = await kv('hget', hashKey, b.time);
-    if (current) {
-      try {
-        const currentRecord = JSON.parse(current);
-        // A manual re-run should be able to retry a booking that's already
-        // 'awaiting'/'send-failed' too — but never clobber a reply the
-        // actor already gave.
-        if (currentRecord.closeoutStatus !== 'confirmed' && currentRecord.closeoutStatus !== 'edited') {
-          const nextStatus = (sendResult && sendResult.ok) ? 'awaiting' : 'send-failed';
-          // eslint-disable-next-line no-await-in-loop
-          await kv('hset', hashKey, b.time, JSON.stringify({ ...currentRecord, closeoutStatus: nextStatus }));
-        }
-      } catch {
-        // skip malformed entry
-      }
-    }
   }
 
   return {
-    ok: true,
-    reason: 'sent',
-    message: `Отправлено актёру @${slotData.actorUsername}: ${sentCount} из ${toSend.length} (всего в смене брони: ${bookings.length}).`,
-    bookingsCount: bookings.length,
+    ok: sentCount > 0,
+    reason: sentCount > 0 ? 'sent' : 'send-failed',
+    message: `Отправлено актёру @${slotData.actorUsername}: ${sentCount} из ${bookingTimes.length} (остальные уже были отправлены раньше или не удалось доставить).`,
+    bookingsCount: bookingTimes.length,
     sentCount,
     actorUsername: slotData.actorUsername,
+    perBooking,
   };
 }
 
 // Safety net for the daily sweep (api/cron/reminders-sweep.js): finds any
-// shift slot whose end time has already passed (checked over the last
-// couple of days, not just today, to survive a slow cron run or a shift
-// crossing midnight) that has at least one covered booking with NO
-// closeoutStatus at all — meaning the automatic QStash job either never
-// fired, or fired and found nothing (e.g. the bookings were only entered
-// into the system afterwards) — and runs the closeout for it. Never
-// touches a slot whose bookings already have SOME status (even
-// 'send-failed'/'actor-not-registered') — those are already visible in the
-// admin panel and worth a human decision, not an automatic retry loop.
+// customer booking whose sverka time (start + 80 minutes) has already
+// passed (checked over the last couple of days, not just today) but where
+// at least one of its covering performers still has NO send attempt
+// recorded at all for it — meaning the automatic QStash job for THAT
+// performer either never got scheduled (e.g. the shift was only assigned
+// to that booking after the booking was made, too close to the fire time
+// for anything to catch it before the next sweep) or fired and something
+// went wrong before ever stamping a result — and sends it. This check is
+// per-performer (via each closeouts[] entry's `sentStatus`, same as
+// runCloseoutForBooking's own gate) rather than the shared
+// `closeoutStatus` field, precisely so a booking covered by BOTH an actor
+// and an actress doesn't get treated as "fully handled" the moment just
+// one of them has been messaged. A performer who already has SOME
+// sentStatus (even 'send-failed'/'actor-not-registered') is left alone —
+// those are already visible in the admin panel and worth a human decision
+// (or a manual "Сверка сейчас" click), not an automatic retry loop.
 export async function sweepMissedCloseouts(dateISOList) {
   let attempted = 0;
   const results = [];
   await Promise.all(dateISOList.map(async (dateISO) => {
-    const shiftsMap = await getShiftsForDate(dateISO);
-    await Promise.all(Object.keys(shiftsMap).map(async (slot) => {
-      const slotData = shiftsMap[slot];
-      if (!slotData || !slotData.actorUsername || !slotData.end) return;
-      const fireAt = parseShiftDateTime(dateISO, slotData.end);
-      if (!fireAt || fireAt.getTime() > Date.now()) return; // shift hasn't ended yet
+    const hashKey = `bookings:${dateISO}`;
+    const bookingsRaw = await kv('hgetall', hashKey);
+    if (!Array.isArray(bookingsRaw)) return;
 
-      const { bookings } = await collectShiftBookings(dateISO, slotData);
-      if (!bookings.length) return;
-      const missing = bookings.some((b) => !b.closeoutStatus);
-      if (!missing) return;
+    for (let i = 0; i < bookingsRaw.length - 1; i += 2) {
+      const time = bookingsRaw[i];
+      let record;
+      try { record = JSON.parse(bookingsRaw[i + 1]); } catch { continue; }
+      if (record.type !== 'customer' || record.status === 'cancelled' || record.status === 'rescheduled') continue;
+
+      const resolvedTime = record.time || time;
+      const startAt = parseWallClock(dateISO, resolvedTime);
+      if (!startAt) continue;
+      const fireAt = new Date(startAt.getTime() + CLOSEOUT_LEAD_MINUTES * 60 * 1000);
+      if (fireAt.getTime() > Date.now()) continue; // not due yet
+
+      // eslint-disable-next-line no-await-in-loop
+      const actorUsernames = await resolveActorUsernamesForSlot(dateISO, resolvedTime);
+      if (!actorUsernames.length) continue;
+
+      const closeouts = Array.isArray(record.closeouts) ? record.closeouts : [];
+      const missingActors = actorUsernames.filter((u) => !closeouts.some((c) => c && c.actorUsername === u && c.sentStatus));
+      if (!missingActors.length) continue; // every covering performer already has SOME send attempt recorded
 
       attempted++;
-      // eslint-disable-next-line no-await-in-loop
-      const result = await runCloseoutForSlot(dateISO, slot);
-      results.push({ dateISO, slot, ...result });
-    }));
+      for (const actorUsername of missingActors) {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await runCloseoutForBooking(dateISO, resolvedTime, actorUsername);
+        results.push({ dateISO, time: resolvedTime, actorUsername, ...result });
+      }
+    }
   }));
   return { attempted, results };
 }

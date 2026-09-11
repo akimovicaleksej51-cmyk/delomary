@@ -10,19 +10,20 @@
 // upcoming customer booking without a scheduled reminder yet and, once its
 // reminder time has come within the 7-day window, schedules it for real.
 //
-// This same sweep also does the equivalent job for the "shift closeout"
-// feature (see api/_closeout.js) — a shift schedule set more than 7 days
-// ahead hits the exact same QStash ceiling. The Vercel Hobby plan only
-// allows a limited number of cron jobs, so both sweeps share this one
-// daily run rather than needing a second cron entry in vercel.json.
+// This same sweep also does the equivalent job for the per-game "sverka"
+// (closeout) feature (see api/_closeout.js) — a booking made more than 7
+// days before its own game time hits the exact same QStash ceiling. The
+// Vercel Hobby plan only allows a limited number of cron jobs, so both
+// sweeps share this one daily run rather than needing a second cron entry
+// in vercel.json.
 //
 // It ALSO runs sweepMissedCloseouts() over the last few days — a genuine
-// safety net, not just a QStash-ceiling workaround: if a shift's automatic
-// closeout fired and found zero bookings (most commonly because the
-// bookings were only entered into the admin panel afterwards), nothing
-// else would ever notice and the actor's sverka would just never show up.
-// This catches that the next time the sweep runs, and the admin panel also
-// has a "Сверка сейчас" button (api/admin/shifts.js, action
+// safety net, not just a QStash-ceiling workaround: if a booking's own
+// 80-minutes-after-start closeout job never got scheduled at all (e.g. it
+// was created, then edited/moved in a way that raced the scheduling call),
+// nothing else would ever notice and the actor's sverka would just never
+// show up. This catches that the next time the sweep runs, and the admin
+// panel also has a "Сверка сейчас" button (api/admin/shifts.js, action
 // 'runCloseoutNow') for triggering it immediately instead of waiting.
 //
 // Auth: Vercel automatically sends "Authorization: Bearer <CRON_SECRET>"
@@ -32,12 +33,12 @@
 // philosophy as the rest of this project, but you should set it.)
 
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
-import { scheduleReminder, getShiftsForDate, SHIFT_SLOTS } from '../_reminders.js';
-import { getCloseoutRecord, scheduleCloseout, sweepMissedCloseouts } from '../_closeout.js';
+import { scheduleReminder } from '../_reminders.js';
+import { scheduleGameCloseout, sweepMissedCloseouts } from '../_closeout.js';
 import { businessToday } from '../_time.js';
 
 const SWEEP_DAYS_AHEAD = 9; // a little past the 7-day QStash ceiling, for margin
-const MISSED_CLOSEOUT_DAYS_BACK = 3; // catches a shift whose auto-closeout found nothing (or never fired) a few days back
+const MISSED_CLOSEOUT_DAYS_BACK = 3; // catches a booking whose closeout job never got scheduled a few days back
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -67,6 +68,7 @@ export default async function handler(req, res) {
 
   let scheduled = 0;
   let checked = 0;
+  let closeoutsScheduled = 0;
 
   await Promise.all((results || []).map(async (entry, i) => {
     const obj = pairsToObject(entry && entry.result);
@@ -75,43 +77,42 @@ export default async function handler(req, res) {
       let record;
       try { record = JSON.parse(raw); } catch { return; }
       if (record.type !== 'customer') return;
+      if (record.status === 'cancelled' || record.status === 'rescheduled') return;
+      const fullRecord = { ...record, dateISO: record.dateISO || dateISO, time: record.time || time };
+
       // Skip only once EVERY performer covering this booking already has a
       // precisely scheduled reminder — scheduleReminder() itself is safe
       // to call again otherwise (it won't duplicate an already-scheduled
       // one), so a booking with, say, a registered actor but a not-yet-
       // registered actress keeps getting retried until both are set.
-      if (Array.isArray(record.reminders) && record.reminders.length && record.reminders.every((r) => r.status === 'scheduled')) return;
+      const reminderDone = Array.isArray(record.reminders) && record.reminders.length && record.reminders.every((r) => r.status === 'scheduled');
+      // Same idea for this booking's own per-game sverka — one entry per
+      // performer covering it, each independently scheduled 80 minutes
+      // after ITS start time (see api/_closeout.js).
+      const closeoutDone = Array.isArray(record.closeouts) && record.closeouts.length && record.closeouts.every((c) => c.status === 'scheduled');
+      if (reminderDone && closeoutDone) return;
       checked++;
 
-      const patch = await scheduleReminder({ ...record, dateISO: record.dateISO || dateISO, time: record.time || time });
-      if (patch.reminders && patch.reminders.length) {
-        if (patch.reminders.some((r) => r.status === 'scheduled')) scheduled++;
+      const [reminderPatch, closeoutPatch] = await Promise.all([
+        reminderDone ? {} : scheduleReminder(fullRecord),
+        closeoutDone ? {} : scheduleGameCloseout(fullRecord),
+      ]);
+      if (reminderPatch.reminders && reminderPatch.reminders.some((r) => r.status === 'scheduled')) scheduled++;
+      if (closeoutPatch.closeouts && closeoutPatch.closeouts.some((c) => c.status === 'scheduled')) closeoutsScheduled++;
+      const patch = { ...reminderPatch, ...closeoutPatch };
+      if (Object.keys(patch).length) {
         await kv('hset', `bookings:${dateISO}`, time, JSON.stringify({ ...record, ...patch }));
       }
     }));
   }));
 
-  // Same idea, for shift closeouts stuck in 'pending' (see api/_closeout.js).
-  let closeoutsScheduled = 0;
-  await Promise.all(dates.map(async (dateISO) => {
-    await Promise.all(SHIFT_SLOTS.map(async (slot) => {
-      const rec = await getCloseoutRecord(dateISO, slot);
-      if (!rec || rec.status !== 'pending') return;
-      const shiftsMap = await getShiftsForDate(dateISO);
-      const slotData = shiftsMap[slot];
-      if (!slotData) return;
-      await scheduleCloseout(dateISO, slot, slotData);
-      closeoutsScheduled++;
-    }));
-  }));
-
-  // Safety net: a shift that already ended (today or the last few days)
-  // can end up with bookings that never got a closeout message at all —
-  // most commonly because those bookings were only entered into the
-  // system after the shift's automatic QStash job already fired and found
-  // nothing. Catch those here so the actor's sverka doesn't just silently
-  // never arrive; see sweepMissedCloseouts() in api/_closeout.js for the
-  // exact (conservative) matching rule.
+  // Safety net: a game whose start time has already passed (today or the
+  // last few days) can end up with a booking that never got its sverka
+  // scheduled at all (e.g. an edit/reschedule race, or the actor wasn't
+  // registered yet at scheduling time and later registered). Catch those
+  // here so the actor's sverka doesn't just silently never arrive; see
+  // sweepMissedCloseouts() in api/_closeout.js for the exact (conservative)
+  // matching rule.
   const pastDates = [];
   for (let i = 0; i < MISSED_CLOSEOUT_DAYS_BACK; i++) {
     const d = new Date(today);

@@ -23,19 +23,19 @@
 //       SHIFT_SLOTS). Send start/end/actorUsername all empty to CLEAR that
 //       slot instead (removes it from that date's schedule).
 //   { action:'runCloseoutNow', dateISO, slot }
-//       Manually sends the end-of-shift sverka for that (date, slot) right
-//       now, regardless of whether the shift has technically ended and
-//       regardless of whether the automatic QStash job already fired —
-//       see runCloseoutForSlot() in api/_closeout.js. Exists because the
-//       automatic one can find zero bookings if they're entered into the
-//       admin panel only after the shift already ended (the daily sweep in
-//       api/cron/reminders-sweep.js also catches that case, but only the
-//       next day — this is for "I need it right now"). Only (re)sends for
+//       Manually sends the sverka right now for every booking in that
+//       (date, slot) shift that hasn't been sent one yet — regardless of
+//       whether each booking's own 80-minutes-after-start automatic QStash
+//       job has already fired. See runCloseoutForSlot() in
+//       api/_closeout.js (each shift's actual per-booking sverka timing is
+//       now set independently by scheduleGameCloseout() when the booking
+//       is created — this button doesn't change that schedule, it's purely
+//       "send anything still pending, right now"). Only (re)sends for
 //       bookings that don't already have a reply/awaiting status, so it's
 //       always safe to click again.
 
 import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS } from '../_reminders.js';
-import { scheduleCloseout, cancelCloseout, runCloseoutForSlot } from '../_closeout.js';
+import { runCloseoutForSlot } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
 
@@ -127,11 +127,6 @@ export default async function handler(req, res) {
 
       const shiftsMap = await getShiftsForDate(cleanDateISO);
 
-      // Whatever this slot used to be, any end-of-shift check-in scheduled
-      // for it is now stale — cancel it before deciding whether to
-      // schedule a fresh one below.
-      await cancelCloseout(cleanDateISO, slot);
-
       // All three fields blank → clear this slot instead of setting it.
       if (!cleanStart && !cleanEnd && !cleanActor) {
         delete shiftsMap[slot];
@@ -148,9 +143,13 @@ export default async function handler(req, res) {
 
       shiftsMap[slot] = { start: cleanStart, end: cleanEnd, actorUsername: cleanActor };
       await saveShiftsForDate(cleanDateISO, shiftsMap);
-      // Best-effort: schedules the actor's end-of-shift check-in message —
-      // see api/_closeout.js. Never blocks or fails saving the shift.
-      await scheduleCloseout(cleanDateISO, slot, shiftsMap[slot]);
+      // Note: sverka (closeout) scheduling is no longer tied to shift
+      // start/end times at all — each individual booking schedules its own
+      // sverka 80 minutes after ITS game starts (scheduleGameCloseout() in
+      // api/_closeout.js, called from api/book.js and
+      // api/admin/bookings.js). Saving a shift here only affects who gets
+      // reminders/sverka messages for bookings in this time window, not
+      // when those messages fire.
 
       return res.status(200).json({ ok: true, shifts: shiftsMap });
     }

@@ -27,6 +27,7 @@
 
 import { kv } from './_kv.js';
 import { scheduleReminder } from './_reminders.js';
+import { scheduleGameCloseout } from './_closeout.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
 
@@ -157,12 +158,18 @@ export default async function handler(req, res) {
 
     if (reserved) {
       await kv('expire', hashKey, SLOT_TTL_SECONDS);
-      // Best-effort: if a shift schedule assigns an actor to this slot,
-      // this schedules their private 1.5h-before reminder. Never blocks or
-      // fails the booking itself — see api/_reminders.js.
-      const reminderPatch = await scheduleReminder(record);
-      if (Object.keys(reminderPatch).length) {
-        await kv('hset', hashKey, cleanTime, JSON.stringify({ ...record, ...reminderPatch }));
+      // Best-effort: if a shift schedule assigns a performer to this slot,
+      // this schedules their private 1.5h-before reminder AND their sverka
+      // (game closeout) message, timed 80 minutes after THIS game's own
+      // start time — see api/_reminders.js and api/_closeout.js. Neither
+      // ever blocks or fails the booking itself.
+      const [reminderPatch, closeoutPatch] = await Promise.all([
+        scheduleReminder(record),
+        scheduleGameCloseout(record),
+      ]);
+      const patch = { ...reminderPatch, ...closeoutPatch };
+      if (Object.keys(patch).length) {
+        await kv('hset', hashKey, cleanTime, JSON.stringify({ ...record, ...patch }));
       }
     }
 
