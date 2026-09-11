@@ -65,12 +65,17 @@ export default async function handler(req, res) {
       let record;
       try { record = JSON.parse(raw); } catch { return; }
       if (record.type !== 'customer') return;
-      if (record.reminderMsgId) return; // already precisely scheduled — nothing to do
+      // Skip only once EVERY performer covering this booking already has a
+      // precisely scheduled reminder — scheduleReminder() itself is safe
+      // to call again otherwise (it won't duplicate an already-scheduled
+      // one), so a booking with, say, a registered actor but a not-yet-
+      // registered actress keeps getting retried until both are set.
+      if (Array.isArray(record.reminders) && record.reminders.length && record.reminders.every((r) => r.status === 'scheduled')) return;
       checked++;
 
       const patch = await scheduleReminder({ ...record, dateISO: record.dateISO || dateISO, time: record.time || time });
-      if (patch.reminderMsgId) {
-        scheduled++;
+      if (patch.reminders && patch.reminders.length) {
+        if (patch.reminders.some((r) => r.status === 'scheduled')) scheduled++;
         await kv('hset', `bookings:${dateISO}`, time, JSON.stringify({ ...record, ...patch }));
       }
     }));

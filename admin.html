@@ -787,7 +787,7 @@
     const wd = WEEKDAY_NAMES[d.getDay()];
     return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${wd}`;
   }
-  // Formats a full ISO datetime (e.g. booking.reminderFireAt) as "16
+  // Formats a full ISO datetime (e.g. one reminder entry's fireAt) as "16
   // сентября в 18:30" for display in the booking detail modal.
   function formatReminderMoment(iso){
     const d = new Date(iso);
@@ -1245,19 +1245,30 @@
       dvReminderRow.style.display = 'none';
     } else {
       dvReminderRow.style.display = '';
+      const reminders = Array.isArray(booking.reminders) ? booking.reminders : [];
       if (isHistory) {
-        dvReminder.textContent = (booking.reminderMsgId || booking.reminderPending)
+        dvReminder.textContent = reminders.length
           ? 'Было запланировано — отменено вместе с бронью'
           : '—';
-      } else if (booking.reminderMsgId) {
-        const when = booking.reminderFireAt ? formatReminderMoment(booking.reminderFireAt) : '';
-        dvReminder.textContent = `Актёру @${booking.reminderActor}${when ? ', ' + when : ''}`;
-      } else if (booking.reminderPending) {
-        dvReminder.textContent = `Актёру @${booking.reminderActor} — запланируется позже (бронь дальше чем на 7 дней)`;
-      } else if (booking.reminderStatus === 'actor-not-registered') {
-        dvReminder.textContent = `Назначен @${booking.reminderActor}, но он ещё не подключил бота — попросите отправить /start`;
+      } else if (!reminders.length) {
+        dvReminder.textContent = 'Актёр/актриса не назначены на это время (см. «Смены и напоминания»)';
       } else {
-        dvReminder.textContent = 'Актёр не назначен на это время (см. «Смены и напоминания»)';
+        // A booking routinely has BOTH an actor and an actress on shift at
+        // once (two-character show) — each gets listed with their own
+        // status rather than only showing whichever one was scheduled first.
+        dvReminder.textContent = reminders.map(r => {
+          if (r.status === 'scheduled') {
+            const when = r.fireAt ? formatReminderMoment(r.fireAt) : '';
+            return `@${r.actorUsername}${when ? ', ' + when : ''}`;
+          }
+          if (r.status === 'pending') {
+            return `@${r.actorUsername} — запланируется позже (бронь дальше чем на 7 дней)`;
+          }
+          if (r.status === 'actor-not-registered') {
+            return `@${r.actorUsername} ещё не подключил бота — попросите отправить /start`;
+          }
+          return `@${r.actorUsername}`;
+        }).join('; ');
       }
     }
 

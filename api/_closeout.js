@@ -45,16 +45,22 @@
 // only ever one number Касса reads, no matter who last touched it.
 
 import { kv } from './_kv.js';
+import { businessDateTime } from './_time.js';
 
 const CLOSEOUT_TTL_SECONDS = 60 * 60 * 24 * 14;
 const PENDING_REPLY_TTL_SECONDS = 60 * 60 * 6; // long enough for an actor to reply the same evening
 const QSTASH_MAX_DELAY_SECONDS = 7 * 24 * 60 * 60;
 
+// slotData.end is Minsk wall-clock time — businessDateTime() (see
+// api/_time.js) converts it to the correct absolute instant instead of
+// letting the server's own (UTC) clock reinterpret those numbers as UTC,
+// which used to schedule the closeout message 3 hours later than the
+// shift actually ended.
 function parseShiftDateTime(dateISO, time) {
   const [y, m, d] = String(dateISO).split('-').map(Number);
   const [hh, mm] = String(time).split(':').map(Number);
   if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
-  return new Date(y, m - 1, d, hh, mm, 0, 0);
+  return businessDateTime(dateISO, hh, mm);
 }
 
 function closeoutKey(dateISO, slot) {

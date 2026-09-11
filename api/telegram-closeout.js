@@ -15,7 +15,7 @@
 // already set up for the reminder feature, nothing new to configure.
 
 import { kv } from './_kv.js';
-import { getShiftsForDate, getActorsMap, resolveActorUsernameForSlot } from './_reminders.js';
+import { getShiftsForDate, getActorsMap, resolveActorUsernamesForSlot } from './_reminders.js';
 import { clearCloseoutRecord } from './_closeout.js';
 
 const MONTH_NAMES = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -85,11 +85,14 @@ export default async function handler(req, res) {
       if (record.type !== 'customer') continue;
       const resolvedTime = record.time || time;
       // Re-checks against the CURRENT shift schedule (not just this slot's
-      // own start/end) so a booking never gets double-attributed if two
-      // slots happen to overlap — same tie-break rule reminders use.
+      // own start/end) so a booking is correctly attributed to every
+      // performer actually covering it — an actor AND an actress are
+      // routinely on shift for the very same booking, and each needs their
+      // own closeout, so this checks membership, not equality against a
+      // single resolved performer.
       // eslint-disable-next-line no-await-in-loop
-      const resolved = await resolveActorUsernameForSlot(dateISO, resolvedTime);
-      if (resolved === slotData.actorUsername) bookings.push({ ...record, time: resolvedTime });
+      const resolvedActors = await resolveActorUsernamesForSlot(dateISO, resolvedTime);
+      if (resolvedActors.includes(slotData.actorUsername)) bookings.push({ ...record, time: resolvedTime });
     }
   }
   if (!bookings.length) return; // nobody booked during this shift — nothing to check
