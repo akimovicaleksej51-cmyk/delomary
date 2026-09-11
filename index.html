@@ -760,6 +760,131 @@
     footer{padding:44px 20px 28px;}
     footer .brand img{height:76px;}
   }
+
+  /* =========================================================================
+     ДИЗАЙН-АПГРЕЙД — атмосфера, курсор, параллакс, тилт, магнитные кнопки.
+     Всё в этом блоке дополняет существующие стили выше, ничего не заменяет.
+     Каждый эффект уважает prefers-reduced-motion и отключается на тач-
+     устройствах (курсор/тилт/магнит нет смысла без мыши), так что ничего не
+     ломается и не мешает на телефоне — там сайт выглядит и работает как
+     раньше, просто с плёночной зернистостью и каскадными появлениями.
+     ========================================================================= */
+
+  /* ---------- film grain — тонкая кинематографичная зернистость ---------- */
+  #grainOverlay{
+    position:fixed; inset:-60px; z-index:300; pointer-events:none;
+    opacity:.05; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation:grainShift 1s steps(4) infinite;
+  }
+  @keyframes grainShift{
+    0%{transform:translate(0,0);} 25%{transform:translate(-30px,15px);}
+    50%{transform:translate(15px,-25px);} 75%{transform:translate(-15px,-15px);}
+    100%{transform:translate(0,0);}
+  }
+  @media (prefers-reduced-motion: reduce){ #grainOverlay{animation:none; opacity:.03;} }
+  @media (max-width:640px){ #grainOverlay{display:none;} } /* экономим батарею телефона */
+
+  /* ---------- hero: редкое мигание больничного света ---------- */
+  .hero-flicker{
+    position:absolute; inset:0; z-index:2; pointer-events:none;
+    background:#000; opacity:0;
+    animation:hospitalFlicker 9s ease-in-out infinite;
+  }
+  @keyframes hospitalFlicker{
+    0%,91%,93%,95.5%,100%{opacity:0;}
+    91.5%{opacity:.22;} 93.5%{opacity:.06;} 94.5%{opacity:.28;} 95%{opacity:0;}
+  }
+  @media (prefers-reduced-motion: reduce){ .hero-flicker{animation:none;} }
+
+  /* ---------- hero: glitch-появление заголовка (один раз, не бесит) ---------- */
+  .hero h1{position:relative;}
+  .hero h1.glitching::before, .hero h1.glitching::after{
+    content:attr(data-text); position:absolute; left:0; top:0; width:100%;
+    overflow:hidden; color:var(--paper); background:transparent;
+  }
+  .hero h1.glitching::before{
+    left:3px; text-shadow:-2px 0 var(--danger-bright,#e5484d); animation:glitchTop .5s steps(2) 2;
+  }
+  .hero h1.glitching::after{
+    left:-3px; text-shadow:2px 0 #4fd1ff; animation:glitchBottom .5s steps(2) 2;
+  }
+  @keyframes glitchTop{
+    0%{clip-path:inset(0 0 82% 0); transform:translateX(-2px);}
+    50%{clip-path:inset(30% 0 45% 0); transform:translateX(2px);}
+    100%{clip-path:inset(70% 0 5% 0); transform:translateX(-1px);}
+  }
+  @keyframes glitchBottom{
+    0%{clip-path:inset(60% 0 10% 0); transform:translateX(2px);}
+    50%{clip-path:inset(10% 0 70% 0); transform:translateX(-2px);}
+    100%{clip-path:inset(40% 0 30% 0); transform:translateX(1px);}
+  }
+
+  /* ---------- анимированные цифры в stat-strip: появление с эффектом счётчика ---------- */
+  .stat{opacity:0; transform:translateY(14px) scale(.94); transition:opacity .5s ease, transform .5s ease;}
+  .stat.in{opacity:1; transform:translateY(0) scale(1);}
+  .stat:nth-child(1){transition-delay:.05s;} .stat:nth-child(2){transition-delay:.15s;}
+  .stat:nth-child(3){transition-delay:.25s;} .stat:nth-child(4){transition-delay:.35s;}
+
+  /* ---------- курсор на замену системному (только для мыши) ---------- */
+  body.has-fine-pointer{cursor:none;}
+  body.has-fine-pointer a, body.has-fine-pointer button, body.has-fine-pointer input,
+  body.has-fine-pointer select, body.has-fine-pointer textarea, body.has-fine-pointer .faq-q,
+  body.has-fine-pointer [data-time], body.has-fine-pointer .day{cursor:none;}
+  .cursor-dot, .cursor-ring{
+    position:fixed; top:0; left:0; z-index:9999; pointer-events:none;
+    border-radius:50%; transform:translate(-50%,-50%);
+    opacity:0; transition:opacity .25s ease;
+  }
+  .cursor-dot{width:6px; height:6px; background:var(--ochre-bright);}
+  .cursor-ring{
+    width:34px; height:34px; border:1.5px solid rgba(245,197,24,.65);
+    transition:width .2s ease, height .2s ease, border-color .2s ease, background .2s ease, opacity .2s ease;
+  }
+  .cursor-ring.cursor-hover{
+    width:56px; height:56px; background:rgba(245,197,24,.1); border-color:var(--ochre-bright);
+  }
+  @media (pointer:coarse), (hover:none){
+    .cursor-dot, .cursor-ring{display:none;}
+  }
+
+  /* ---------- магнитные кнопки + рябь при клике ---------- */
+  .btn-solid, .nav-cta, .submit-btn{ will-change:transform; }
+  .btn-ripple{
+    position:absolute; border-radius:50%; background:rgba(255,255,255,.5);
+    transform:scale(0); animation:rippleOut .6s ease-out forwards; pointer-events:none;
+  }
+  @keyframes rippleOut{ to{ transform:scale(1); opacity:0; } }
+
+  /* ---------- тилт на карточках галереи/фото/отзывах ---------- */
+  .gallery-grid figure, .about-photo{ transition:transform .15s ease-out; will-change:transform; }
+  .review{ transition:transform .2s ease, border-color .25s, box-shadow .25s; will-change:transform; }
+  .review:hover{ box-shadow:0 18px 40px -18px rgba(0,0,0,.6); }
+
+  /* ---------- каскадное появление повторяющихся элементов ---------- */
+  .reveal .faq-item, .reveal .review, .reveal .gallery-grid figure,
+  .reveal .badge, .reveal .tag, .reveal .rbar-row{
+    opacity:0; transform:translateY(16px); transition:opacity .55s ease, transform .55s ease;
+  }
+  .reveal.in .faq-item, .reveal.in .review, .reveal.in .gallery-grid figure,
+  .reveal.in .badge, .reveal.in .tag, .reveal.in .rbar-row{
+    opacity:1; transform:translateY(0);
+  }
+  .faq-item:nth-child(1),.review:nth-child(1),.gallery-grid figure:nth-child(1),.badge:nth-child(1),.tag:nth-child(1),.rbar-row:nth-child(1){transition-delay:.05s;}
+  .faq-item:nth-child(2),.review:nth-child(2),.gallery-grid figure:nth-child(2),.badge:nth-child(2),.tag:nth-child(2),.rbar-row:nth-child(2){transition-delay:.12s;}
+  .faq-item:nth-child(3),.review:nth-child(3),.gallery-grid figure:nth-child(3),.badge:nth-child(3),.tag:nth-child(3),.rbar-row:nth-child(3){transition-delay:.19s;}
+  .faq-item:nth-child(4),.gallery-grid figure:nth-child(4),.tag:nth-child(4),.rbar-row:nth-child(4){transition-delay:.26s;}
+  .faq-item:nth-child(5),.gallery-grid figure:nth-child(5),.tag:nth-child(5),.rbar-row:nth-child(5){transition-delay:.33s;}
+  .gallery-grid figure:nth-child(6){transition-delay:.4s;}
+  .gallery-grid figure:nth-child(7){transition-delay:.47s;}
+  .gallery-grid figure:nth-child(8){transition-delay:.54s;}
+
+  @media (prefers-reduced-motion: reduce){
+    .reveal .faq-item, .reveal .review, .reveal .gallery-grid figure,
+    .reveal .badge, .reveal .tag, .reveal .rbar-row, .stat{
+      transition-delay:0s !important; opacity:1 !important; transform:none !important;
+    }
+  }
 </style>
 
 <!--
@@ -784,6 +909,9 @@
 </head>
 <body>
 <div id="progress"></div>
+<div id="grainOverlay" aria-hidden="true"></div>
+<div class="cursor-ring" id="cursorRing" aria-hidden="true"></div>
+<div class="cursor-dot" id="cursorDot" aria-hidden="true"></div>
 
 <header>
   <div class="nav">
@@ -824,7 +952,7 @@
   </div>
   <div class="wrap">
     <div class="case-tag">клиника «дредвуд» · 1960-е</div>
-    <h1>Дело Мэри</h1>
+    <h1 data-text="Дело Мэри">Дело Мэри</h1>
     <div class="hero-mark">Скажи им, что я здесь</div>
     <p class="hero-lede">Страшный квест-перформанс с живым актёром от Loony Games на Октябрьской в Минске. Вы — молодые врачи-практиканты психиатрической клиники «Дредвуд». За час предстоит понять, кто здесь действительно болен — пациентка Мэри или система, которая её удерживает.</p>
 
@@ -835,7 +963,7 @@
       </div>
       <div class="stat">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4"/><path d="M12 14v-3"/><circle cx="12" cy="14" r="8"/></svg>
-        <div><b>60</b><span>минут</span></div>
+        <div><b id="statMinutes" data-count="60">0</b><span>минут</span></div>
       </div>
       <div class="stat">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19v-6"/><path d="M12 19V9"/><path d="M19 19V5"/></svg>
@@ -843,7 +971,7 @@
       </div>
       <div class="stat">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.59 2.41A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l9 9a2 2 0 0 0 2.82 0l7.18-7.18a2 2 0 0 0 0-2.82z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg>
-        <div><b>от 140 <span class="byn-icon"></span></b><span>за команду</span></div>
+        <div><b>от <span id="statPrice" data-count="140">0</span> <span class="byn-icon"></span></b><span>за команду</span></div>
       </div>
     </div>
 
@@ -852,6 +980,7 @@
       <a href="#location" class="btn btn-ghost">ул. Октябрьская, 16к23</a>
     </div>
   </div>
+  <div class="hero-flicker" aria-hidden="true"></div>
 </section>
 
 <section id="story" class="reveal">
@@ -1704,6 +1833,138 @@
       }
     });
   });
+
+  // ===========================================================================
+  // ДИЗАЙН-АПГРЕЙД — курсор, магнитные кнопки, тилт, цифры, глитч-заголовок.
+  // Всё ниже полностью отключается для посетителей с "уменьшить анимацию"
+  // (prefers-reduced-motion) и на сенсорных/грубых указателях (телефон,
+  // планшет) — там просто ничего из этого не подключается вообще.
+  // ===========================================================================
+  (function(){
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const finePointer = window.matchMedia && window.matchMedia('(pointer:fine)').matches && window.matchMedia('(hover:hover)').matches;
+
+    // --- Счётчики в хиро-полосе (минуты, цена) ---------------------------
+    const statEls = Array.from(document.querySelectorAll('.stat'));
+    const countTargets = Array.from(document.querySelectorAll('[data-count]'));
+    function runCountUp(el){
+      const target = parseFloat(el.dataset.count);
+      if(!isFinite(target)) return;
+      if(reduceMotion){ el.textContent = target; return; }
+      let v = 0;
+      const step = Math.max(1, Math.round(target / 24));
+      const tick = () => {
+        v += step;
+        if(v >= target){ el.textContent = target; return; }
+        el.textContent = v;
+        requestAnimationFrame(tick);
+      };
+      tick();
+    }
+    if(statEls.length){
+      const statIo = new IntersectionObserver((entries)=>{
+        entries.forEach(en=>{
+          if(en.isIntersecting){
+            en.target.classList.add('in');
+            statIo.unobserve(en.target);
+          }
+        });
+      }, {threshold:0.3});
+      statEls.forEach(el=>statIo.observe(el));
+
+      const countIo = new IntersectionObserver((entries)=>{
+        entries.forEach(en=>{
+          if(en.isIntersecting){
+            runCountUp(en.target);
+            countIo.unobserve(en.target);
+          }
+        });
+      }, {threshold:0.5});
+      countTargets.forEach(el=>countIo.observe(el));
+    }
+
+    // --- Глитч-эффект на заголовке "Дело Мэри" ----------------------------
+    const heroTitle = document.querySelector('.hero h1[data-text]');
+    if(heroTitle && !reduceMotion){
+      const glitch = () => {
+        heroTitle.classList.add('glitching');
+        setTimeout(()=> heroTitle.classList.remove('glitching'), 1000);
+      };
+      setTimeout(glitch, 900);
+      setInterval(glitch, 13000);
+    }
+
+    // --- Курсор-компаньон (точка + кольцо) на устройствах с мышью ---------
+    if(finePointer && !reduceMotion){
+      document.body.classList.add('has-fine-pointer');
+      const dot = document.getElementById('cursorDot');
+      const ring = document.getElementById('cursorRing');
+      if(dot && ring){
+        let mx = window.innerWidth / 2, my = window.innerHeight / 2;
+        let rx = mx, ry = my;
+        let shown = false;
+        window.addEventListener('mousemove', (e)=>{
+          mx = e.clientX; my = e.clientY;
+          if(!shown){ shown = true; dot.style.opacity = '1'; ring.style.opacity = '1'; }
+          dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%, -50%)`;
+        }, {passive:true});
+        window.addEventListener('mouseleave', ()=>{ dot.style.opacity = '0'; ring.style.opacity = '0'; });
+        (function ringLoop(){
+          rx += (mx - rx) * 0.18;
+          ry += (my - ry) * 0.18;
+          ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
+          requestAnimationFrame(ringLoop);
+        })();
+        const hoverSel = 'a, button, input, select, textarea, .faq-q, [data-time], .day, .gallery-grid figure';
+        document.addEventListener('mouseover', (e)=>{
+          if(e.target.closest && e.target.closest(hoverSel)) ring.classList.add('cursor-hover');
+        });
+        document.addEventListener('mouseout', (e)=>{
+          if(e.target.closest && e.target.closest(hoverSel)) ring.classList.remove('cursor-hover');
+        });
+      }
+    }
+
+    // --- Магнитные кнопки + рябь при клике ---------------------------------
+    const magnetBtns = document.querySelectorAll('.btn-solid, .nav-cta, .submit-btn');
+    magnetBtns.forEach(btn=>{
+      if(finePointer && !reduceMotion){
+        btn.style.position = btn.style.position || 'relative';
+        btn.addEventListener('mousemove', (e)=>{
+          const r = btn.getBoundingClientRect();
+          const relX = e.clientX - r.left - r.width / 2;
+          const relY = e.clientY - r.top - r.height / 2;
+          btn.style.transform = `translate(${relX * 0.18}px, ${relY * 0.28}px)`;
+        });
+        btn.addEventListener('mouseleave', ()=>{ btn.style.transform = ''; });
+      }
+      btn.addEventListener('click', (e)=>{
+        const r = btn.getBoundingClientRect();
+        const ripple = document.createElement('span');
+        ripple.className = 'btn-ripple';
+        const size = Math.max(r.width, r.height) * 1.6;
+        ripple.style.width = ripple.style.height = size + 'px';
+        ripple.style.left = (e.clientX - r.left - size / 2) + 'px';
+        ripple.style.top = (e.clientY - r.top - size / 2) + 'px';
+        btn.appendChild(ripple);
+        ripple.addEventListener('animationend', () => ripple.remove());
+      });
+    });
+
+    // --- Наклон фото (галерея + фото практикантов) при наведении мышью ----
+    if(finePointer && !reduceMotion){
+      const tiltEls = document.querySelectorAll('.gallery-grid figure, .about-photo');
+      tiltEls.forEach(fig=>{
+        fig.addEventListener('mousemove', (e)=>{
+          const r = fig.getBoundingClientRect();
+          const px = (e.clientX - r.left) / r.width - 0.5;
+          const py = (e.clientY - r.top) / r.height - 0.5;
+          fig.style.transform = `perspective(600px) rotateX(${(-py * 10).toFixed(2)}deg) rotateY(${(px * 12).toFixed(2)}deg)`;
+        });
+        fig.addEventListener('mouseleave', ()=>{ fig.style.transform = ''; });
+      });
+    }
+  })();
 </script>
 
 </body>
