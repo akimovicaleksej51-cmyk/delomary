@@ -377,6 +377,7 @@
   .shift-slot-row input[type="text"]{flex:1 1 140px; min-width:110px;}
   .shift-slot-row .shift-dash{color:var(--muted);}
   .shift-slot-row .shift-slot-save{padding:8px 14px; font-size:13px; flex:0 0 auto;}
+  .shift-slot-row .shift-slot-closeout{padding:8px 14px; font-size:13px; flex:0 0 auto; border-color:var(--ochre-bright); color:var(--ochre-bright);}
   .shift-actor-status{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; flex:0 0 100%; margin:-2px 0 2px 92px;}
   .shift-actor-status.ok{color:#199e70;}
   .shift-actor-status.warn{color:var(--ochre-bright);}
@@ -2521,6 +2522,7 @@
             ? '<span class="shift-actor-status ok">подключён</span>'
             : '<span class="shift-actor-status warn">ждём /start</span>';
         }
+        const canRunNow = Boolean(s.actorUsername);
         return `<div class="shift-slot-row" data-date="${dateISO}" data-slot="${def.id}">
             <span class="shift-slot-label role-${def.role}">${def.label}</span>
             <input type="time" class="shift-slot-start" step="900" value="${escapeHtml(s.start || '')}">
@@ -2528,6 +2530,7 @@
             <input type="time" class="shift-slot-end" step="900" value="${escapeHtml(s.end || '')}">
             <input type="text" class="shift-slot-actor" placeholder="username" list="knownActorsList" value="${escapeHtml(s.actorUsername || '')}">
             <button type="button" class="btn-secondary shift-slot-save">Сохранить</button>
+            ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-closeout" title="Отправить актёру сверку по броням этой смены прямо сейчас — не дожидаясь конца смены и автоматики">Сверка сейчас</button>' : ''}
             ${statusHtml}
           </div>`;
       }).join('');
@@ -2541,6 +2544,40 @@
     shiftsDaysList.querySelectorAll('.shift-slot-save').forEach(btn => {
       btn.addEventListener('click', () => saveShiftSlot(btn));
     });
+    shiftsDaysList.querySelectorAll('.shift-slot-closeout').forEach(btn => {
+      btn.addEventListener('click', () => runCloseoutNow(btn));
+    });
+  }
+
+  // Manually fires the end-of-shift sverka for one (date, slot) right now —
+  // for when the automatic one (at the shift's end time) didn't go out, or
+  // bookings were only entered into the system after it already ran and
+  // found nothing. Safe to click more than once: bookings already sent /
+  // already confirmed are skipped, only ones that still need it go out.
+  async function runCloseoutNow(btn){
+    const row = btn.closest('.shift-slot-row');
+    const dateISO = row.dataset.date;
+    const slot = row.dataset.slot;
+
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Отправляю…';
+    shiftsMsg.textContent = '';
+    try{
+      const res = await fetch('/api/admin/shifts', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'runCloseoutNow', dateISO, slot })
+      });
+      const out = await res.json().catch(() => ({}));
+      shiftsMsg.textContent = out.message || out.error || (out.ok ? 'Готово.' : 'Не удалось выполнить сверку.');
+      shiftsMsg.className = out.ok ? 'modal-msg ok' : 'modal-msg err';
+    } catch(err){
+      shiftsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      shiftsMsg.className = 'modal-msg err';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   }
 
   async function loadShifts(){

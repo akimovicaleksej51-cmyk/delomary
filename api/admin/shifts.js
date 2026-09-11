@@ -22,9 +22,20 @@
 //       Fills in one of the 4 slots for that date (slot must be one of
 //       SHIFT_SLOTS). Send start/end/actorUsername all empty to CLEAR that
 //       slot instead (removes it from that date's schedule).
+//   { action:'runCloseoutNow', dateISO, slot }
+//       Manually sends the end-of-shift sverka for that (date, slot) right
+//       now, regardless of whether the shift has technically ended and
+//       regardless of whether the automatic QStash job already fired —
+//       see runCloseoutForSlot() in api/_closeout.js. Exists because the
+//       automatic one can find zero bookings if they're entered into the
+//       admin panel only after the shift already ended (the daily sweep in
+//       api/cron/reminders-sweep.js also catches that case, but only the
+//       next day — this is for "I need it right now"). Only (re)sends for
+//       bookings that don't already have a reply/awaiting status, so it's
+//       always safe to click again.
 
 import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS } from '../_reminders.js';
-import { scheduleCloseout, cancelCloseout } from '../_closeout.js';
+import { scheduleCloseout, cancelCloseout, runCloseoutForSlot } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
 
@@ -142,6 +153,21 @@ export default async function handler(req, res) {
       await scheduleCloseout(cleanDateISO, slot, shiftsMap[slot]);
 
       return res.status(200).json({ ok: true, shifts: shiftsMap });
+    }
+
+    if (body.action === 'runCloseoutNow') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const slot = typeof body.slot === 'string' ? body.slot : '';
+      if (!cleanDateISO || !SHIFT_SLOTS.includes(slot)) {
+        return res.status(400).json({ error: 'Некорректная дата или смена.' });
+      }
+      try {
+        const result = await runCloseoutForSlot(cleanDateISO, slot);
+        return res.status(200).json(result);
+      } catch (err) {
+        console.error('runCloseoutNow failed:', err);
+        return res.status(500).json({ ok: false, error: 'Не удалось выполнить сверку — ошибка сервера.' });
+      }
     }
 
     return res.status(400).json({ error: 'Неизвестное действие.' });

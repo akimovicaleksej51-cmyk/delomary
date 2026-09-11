@@ -16,6 +16,15 @@
 // allows a limited number of cron jobs, so both sweeps share this one
 // daily run rather than needing a second cron entry in vercel.json.
 //
+// It ALSO runs sweepMissedCloseouts() over the last few days — a genuine
+// safety net, not just a QStash-ceiling workaround: if a shift's automatic
+// closeout fired and found zero bookings (most commonly because the
+// bookings were only entered into the admin panel afterwards), nothing
+// else would ever notice and the actor's sverka would just never show up.
+// This catches that the next time the sweep runs, and the admin panel also
+// has a "Сверка сейчас" button (api/admin/shifts.js, action
+// 'runCloseoutNow') for triggering it immediately instead of waiting.
+//
 // Auth: Vercel automatically sends "Authorization: Bearer <CRON_SECRET>"
 // on cron-triggered requests when a CRON_SECRET env var is set — this
 // checks that header so the endpoint can't be triggered by anyone else.
@@ -24,10 +33,11 @@
 
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { scheduleReminder, getShiftsForDate, SHIFT_SLOTS } from '../_reminders.js';
-import { getCloseoutRecord, scheduleCloseout } from '../_closeout.js';
+import { getCloseoutRecord, scheduleCloseout, sweepMissedCloseouts } from '../_closeout.js';
 import { businessToday } from '../_time.js';
 
 const SWEEP_DAYS_AHEAD = 9; // a little past the 7-day QStash ceiling, for margin
+const MISSED_CLOSEOUT_DAYS_BACK = 3; // catches a shift whose auto-closeout found nothing (or never fired) a few days back
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -95,5 +105,20 @@ export default async function handler(req, res) {
     }));
   }));
 
-  return res.status(200).json({ ok: true, checked, scheduled, closeoutsScheduled });
+  // Safety net: a shift that already ended (today or the last few days)
+  // can end up with bookings that never got a closeout message at all —
+  // most commonly because those bookings were only entered into the
+  // system after the shift's automatic QStash job already fired and found
+  // nothing. Catch those here so the actor's sverka doesn't just silently
+  // never arrive; see sweepMissedCloseouts() in api/_closeout.js for the
+  // exact (conservative) matching rule.
+  const pastDates = [];
+  for (let i = 0; i < MISSED_CLOSEOUT_DAYS_BACK; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    pastDates.push(isoDate(d));
+  }
+  const missedCloseouts = await sweepMissedCloseouts(pastDates);
+
+  return res.status(200).json({ ok: true, checked, scheduled, closeoutsScheduled, missedCloseouts });
 }
