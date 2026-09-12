@@ -82,7 +82,7 @@
 
 import { kv } from './_kv.js';
 import { businessDateTime } from './_time.js';
-import { getShiftsForDate, getActorsMap, resolveActorUsernamesForSlot } from './_reminders.js';
+import { getShiftsForDate, getActorsMap, resolveActorUsernamesForSlot, resolveActorUsernamesForSlotSync } from './_reminders.js';
 
 const CLOSEOUT_LEAD_MINUTES = 80; // 1 час 20 минут ПОСЛЕ начала игры
 const PENDING_REPLY_TTL_SECONDS = 60 * 60 * 6; // long enough for an actor to reply the same evening
@@ -246,7 +246,7 @@ export function stripCloseoutFields(record) {
 // missed-closeout safety net (sweepMissedCloseouts below). Always returns
 // a small result object describing what happened instead of silently
 // returning — so a failure is never invisible.
-export async function runCloseoutForBooking(dateISO, time, actorUsername) {
+export async function runCloseoutForBooking(dateISO, time, actorUsername, ctx = {}) {
   const hashKey = `bookings:${dateISO}`;
   const raw = await kv('hget', hashKey, time);
   if (!raw) return { ok: false, reason: 'no-booking', message: 'Эта бронь больше не существует.' };
@@ -293,7 +293,11 @@ export async function runCloseoutForBooking(dateISO, time, actorUsername) {
     return { ...record, closeouts: nextCloseouts, closeoutStatus };
   }
 
-  const actors = await getActorsMap();
+  // A caller that's doing this for many bookings at once (runCloseoutForSlot,
+  // sweepMissedCloseouts below) already fetched the whole actors map once
+  // and passes it in via ctx.actorsMap, instead of every single booking
+  // re-fetching the ENTIRE actors hash from KV just to read one entry.
+  const actors = ctx.actorsMap || await getActorsMap();
   const actor = actors[actorUsername];
   if (!actor || !actor.chatId) {
     await kv('hset', hashKey, time, JSON.stringify(withCloseoutPatch('actor-not-registered')));
@@ -342,8 +346,19 @@ export async function runCloseoutForSlot(dateISO, slot) {
     return { ok: false, reason: 'no-shift', message: 'На эту смену никто не назначен.' };
   }
 
+  // Fetch the bookings hash and the actors map ONCE, up front, in parallel —
+  // not once per booking. This used to call resolveActorUsernamesForSlot()
+  // (its own shifts:<date> KV read) AND getActorsMap() (a full actors hash
+  // read) inside a sequential per-booking loop, so a shift with a full day
+  // of bookings turned into dozens of back-to-back Upstash round-trips —
+  // slow enough on a busy day to blow past the serverless function's time
+  // limit, which is exactly what made this button just spin forever with
+  // no response ever coming back to the admin panel.
   const hashKey = `bookings:${dateISO}`;
-  const bookingsRaw = await kv('hgetall', hashKey);
+  const [bookingsRaw, actorsMap] = await Promise.all([
+    kv('hgetall', hashKey),
+    getActorsMap(),
+  ]);
   const bookingTimes = [];
   if (Array.isArray(bookingsRaw)) {
     for (let i = 0; i < bookingsRaw.length - 1; i += 2) {
@@ -352,8 +367,7 @@ export async function runCloseoutForSlot(dateISO, slot) {
       try { record = JSON.parse(bookingsRaw[i + 1]); } catch { continue; }
       if (record.type !== 'customer' || record.status === 'cancelled' || record.status === 'rescheduled') continue;
       const resolvedTime = record.time || time;
-      // eslint-disable-next-line no-await-in-loop
-      const resolvedActors = await resolveActorUsernamesForSlot(dateISO, resolvedTime);
+      const resolvedActors = resolveActorUsernamesForSlotSync(shiftsMap, resolvedTime);
       if (resolvedActors.includes(slotData.actorUsername)) bookingTimes.push(resolvedTime);
     }
   }
@@ -363,16 +377,23 @@ export async function runCloseoutForSlot(dateISO, slot) {
     return { ok: false, reason: 'no-bookings', message: 'На это время не нашлось броней для этой смены.', actorUsername: slotData.actorUsername };
   }
 
+  // Each booking here is a DIFFERENT record (a different field in the
+  // bookings hash), so sending them all at once is safe — there's no
+  // shared record for two of these calls to race on. (Two performers on
+  // the SAME booking, e.g. an actor and an actress, is a different story —
+  // see sweepMissedCloseouts below, which keeps THAT part sequential.)
+  const results = await Promise.all(
+    bookingTimes.map((time) => runCloseoutForBooking(dateISO, time, slotData.actorUsername, { actorsMap }))
+  );
+
   let sentCount = 0;
   let alreadySentCount = 0;
   const perBooking = [];
-  for (const time of bookingTimes) {
-    // eslint-disable-next-line no-await-in-loop
-    const result = await runCloseoutForBooking(dateISO, time, slotData.actorUsername);
-    perBooking.push({ time, ...result });
+  results.forEach((result, i) => {
+    perBooking.push({ time: bookingTimes[i], ...result });
     if (result.ok && result.reason === 'sent') sentCount++;
     if (result.ok && result.reason === 'already-sent') alreadySentCount++;
-  }
+  });
 
   if (sentCount === 0 && alreadySentCount === bookingTimes.length) {
     return {
@@ -416,37 +437,49 @@ export async function sweepMissedCloseouts(dateISOList) {
   let attempted = 0;
   const results = [];
   await Promise.all(dateISOList.map(async (dateISO) => {
+    // Same fix as runCloseoutForSlot() above: fetch this date's shifts and
+    // the actors map ONCE (in parallel with the bookings hash) instead of
+    // resolveActorUsernamesForSlot()/getActorsMap() re-fetching them from
+    // KV on every single booking in the loop below.
     const hashKey = `bookings:${dateISO}`;
-    const bookingsRaw = await kv('hgetall', hashKey);
+    const [bookingsRaw, shiftsMap, actorsMap] = await Promise.all([
+      kv('hgetall', hashKey),
+      getShiftsForDate(dateISO),
+      getActorsMap(),
+    ]);
     if (!Array.isArray(bookingsRaw)) return;
 
-    for (let i = 0; i < bookingsRaw.length - 1; i += 2) {
-      const time = bookingsRaw[i];
+    // Different bookings (different hash fields) can safely be handled in
+    // parallel; ONLY the actor/actress pair on the very same booking must
+    // stay sequential, since both would otherwise read-modify-write the
+    // same record's `closeouts` array at once and one write could clobber
+    // the other (the same class of race fixed for payment reporting).
+    await Promise.all(Array.from({ length: Math.floor(bookingsRaw.length / 2) }, (_, i) => i).map(async (i) => {
+      const time = bookingsRaw[i * 2];
       let record;
-      try { record = JSON.parse(bookingsRaw[i + 1]); } catch { continue; }
-      if (record.type !== 'customer' || record.status === 'cancelled' || record.status === 'rescheduled') continue;
+      try { record = JSON.parse(bookingsRaw[i * 2 + 1]); } catch { return; }
+      if (!record || record.type !== 'customer' || record.status === 'cancelled' || record.status === 'rescheduled') return;
 
       const resolvedTime = record.time || time;
       const startAt = parseWallClock(dateISO, resolvedTime);
-      if (!startAt) continue;
+      if (!startAt) return;
       const fireAt = new Date(startAt.getTime() + CLOSEOUT_LEAD_MINUTES * 60 * 1000);
-      if (fireAt.getTime() > Date.now()) continue; // not due yet
+      if (fireAt.getTime() > Date.now()) return; // not due yet
 
-      // eslint-disable-next-line no-await-in-loop
-      const actorUsernames = await resolveActorUsernamesForSlot(dateISO, resolvedTime);
-      if (!actorUsernames.length) continue;
+      const actorUsernames = resolveActorUsernamesForSlotSync(shiftsMap, resolvedTime);
+      if (!actorUsernames.length) return;
 
       const closeouts = Array.isArray(record.closeouts) ? record.closeouts : [];
       const missingActors = actorUsernames.filter((u) => !closeouts.some((c) => c && c.actorUsername === u && c.sentStatus));
-      if (!missingActors.length) continue; // every covering performer already has SOME send attempt recorded
+      if (!missingActors.length) return; // every covering performer already has SOME send attempt recorded
 
       attempted++;
       for (const actorUsername of missingActors) {
         // eslint-disable-next-line no-await-in-loop
-        const result = await runCloseoutForBooking(dateISO, resolvedTime, actorUsername);
+        const result = await runCloseoutForBooking(dateISO, resolvedTime, actorUsername, { actorsMap });
         results.push({ dateISO, time: resolvedTime, actorUsername, ...result });
       }
-    }
+    }));
   }));
   return { attempted, results };
 }

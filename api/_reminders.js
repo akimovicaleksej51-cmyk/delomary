@@ -113,6 +113,21 @@ export async function getActorsMap() {
 // come back.
 export async function resolveActorUsernamesForSlot(dateISO, time) {
   const shiftsMap = await getShiftsForDate(dateISO);
+  return resolveActorUsernamesForSlotSync(shiftsMap, time);
+}
+
+// Same as resolveActorUsernamesForSlot() above, but takes an ALREADY-FETCHED
+// shifts map instead of loading it from KV itself. For a caller that needs
+// to resolve many different times on the SAME date (e.g. "Сверка сейчас"
+// for a whole shift, or the daily missed-closeout sweep) — those used to
+// call the async version once PER BOOKING, which re-fetched the exact same
+// shifts:<date> value from KV over and over. On a day with a full slate of
+// bookings that turned into dozens of sequential round-trips to Upstash,
+// slow enough to blow past the serverless function's time limit — which is
+// exactly what made the "Сверка сейчас" button in admin.html just spin
+// forever with no response. Fetch getShiftsForDate() ONCE and pass it here
+// instead.
+export function resolveActorUsernamesForSlotSync(shiftsMap, time) {
   const seen = new Set();
   const usernames = [];
   for (const slotId of SHIFT_SLOTS) {

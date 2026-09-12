@@ -2602,18 +2602,29 @@
     const originalText = btn.textContent;
     btn.textContent = 'Отправляю…';
     shiftsMsg.textContent = '';
+    // Safety net: this used to be able to hang the button forever with no
+    // feedback at all if the server took too long to answer (see the fix
+    // in api/_closeout.js for the actual cause). Even with that fixed, a
+    // hard client-side timeout means a future slowdown (Telegram or the
+    // database being slow, say) shows an error instead of an endless
+    // spinner — the button always ends up either done or clearly failed.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
     try{
       const res = await fetch('/api/admin/shifts', {
-        method:'POST', headers: authHeaders(),
+        method:'POST', headers: authHeaders(), signal: controller.signal,
         body: JSON.stringify({ action:'runCloseoutNow', dateISO, slot })
       });
       const out = await res.json().catch(() => ({}));
       shiftsMsg.textContent = out.message || out.error || (out.ok ? 'Готово.' : 'Не удалось выполнить сверку.');
       shiftsMsg.className = out.ok ? 'modal-msg ok' : 'modal-msg err';
     } catch(err){
-      shiftsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      shiftsMsg.textContent = (err && err.name === 'AbortError')
+        ? 'Сервер слишком долго отвечает (больше 25 секунд). Попробуйте ещё раз через минуту — если повторится, напишите разработчику.'
+        : 'Ошибка сети. Попробуйте ещё раз.';
       shiftsMsg.className = 'modal-msg err';
     } finally {
+      clearTimeout(timeoutId);
       btn.disabled = false;
       btn.textContent = originalText;
     }
