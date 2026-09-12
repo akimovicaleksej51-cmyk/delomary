@@ -21,7 +21,19 @@
 //   { action:'setSlot', dateISO, slot, start, end, actorUsername }
 //       Fills in one of the 4 slots for that date (slot must be one of
 //       SHIFT_SLOTS). Send start/end/actorUsername all empty to CLEAR that
-//       slot instead (removes it from that date's schedule).
+//       slot instead (removes it from that date's schedule). Also
+//       BACKFILLS: any booking already on this date that falls inside the
+//       new slot's time range, and doesn't yet have a reminder/sverka
+//       scheduled for this performer, gets one scheduled right now — see
+//       backfillScheduling() below. This matters a lot in practice: if a
+//       booking gets entered (from the site or the admin panel) BEFORE the
+//       shift for that time is assigned, scheduleReminder()/
+//       scheduleGameCloseout() find no performer yet and schedule nothing
+//       — and without this backfill, that booking's sverka would only ever
+//       get caught by the once-a-day cron sweep (api/cron/reminders-sweep.js),
+//       which could be many hours after the game already happened. Setting
+//       the shift (even just re-saving the same slot) now immediately
+//       fixes that instead of waiting on the sweep.
 //   { action:'runCloseoutNow', dateISO, slot }
 //       Manually sends the sverka right now for every booking in that
 //       (date, slot) shift that hasn't been sent one yet — regardless of
@@ -34,10 +46,44 @@
 //       bookings that don't already have a reply/awaiting status, so it's
 //       always safe to click again.
 
-import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS } from '../_reminders.js';
-import { runCloseoutForSlot } from '../_closeout.js';
+import { kv } from '../_kv.js';
+import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS, scheduleReminder } from '../_reminders.js';
+import { runCloseoutForSlot, scheduleGameCloseout } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
+
+// Whenever a shift slot is (re)saved, catch up any booking on that date
+// that falls inside the slot's [start, end) range but is still missing a
+// reminder or sverka job for the performer now assigned there — see the
+// long comment above action 'setSlot'. Safe to call unconditionally and
+// repeatedly: scheduleReminder()/scheduleGameCloseout() never duplicate a
+// performer who already has one successfully scheduled.
+async function backfillScheduling(dateISO, slotData) {
+  if (!slotData || !slotData.start || !slotData.end) return;
+  const hashKey = `bookings:${dateISO}`;
+  const raw = await kv('hgetall', hashKey);
+  if (!Array.isArray(raw) || !raw.length) return;
+
+  await Promise.all(Array.from({ length: Math.floor(raw.length / 2) }, (_, i) => i).map(async (i) => {
+    const time = raw[i * 2];
+    let record;
+    try { record = JSON.parse(raw[i * 2 + 1]); } catch { return; }
+    if (!record || record.type !== 'customer') return;
+    if (record.status === 'cancelled' || record.status === 'rescheduled') return;
+    const resolvedTime = record.time || time;
+    if (!(slotData.start <= resolvedTime && resolvedTime < slotData.end)) return;
+
+    const fullRecord = { ...record, dateISO: record.dateISO || dateISO, time: resolvedTime };
+    const [reminderPatch, closeoutPatch] = await Promise.all([
+      scheduleReminder(fullRecord),
+      scheduleGameCloseout(fullRecord),
+    ]);
+    const patch = { ...reminderPatch, ...closeoutPatch };
+    if (Object.keys(patch).length) {
+      await kv('hset', hashKey, time, JSON.stringify({ ...record, ...patch }));
+    }
+  }));
+}
 
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -149,7 +195,11 @@ export default async function handler(req, res) {
       // api/_closeout.js, called from api/book.js and
       // api/admin/bookings.js). Saving a shift here only affects who gets
       // reminders/sverka messages for bookings in this time window, not
-      // when those messages fire.
+      // when those messages fire — EXCEPT for bookings that already exist
+      // on this date and missed their scheduling because no shift covered
+      // them yet at the time they were made. backfillScheduling() catches
+      // those up immediately instead of leaving them for tomorrow's cron.
+      await backfillScheduling(cleanDateISO, shiftsMap[slot]);
 
       return res.status(200).json({ ok: true, shifts: shiftsMap });
     }

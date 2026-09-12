@@ -1356,7 +1356,7 @@
           ? 'Было запланировано — отменено вместе с бронью'
           : '—';
       } else if (!reminders.length) {
-        dvReminder.textContent = 'Актёр/актриса не назначены на это время (см. «Смены и напоминания»)';
+        dvReminder.textContent = 'Актёр/актриса не назначены на это время — как только назначите смену на вкладке «Смены и напоминания», напоминание и сверка для этой брони запланируются сразу же.';
       } else {
         // A booking routinely has BOTH an actor and an actress on shift at
         // once (two-character show) — each gets listed with their own
@@ -1382,9 +1382,20 @@
       dvCloseoutRow.style.display = 'none';
     } else {
       const closeoutText = formatCloseoutStatus(booking);
+      const hasReminders = Array.isArray(booking.reminders) && booking.reminders.length > 0;
+      const hasCloseouts = Array.isArray(booking.closeouts) && booking.closeouts.length > 0;
       if (closeoutText) {
         dvCloseoutRow.style.display = '';
         document.getElementById('dvCloseout').textContent = closeoutText;
+      } else if (!isHistory && hasReminders && !hasCloseouts) {
+        // A performer is assigned and gets a reminder, but no sverka was
+        // ever scheduled for them — normally this can't happen (both are
+        // scheduled together), so seeing it means either this booking
+        // predates the sverka feature, or something genuinely slipped
+        // through. Surface it instead of silently hiding the row, so it
+        // doesn't quietly repeat the "sverka never arrived" problem.
+        dvCloseoutRow.style.display = '';
+        document.getElementById('dvCloseout').textContent = '⚠️ Сверка не запланирована для этой брони. Нажмите «Сверка сейчас» на вкладке «Смены и напоминания» для этой смены, чтобы отправить её вручную.';
       } else {
         dvCloseoutRow.style.display = 'none';
       }
