@@ -316,7 +316,18 @@
   .day.weekend small{color:var(--ochre-bright);}
   .day.active.weekend small{color:var(--black);}
   .day.empty{visibility:hidden; border:none; background:none; pointer-events:none;}
-  .day.disabled{opacity:.25; cursor:not-allowed; pointer-events:none;}
+  /* "Общая сетка" — дни вне диапазона брони (уже прошли, или дальше того,
+     на сколько вперёд вообще можно забронировать). Раньше это была почти
+     чёрная заливка поверх и без того чёрного фона страницы — числа дней
+     было почти не видно, вся сетка календаря казалась пустой дырой. Теперь
+     у этих ячеек своя, явно видимая тёмно-серая заливка (не путается ни с
+     чёрным фоном, ни с одним из трёх цветов занятости ниже), а «недоступность»
+     дня показывает приглушённый цвет текста, а не почти невидимая ячейка. */
+  .day.disabled{
+    background:#2a2620; border-color:#3d3728; color:var(--muted);
+    cursor:not-allowed; pointer-events:none;
+  }
+  .day.disabled small{color:var(--muted); opacity:.65;}
 
   /* ---------- Month overview: busy / closed / open per day ---------- */
   /* Colors are the dataviz-validated triple (all-pairs CVD-safe on this
