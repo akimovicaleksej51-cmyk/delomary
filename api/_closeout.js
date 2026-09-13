@@ -107,16 +107,24 @@ function parseWallClock(dateISO, time) {
   return businessDateTime(dateISO, hh, mm);
 }
 
+// Same reasoning as KV_TIMEOUT_MS in api/_kv.js: a fetch() to Telegram that
+// never settles must not be allowed to hang a caller forever. (Overridable
+// via env var for tests; production never sets this, so it's always 8000ms.)
+const TG_TIMEOUT_MS = Number(process.env.TG_TIMEOUT_MS) || 8000;
+
 // Returns the parsed Telegram API response, or { ok:false } if the request
-// itself couldn't even be made (network error, no bot token).
+// itself couldn't even be made (network error, no bot token, or timeout).
 async function tg(method, payload) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return { ok: false };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TG_TIMEOUT_MS);
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
     const data = await res.json().catch(() => ({}));
     if (!data.ok) console.error(`closeout: ${method} returned not-ok:`, data);
@@ -124,6 +132,8 @@ async function tg(method, payload) {
   } catch (err) {
     console.error(`closeout: ${method} failed:`, err);
     return { ok: false };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
