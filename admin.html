@@ -2580,7 +2580,7 @@
             <input type="time" class="shift-slot-end" step="900" value="${escapeHtml(s.end || '')}">
             <input type="text" class="shift-slot-actor" placeholder="username" list="knownActorsList" value="${escapeHtml(s.actorUsername || '')}">
             <button type="button" class="btn-secondary shift-slot-save">Сохранить</button>
-            ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-closeout" title="Отправить актёру сверку по броням этой смены прямо сейчас — не дожидаясь конца смены и автоматики">Сверка сейчас</button>' : ''}
+            ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-closeout" title="Отправить актёру сверку по броням этой смены прямо сейчас — не дожидаясь конца смены и автоматики. Отправит ЕЩЁ РАЗ, даже если сверка уже была отправлена, но не пришла — не отправит только по игре, на которую актёр уже точно ответил.">Сверка сейчас</button>' : ''}
             ${statusHtml}
           </div>`;
       }).join('');

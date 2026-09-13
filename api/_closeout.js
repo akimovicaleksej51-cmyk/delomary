@@ -273,11 +273,28 @@ export async function runCloseoutForBooking(dateISO, time, actorUsername, ctx = 
   const idx = closeouts.findIndex((c) => c && c.actorUsername === actorUsername);
   const existing = idx >= 0 ? closeouts[idx] : null;
 
-  // Already sent to THIS performer (awaiting a reply) — don't re-send.
-  // 'send-failed'/'actor-not-registered' ARE retried (that's the point of
-  // the manual button and the safety net).
-  if (existing && existing.sentStatus && existing.sentStatus !== 'send-failed' && existing.sentStatus !== 'actor-not-registered') {
-    return { ok: true, reason: 'already-sent', message: 'По этой игре сверка уже отправлена или уже сверена.' };
+  // Already sent to THIS performer (awaiting a reply) — normally don't
+  // re-send. 'send-failed'/'actor-not-registered' ARE always retried
+  // (that's the point of the manual button and the safety net).
+  //
+  // ctx.force (set only by the admin's manual "Сверка сейчас" button — see
+  // runCloseoutForSlot below) overrides the "awaiting" skip specifically:
+  // Telegram's API can report a message as successfully sent (sentStatus
+  // stays 'awaiting') while the performer swears it never arrived on their
+  // end — a stale/changed chat, a muted conversation, or just Telegram
+  // being Telegram. Without a way to force a fresh attempt, the button was
+  // stuck always answering "already sent" and never actually retrying,
+  // which is exactly what this fixes. It does NOT override a booking the
+  // performer has actually ANSWERED (closeoutStatus 'confirmed'/'edited')
+  // — resending to someone who already replied would just be confusing,
+  // there's nothing left to ask them.
+  const alreadyAnswered = record.closeoutStatus === 'confirmed' || record.closeoutStatus === 'edited';
+  const isRetryableFailure = existing && (existing.sentStatus === 'send-failed' || existing.sentStatus === 'actor-not-registered');
+  const shouldSkipSend = existing && existing.sentStatus && !isRetryableFailure && !(ctx.force && !alreadyAnswered);
+  if (shouldSkipSend) {
+    return alreadyAnswered
+      ? { ok: true, reason: 'already-answered', message: 'По этой игре сверка уже получена и подтверждена актёром — переспрашивать нечего.' }
+      : { ok: true, reason: 'already-sent', message: 'По этой игре сверка уже отправлена или уже сверена.' };
   }
 
   function withCloseoutPatch(sentStatus) {
@@ -382,24 +399,31 @@ export async function runCloseoutForSlot(dateISO, slot) {
   // shared record for two of these calls to race on. (Two performers on
   // the SAME booking, e.g. an actor and an actress, is a different story —
   // see sweepMissedCloseouts below, which keeps THAT part sequential.)
+  //
+  // force:true — this is the admin explicitly clicking "Сверка сейчас",
+  // which now means it FOR REAL, right now: it resends even to a performer
+  // who already has an 'awaiting' send recorded (Telegram said delivered,
+  // but they say it never arrived) — see the comment on the skip check in
+  // runCloseoutForBooking above. Only a booking the performer has actually
+  // ANSWERED is left alone.
   const results = await Promise.all(
-    bookingTimes.map((time) => runCloseoutForBooking(dateISO, time, slotData.actorUsername, { actorsMap }))
+    bookingTimes.map((time) => runCloseoutForBooking(dateISO, time, slotData.actorUsername, { actorsMap, force: true }))
   );
 
   let sentCount = 0;
-  let alreadySentCount = 0;
+  let alreadyAnsweredCount = 0;
   const perBooking = [];
   results.forEach((result, i) => {
     perBooking.push({ time: bookingTimes[i], ...result });
     if (result.ok && result.reason === 'sent') sentCount++;
-    if (result.ok && result.reason === 'already-sent') alreadySentCount++;
+    if (result.ok && result.reason === 'already-answered') alreadyAnsweredCount++;
   });
 
-  if (sentCount === 0 && alreadySentCount === bookingTimes.length) {
+  if (sentCount === 0 && alreadyAnsweredCount === bookingTimes.length) {
     return {
       ok: true,
-      reason: 'already-sent',
-      message: 'Все брони по этой смене уже отправлены на сверку или уже сверены.',
+      reason: 'already-answered',
+      message: 'По всем броням этой смены сверка уже получена и подтверждена — переспрашивать нечего.',
       bookingsCount: bookingTimes.length,
       actorUsername: slotData.actorUsername,
     };
@@ -408,7 +432,7 @@ export async function runCloseoutForSlot(dateISO, slot) {
   return {
     ok: sentCount > 0,
     reason: sentCount > 0 ? 'sent' : 'send-failed',
-    message: `Отправлено актёру @${slotData.actorUsername}: ${sentCount} из ${bookingTimes.length} (остальные уже были отправлены раньше или не удалось доставить).`,
+    message: `Отправлено (или отправлено повторно) актёру @${slotData.actorUsername}: ${sentCount} из ${bookingTimes.length} (остальные уже подтверждены актёром, или не удалось доставить — актёр ещё не подключил бота).`,
     bookingsCount: bookingTimes.length,
     sentCount,
     actorUsername: slotData.actorUsername,

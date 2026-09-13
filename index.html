@@ -951,11 +951,38 @@
     #ambientBg span{ filter:blur(50px); opacity:.16; }
   }
 
-  /* Эффект потрёпанности убран полностью по вашей просьбе — и версия с
-     SVG-фильтром на буквах, и версия с рваным краем у наклейки обе не
-     подошли. Наклейка «Скажи им, что я здесь» (.hero-mark) вернулась к
-     исходному виду — просто жёлтый прямоугольник с закруглением через
-     padding, без рваных краёв и без искажений. */
+  /* =========================================================================
+     ЭФФЕКТ ПОТРЁПАННОСТИ — версия 3, по присланному примеру («ДЕТЕКТИВНЫЙ
+     КВЕСТ С АКТЁРАМИ»): прямоугольная жёлтая наклейка с прямыми краями
+     (без рваных зигзагов — ту версию убрали), а «потрёпанность» — это
+     грязная, пыльная текстура ПОВЕРХ фона: мелкое зерно по всей наклейке
+     плюс несколько тёмных пятен-потёртостей, сгущающихся ближе к углам —
+     как на состаренной наклейке. Буквы не искажаются и не размываются —
+     текстура ложится позади и поверх фона, а не на сам текст.
+     ========================================================================= */
+  .hero-mark{
+    position:relative;
+    overflow:hidden;
+    border-radius:3px;
+  }
+  .hero-mark::before{
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.15' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:120px 120px, 200px 200px;
+    mix-blend-mode:multiply; opacity:.7;
+  }
+  .hero-mark::after{
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(ellipse 55% 60% at 6% 10%, rgba(0,0,0,.5), transparent 62%),
+      radial-gradient(ellipse 50% 55% at 95% 90%, rgba(0,0,0,.45), transparent 60%),
+      radial-gradient(ellipse 40% 45% at 90% 12%, rgba(0,0,0,.32), transparent 65%),
+      radial-gradient(ellipse 35% 40% at 10% 88%, rgba(0,0,0,.3), transparent 65%),
+      radial-gradient(ellipse 60% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.18) 100%);
+    mix-blend-mode:multiply;
+  }
 </style>
 
 <!--
