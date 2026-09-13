@@ -7,13 +7,42 @@
 // command form) rather than built into the URL path, so long values (like a
 // booking comment) never risk hitting a URL length limit.
 
+// How long we'll wait for a single Upstash request before giving up and
+// treating it as failed. Without this, a `fetch()` that never settles (a
+// hung TCP connection, Upstash having a bad moment — this does happen, not
+// hypothetical) leaves the calling `await kv(...)` stuck forever, since a
+// hang is neither a resolve nor a reject and the surrounding try/catch never
+// fires. That is exactly how the Telegram "✅ Верно" button once got stuck
+// on its loading spinner forever: the webhook's very first step is a
+// getPendingActorReply() call (see api/telegram-webhook.js), which is a
+// kv() call — if IT hangs, the code never even reaches the
+// answerCallbackQuery() call that clears the spinner, and eventually the
+// serverless function is killed by its own platform-level timeout with no
+// chance to answer Telegram at all. Capping every KV call here means the
+// worst case is "fails fast after 8s and we fail open," never "hangs
+// forever" — the same fix already applied to the admin's own slow-KV-calls
+// bug, just guarding the one call site that bug didn't reach.
+// (Overridable via env var so tests can simulate a hang without a real
+// multi-second wait — production never sets this, so it's always 8000ms there.)
+const KV_TIMEOUT_MS = Number(process.env.KV_TIMEOUT_MS) || 8000;
+
+async function fetchWithTimeout(url, options, timeoutMs = KV_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function kv(...args) {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
   if (!url || !token) return null; // not connected — callers should fail open
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -40,7 +69,7 @@ export async function kvPipeline(commands) {
   if (!url || !token) return null;
 
   try {
-    const res = await fetch(`${url}/pipeline`, {
+    const res = await fetchWithTimeout(`${url}/pipeline`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
