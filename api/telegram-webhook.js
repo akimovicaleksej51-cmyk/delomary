@@ -18,15 +18,27 @@
 //      api/_finance.js). See api/_closeout.js for the full data model.
 //
 // If a button tap ever just shows Telegram's loading spinner and nothing
-// happens: that means Telegram is not delivering "callback_query" updates
-// to this endpoint at all (so nothing here even runs) — check
-//   https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getWebhookInfo
-// in a browser. "url" must be exactly <SITE_URL>/api/telegram-webhook, and
-// "last_error_message" (if present) tells you what's failing. If it's
-// blank/wrong, redo the setWebhook step below. handleCallbackQuery() is
-// also wrapped in try/catch so a bug in the code itself can never again
-// leave a tap hanging forever without at least clearing its loading
-// spinner — see the catch block.
+// happens, there are two independent things that can cause it, and both are
+// guarded against now:
+//
+//   1. Telegram isn't delivering "callback_query" updates to this endpoint
+//      at all (so nothing here even runs) — check
+//        https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getWebhookInfo
+//      in a browser. "url" must be exactly <SITE_URL>/api/telegram-webhook,
+//      and "last_error_message" (if present) tells you what's failing. If
+//      it's blank/wrong, redo the setWebhook step below.
+//
+//   2. This code DID run, but got stuck on a network call that never
+//      resolved (a hung fetch to Upstash or to Telegram itself — this is
+//      not hypothetical, it's the confirmed cause of a real stuck-spinner
+//      report). A hang is neither a resolve nor a reject, so a plain
+//      try/catch never sees it. Fixed on three layers: every kv() call has
+//      its own timeout (api/_kv.js), every outbound Telegram call here has
+//      its own timeout, and handleCallbackQuery() below additionally runs a
+//      watchdog timer that answers the callback query on its own if
+//      everything else somehow still hasn't after a few seconds. Net
+//      result: a tap can end in an error alert, but it can never again spin
+//      forever.
 //
 // One-time setup (do this once, after deploying this file and setting the
 // env vars below):
@@ -85,17 +97,38 @@ async function resolveActorUsernameByChatId(chatId) {
   return null;
 }
 
+// A fetch() that hangs forever (no response, no error — a stuck connection)
+// is not hypothetical, and it's the actual cause found for the "tap Верно,
+// spinner just spins forever" bug: this file's very first step on a button
+// tap is a kv()-backed getPendingActorReply() call (see handleCallbackQueryInner
+// below); if that underlying fetch never settles, the whole handler hangs
+// before it ever reaches answerCallbackQuery — and a hang is neither a
+// resolve nor a reject, so the try/catch around handleCallbackQuery never
+// runs either. Eventually the serverless function is killed by its own
+// platform timeout with zero chance to ever answer Telegram, leaving the
+// tapped button stuck on "Загрузка..." forever, exactly as reported. Capping
+// every outbound Telegram call here at a few seconds means the worst case
+// becomes "fails fast, we log it and move on" instead of "hangs forever."
+// (Overridable via env var for tests; production never sets this, so it's
+// always 8000ms there.)
+const TG_TIMEOUT_MS = Number(process.env.TG_TIMEOUT_MS) || 8000;
+
 async function tg(token, method, payload) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TG_TIMEOUT_MS);
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
     return await res.json().catch(() => ({}));
   } catch (err) {
     console.error(`telegram-webhook: ${method} failed:`, err);
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -263,21 +296,51 @@ async function askAboutPaymentOrSkip(token, chatId, dateISO, time, record) {
 // callback query — otherwise the tap just shows Telegram's loading
 // spinner forever with no visible error anywhere, which is exactly the
 // silent-hang symptom this is here to prevent.
+//
+// On top of that: a WATCHDOG. try/catch only helps once something actually
+// throws — a genuine network *hang* (fetch that never resolves and never
+// rejects) throws nothing, so try/catch alone can still leave the button
+// stuck forever if a hang happens somewhere this function doesn't expect.
+// The per-call timeouts added to kv()/tg() close the known gaps, but this
+// watchdog is the actual guarantee: no matter what hangs and where, this
+// callback query gets answered — with a "server is slow, try again" alert —
+// within WATCHDOG_MS no matter what.
+// (Overridable via env var for tests; production never sets this, so it's
+// always 9000ms there.)
+const WATCHDOG_MS = Number(process.env.CALLBACK_WATCHDOG_MS) || 9000;
+
 async function handleCallbackQuery(token, cq) {
+  let settled = false;
+  const watchdog = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    tg(token, 'answerCallbackQuery', {
+      callback_query_id: cq.id,
+      text: 'Сервер долго отвечает. Кнопки на старом сообщении могли не сработать — подождите немного и попробуйте ещё раз.',
+      show_alert: true,
+    }).catch(() => {});
+  }, WATCHDOG_MS);
+
   try {
     await handleCallbackQueryInner(token, cq);
+    settled = true;
   } catch (err) {
     console.error('telegram-webhook: handleCallbackQuery threw:', err);
-    try {
-      await tg(token, 'answerCallbackQuery', {
-        callback_query_id: cq.id,
-        text: 'Что-то пошло не так, попробуйте ещё раз.',
-        show_alert: true,
-      });
-    } catch {
-      // even the error-recovery answerCallbackQuery failed — nothing more
-      // to do from here, but at least it's logged above.
+    if (!settled) {
+      settled = true;
+      try {
+        await tg(token, 'answerCallbackQuery', {
+          callback_query_id: cq.id,
+          text: 'Что-то пошло не так, попробуйте ещё раз.',
+          show_alert: true,
+        });
+      } catch {
+        // even the error-recovery answerCallbackQuery failed — nothing more
+        // to do from here, but at least it's logged above.
+      }
     }
+  } finally {
+    clearTimeout(watchdog);
   }
 }
 
