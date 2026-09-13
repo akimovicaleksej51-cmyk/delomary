@@ -202,63 +202,92 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  // Always ack quickly with 200 — Telegram retries aggressively otherwise.
-  res.status(200).json({ ok: true });
+  // THE ACTUAL ROOT CAUSE of the "button spins, then just clears with
+  // nothing happening" reports (found by reading production logs): this
+  // handler used to send its 200 OK response FIRST, then keep working
+  // ("ack fast, Telegram retries aggressively otherwise" — a reasonable
+  // instinct, but wrong for this platform). On Vercel's Node.js runtime
+  // (built on AWS Lambda), a function's whole execution environment —
+  // including the event loop, pending timers, and in-flight fetch() calls —
+  // can be FROZEN the instant the HTTP response is considered complete, and
+  // only thaws again on some LATER invocation reusing the same warm
+  // container. Production logs confirmed this exactly: a burst of
+  // *different* outbound calls (KV requests AND Telegram API calls like
+  // answerCallbackQuery/editMessageReplyMarkup) all aborting within the
+  // same millisecond of each other — consistent with a batch of timers that
+  // had been frozen together suddenly all firing at once when something
+  // finally thawed the container, not with each of them independently
+  // timing out for its own reason.
+  //
+  // Every OTHER route in this project (api/slots, api/admin/shifts, …)
+  // never showed this problem, because they all do the work FIRST and only
+  // send their response at the end — the normal, safe pattern. This handler
+  // now does the same: the response is sent exactly once, from the `finally`
+  // block below, only after all the real work has actually finished. Telegram
+  // tolerates a webhook response taking a few seconds; it does not tolerate
+  // a response that arrives instantly but represents work that then stalls
+  // indefinitely on a frozen container, which is what was actually
+  // happening before.
+  try {
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    body = body || {};
 
-  let body = req.body;
-  if (typeof body === 'string') {
-    try { body = JSON.parse(body); } catch { body = {}; }
-  }
-  body = body || {};
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) return;
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return;
-
-  if (body.callback_query) {
-    await handleCallbackQuery(token, body.callback_query);
-    return;
-  }
-
-  const message = body.message || body.edited_message;
-  if (!message || !message.chat || !message.text) return;
-
-  const chatId = message.chat.id;
-  const text = String(message.text).trim();
-
-  // A closeout conversation in progress takes priority over everything
-  // else (except an actual command) — this is how "✏️ Исправить" or the
-  // cash-collected question gets its answer.
-  if (!text.startsWith('/')) {
-    const pending = await getPendingActorReply(chatId);
-    if (pending) {
-      await handleActorReply(token, chatId, pending, text);
+    if (body.callback_query) {
+      await handleCallbackQuery(token, body.callback_query);
       return;
     }
-  }
 
-  if (!text.startsWith('/start')) return;
+    const message = body.message || body.edited_message;
+    if (!message || !message.chat || !message.text) return;
 
-  const username = message.from && message.from.username ? String(message.from.username).toLowerCase() : '';
-  const displayName = (message.from && (message.from.first_name || message.from.username)) || '';
+    const chatId = message.chat.id;
+    const text = String(message.text).trim();
 
-  if (!username) {
+    // A closeout conversation in progress takes priority over everything
+    // else (except an actual command) — this is how "✏️ Исправить" or the
+    // cash-collected question gets its answer.
+    if (!text.startsWith('/')) {
+      const pending = await getPendingActorReply(chatId);
+      if (pending) {
+        await handleActorReply(token, chatId, pending, text);
+        return;
+      }
+    }
+
+    if (!text.startsWith('/start')) return;
+
+    const username = message.from && message.from.username ? String(message.from.username).toLowerCase() : '';
+    const displayName = (message.from && (message.from.first_name || message.from.username)) || '';
+
+    if (!username) {
+      await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Чтобы получать напоминания о бронях, сначала задайте себе username в Telegram: Настройки → Имя пользователя. Потом снова напишите /start этому боту.',
+      });
+      return;
+    }
+
+    await kv('hset', 'actors', username, JSON.stringify({
+      chatId,
+      displayName,
+      registeredAt: new Date().toISOString(),
+    }));
+
     await tg(token, 'sendMessage', {
       chat_id: chatId,
-      text: 'Чтобы получать напоминания о бронях, сначала задайте себе username в Telegram: Настройки → Имя пользователя. Потом снова напишите /start этому боту.',
+      text: `Готово, ${displayName || 'привет'}! Теперь вам будут приходить напоминания о бронях за 1.5 часа до игры, а в конце смены — сообщения для сверки игр (@${username}).`,
     });
-    return;
+  } catch (err) {
+    console.error('telegram-webhook: top-level handler threw:', err);
+  } finally {
+    res.status(200).json({ ok: true });
   }
-
-  await kv('hset', 'actors', username, JSON.stringify({
-    chatId,
-    displayName,
-    registeredAt: new Date().toISOString(),
-  }));
-
-  await tg(token, 'sendMessage', {
-    chat_id: chatId,
-    text: `Готово, ${displayName || 'привет'}! Теперь вам будут приходить напоминания о бронях за 1.5 часа до игры, а в конце смены — сообщения для сверки игр (@${username}).`,
-  });
 }
 
 const PAYMENT_PROMPT = 'Как оплатили эту игру? Напишите одним сообщением, например:\n' +
@@ -279,15 +308,21 @@ const PAYMENT_PROMPT = 'Как оплатили эту игру? Напишит�
 async function askAboutPaymentOrSkip(token, chatId, dateISO, time, record) {
   if (record.paymentReportedBy) {
     await clearPendingActorReply(chatId);
-    await tg(token, 'sendMessage', {
+    const res = await tg(token, 'sendMessage', {
       chat_id: chatId,
       text: `Оплата по этой игре уже была записана (принял(а) @${record.paymentReportedBy}). Спасибо, сверка завершена!`,
     });
+    if (!res || res.ok === false) {
+      await tg(token, 'sendMessage', { chat_id: chatId, text: `⚠️ (диагностика) не удалось отправить сообщение "оплата уже записана": ${(res && res.description) || 'нет ответа от Telegram (таймаут?)'}` }).catch(() => {});
+    }
     return;
   }
   const actorUsername = await resolveActorUsernameByChatId(chatId);
   await setPendingActorReply(chatId, { dateISO, time, stage: 'payment', actorUsername });
-  await tg(token, 'sendMessage', { chat_id: chatId, text: PAYMENT_PROMPT });
+  const res = await tg(token, 'sendMessage', { chat_id: chatId, text: PAYMENT_PROMPT });
+  if (!res || res.ok === false) {
+    await tg(token, 'sendMessage', { chat_id: chatId, text: `⚠️ (диагностика) не удалось отправить вопрос про оплату: ${(res && res.description) || 'нет ответа от Telegram (таймаут?)'}` }).catch(() => {});
+  }
 }
 
 // A button tap on one of the "✅ Верно" / "✏️ Исправить" messages
@@ -387,44 +422,77 @@ async function handleCallbackQueryInner(token, cq) {
 
   await tg(token, 'answerCallbackQuery', { callback_query_id: cq.id });
 
-  if (action === 'ok') {
-    // Fills in "Кто отыграл" automatically from whoever just confirmed —
-    // see resolveWorkedField() — so the per-actor games-this-month stat in
-    // Финансы updates itself instead of waiting on the admin to type it in
-    // by hand later.
-    const worked = await resolveWorkedField(dateISO, time, chatId);
-    const updated = {
-      ...record,
-      closeoutStatus: 'confirmed',
-      closeoutRepliedAt: new Date().toISOString(),
-      ...(worked ? { [worked.field]: worked.name } : {}),
-    };
-    await kv('hset', hashKey, time, JSON.stringify(updated));
-    if (messageId) {
-      const summary = [time, record.name, record.players, record.price ? `${record.price} Br` : null].filter(Boolean).join(' · ');
-      await tg(token, 'editMessageText', {
-        chat_id: chatId, message_id: messageId,
-        text: `✅ Подтверждено: ${summary}`,
-        reply_markup: { inline_keyboard: [] },
-      });
-    }
-    await askAboutPaymentOrSkip(token, chatId, dateISO, time, updated);
-    return;
-  }
-
-  if (action === 'edit') {
-    if (messageId) {
-      await tg(token, 'editMessageText', {
-        chat_id: chatId, message_id: messageId,
-        text: `✏️ Исправляется: ${time} · ${record.name || ''}`,
-        reply_markup: { inline_keyboard: [] },
-      });
-    }
-    await setPendingActorReply(chatId, { dateISO, time, stage: 'players_price' });
+  // TEMPORARY DIAGNOSTIC, added while tracking down a report that the button
+  // stops loading (so the callback WAS answered — the part above this line
+  // works) but nothing visibly happens afterward: no confirmation text, no
+  // follow-up payment question. Everything below this point used to fail
+  // silently — a thrown error had nowhere to go (nobody was watching the
+  // server logs), and a Telegram API call rejecting a request (e.g.
+  // editMessageText on a message it won't edit) was only ever logged with
+  // console.error, invisible to anyone without Vercel log access. Now: any
+  // thrown error, or any Telegram API call that comes back not-ok, gets
+  // reported as a plain follow-up message in the SAME chat — so whatever is
+  // actually going wrong is visible immediately, no server logs needed. Once
+  // the real cause is found this can be trimmed back down.
+  async function reportDiagnostic(label, detail) {
     await tg(token, 'sendMessage', {
       chat_id: chatId,
-      text: 'Укажите верное количество игроков и цену через запятую. Например: 4, 200',
-    });
+      text: `⚠️ (диагностика) ${label}: ${detail}`,
+    }).catch(() => {});
+  }
+
+  try {
+    if (action === 'ok') {
+      // Fills in "Кто отыграл" automatically from whoever just confirmed —
+      // see resolveWorkedField() — so the per-actor games-this-month stat in
+      // Финансы updates itself instead of waiting on the admin to type it in
+      // by hand later.
+      const worked = await resolveWorkedField(dateISO, time, chatId);
+      const updated = {
+        ...record,
+        closeoutStatus: 'confirmed',
+        closeoutRepliedAt: new Date().toISOString(),
+        ...(worked ? { [worked.field]: worked.name } : {}),
+      };
+      await kv('hset', hashKey, time, JSON.stringify(updated));
+      if (messageId) {
+        const summary = [time, record.name, record.players, record.price ? `${record.price} Br` : null].filter(Boolean).join(' · ');
+        const editResult = await tg(token, 'editMessageText', {
+          chat_id: chatId, message_id: messageId,
+          text: `✅ Подтверждено: ${summary}`,
+          reply_markup: { inline_keyboard: [] },
+        });
+        if (!editResult || editResult.ok === false) {
+          await reportDiagnostic('не удалось отредактировать сообщение (editMessageText)', (editResult && editResult.description) || 'нет ответа от Telegram (таймаут?)');
+        }
+      }
+      await askAboutPaymentOrSkip(token, chatId, dateISO, time, updated);
+      return;
+    }
+
+    if (action === 'edit') {
+      if (messageId) {
+        const editResult = await tg(token, 'editMessageText', {
+          chat_id: chatId, message_id: messageId,
+          text: `✏️ Исправляется: ${time} · ${record.name || ''}`,
+          reply_markup: { inline_keyboard: [] },
+        });
+        if (!editResult || editResult.ok === false) {
+          await reportDiagnostic('не удалось отредактировать сообщение (editMessageText)', (editResult && editResult.description) || 'нет ответа от Telegram (таймаут?)');
+        }
+      }
+      await setPendingActorReply(chatId, { dateISO, time, stage: 'players_price' });
+      const sendResult = await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Укажите верное количество игроков и цену через запятую. Например: 4, 200',
+      });
+      if (!sendResult || sendResult.ok === false) {
+        await reportDiagnostic('не удалось отправить следующий вопрос (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
+      }
+    }
+  } catch (err) {
+    console.error('telegram-webhook: handleCallbackQueryInner (post-answer) threw:', err);
+    await reportDiagnostic('внутренняя ошибка после нажатия кнопки', err && err.message ? err.message : String(err));
   }
 }
 
