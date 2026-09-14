@@ -115,7 +115,11 @@ export default async function handler(req, res) {
       day.erip += toAmount(record.payErip);
     }
 
-    const channel = record.channel || 'Не указан';
+    // Бронь без явно указанного источника — это бронь, созданная прямо в
+    // админке (или отредактированная так, что поле осталось пустым). Такие
+    // брони по сути и есть "сайтовые" (сделаны нами, а не через партнёра),
+    // поэтому считаем их как канал "Сайт", а не отдельным "Не указан".
+    const channel = record.channel || 'Сайт';
     if (!channelTotals[channel]) channelTotals[channel] = { count: 0, total: 0 };
     channelTotals[channel].count += 1;
     channelTotals[channel].total += toAmount(record.price);

@@ -99,24 +99,37 @@
     margin-bottom:26px; padding-bottom:18px; border-bottom:1px solid #262626;
   }
   .topbar h1{font-size:24px;}
-  .topbar-actions{display:flex; gap:10px; flex-wrap:wrap;}
+  .topbar-actions{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;}
   .btn-secondary, .btn-danger{padding:11px 18px;}
 
+  /* ---------- «Ещё» — выпадающее меню (Статистика / Бухгалтерия) ---------- */
+  .more-menu{position:relative;}
+  .more-menu-list{
+    display:none; flex-direction:column; gap:2px; position:absolute; top:calc(100% + 6px); left:0;
+    min-width:190px; background:var(--black-2); border:1px solid #2c2c2c; border-radius:12px;
+    padding:6px; box-shadow:0 12px 32px rgba(0,0,0,.55); z-index:70;
+  }
+  .more-menu-list.show{display:flex;}
+  .more-menu-list button{
+    background:none; border:none; color:var(--paper); text-align:left; font-size:13.5px;
+    font-family:var(--sans); font-weight:700; padding:10px 12px; border-radius:8px; width:100%;
+  }
+  .more-menu-list button:hover{background:var(--black-3);}
+
   /* ---------- Source tracker (Сайт / Мир квестов / ExtraReality) ---------- */
-  /* Always visible on the main screen — no need to open Статистика just to
-     see "сколько броней с какого источника в этом месяце". Пересчитывается
-     по тем же данным, что и вкладка Финансы (тот же /api/admin/report), но
-     сгруппировано ровно на 3 названных источника + «Другое» на всё
-     остальное, чтобы ничего не потерялось. */
+  /* Живёт внутри раздела "Бухгалтерия" (см. #financeReportOverlay) —
+     раньше это была всегда видимая плашка прямо на главном экране, теперь
+     для чистоты и мобильной вёрстки все денежные данные убраны в один
+     раздел. Пересчитывается по тем же данным, что и денежный отчёт по дням
+     ниже (тот же /api/admin/report), но сгруппировано в крупные плитки: 3
+     основных источника + общий счётчик броней за месяц. */
   .source-tracker{
     background:var(--black-2); border:1px solid #262626; border-radius:14px;
-    padding:14px 16px; margin-bottom:16px;
+    padding:14px 16px; margin-bottom:20px;
   }
   .source-tracker-head{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;}
   .source-tracker-title{font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
   .source-tracker-title span{color:var(--paper);}
-  .source-tracker-more{background:none; border:none; color:var(--ochre-bright); font-size:12.5px; font-weight:700; padding:0;}
-  .source-tracker-more:hover{text-decoration:underline;}
   .source-tracker-items{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
   .source-item{background:var(--black-3); border:1px solid #262626; border-radius:10px; padding:10px 12px;}
   .source-item .si-label{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
@@ -329,25 +342,27 @@
   }
   .day.disabled small{color:var(--muted); opacity:.65;}
 
-  /* ---------- Month overview: busy / closed / open per day ---------- */
-  /* Colors are the dataviz-validated triple (all-pairs CVD-safe on this
-     dark surface): orange = has a customer booking, blue = closed
-     technically, green = fully open. White text on all three keeps the day
-     number readable regardless of which fill it sits on. */
-  .day.cal-status-busy{background:#d95926; border-color:#d95926; color:#fff;}
-  .day.cal-status-closed{background:#3987e5; border-color:#3987e5; color:#fff;}
-  .day.cal-status-open{background:#199e70; border-color:#199e70; color:#fff;}
-  .day.cal-status-busy small, .day.cal-status-closed small, .day.cal-status-open small{color:rgba(255,255,255,.75);}
-  .day.cal-status-busy:hover, .day.cal-status-closed:hover, .day.cal-status-open:hover{filter:brightness(1.15); border-color:#fff;}
+  /* ---------- Month overview grid ---------- */
+  /* Раньше каждый день в сетке сразу красился в оранжевый/синий/зелёный
+     (занято/закрыто/свободно) — на глаз сетка рябила, а буквы Пн/Вт/...
+     наследовали тот же цвет и получалось неаккуратно. Теперь у самой сетки
+     все дни — один и тот же спокойный (не чёрный, чтобы не сливаться с
+     фоном страницы) цвет, а буква дня недели над числом — всегда одного
+     нейтрального цвета, независимо от дня и статуса. Разбивка
+     занято/закрыто/свободно никуда не делась — она показывается ПО СЛОТАМ
+     (см. .slot-open/.slot-technical/.slot-customer ниже) как только нажать
+     на конкретный день, и легенда под сеткой как раз про эту, слотовую,
+     раскраску. */
+  #overviewCalGrid .day:not(.disabled):not(.empty){background:#3a3428; border-color:#4a4436; color:var(--paper);}
+  #overviewCalGrid .day small{color:var(--muted);}
   .cal-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid #2a2a2a; font-size:13px; color:var(--muted);}
   .cal-legend-item{display:flex; align-items:center; gap:8px;}
   .cal-legend-swatch{width:14px; height:14px; border-radius:4px; flex-shrink:0;}
   .cal-legend-swatch.busy{background:#d95926;}
   .cal-legend-swatch.closed{background:#3987e5;}
   .cal-legend-swatch.open{background:#199e70;}
-  /* Selected day in the overview grid keeps its status fill (that's the
-     whole point of the color) and gets a bright ring on top to show which
-     day the slot panel below belongs to. */
+  /* Выбранный день в сетке получает яркое кольцо, чтобы было видно, какому
+     дню принадлежит панель слотов ниже. */
   .day.overview-selected{box-shadow:0 0 0 2px var(--paper) inset;}
   .overview-day-heading{
     font-family:var(--sans); font-weight:800; font-size:13.5px; letter-spacing:.05em;
@@ -433,6 +448,29 @@
     .modal-box{padding:20px 16px;}
     .row-sub{display:none;}
   }
+
+  /* ---------- Мобильная оптимизация ---------- */
+  @media (max-width:680px){
+    body{padding:16px 10px 50px;}
+    .topbar{gap:12px; margin-bottom:20px; padding-bottom:14px;}
+    .topbar h1{font-size:19px;}
+    .topbar-actions{display:grid; grid-template-columns:repeat(2,1fr); gap:8px; width:100%;}
+    .topbar-actions .btn-secondary, .topbar-actions .btn, .topbar-actions .more-menu, .topbar-actions .more-menu-btn{
+      width:100%; padding:12px 10px; font-size:13px;
+    }
+    .more-menu-list{left:0; right:0; width:100%;}
+    .list-tabs{gap:6px;}
+    .list-tab{padding:9px 12px; font-size:12.5px; flex:1 1 auto; text-align:center;}
+    .list-toolbar{gap:8px;}
+    .list-toolbar input[type="text"]{flex:1 1 100%;}
+    .day-filter-wrap{flex:1 1 auto;}
+    .list-toolbar .btn-secondary{flex:1 1 auto;}
+    .booking-row{flex-wrap:wrap;}
+    .modal-overlay{padding:16px 8px;}
+    .source-tracker-items{grid-template-columns:repeat(2,1fr);}
+    .stats-table{font-size:11.5px;}
+    .stats-table th, .stats-table td{padding:5px 5px;}
+  }
 </style>
 </head>
 <body>
@@ -462,20 +500,19 @@
       <div class="topbar-actions">
         <button class="btn-secondary" id="refreshBtn">Обновить</button>
         <button class="btn-secondary" id="calendarBtn">Календарь</button>
-        <button class="btn-secondary" id="statsBtn">Статистика</button>
         <button class="btn-secondary" id="closeDayBtn">Закрыть день</button>
         <button class="btn-secondary" id="shiftsBtn">Смены и напоминания</button>
         <button class="btn-secondary" id="financeBtn">Касса</button>
+        <div class="more-menu" id="moreMenu">
+          <button type="button" class="btn-secondary more-menu-btn" id="moreMenuBtn" aria-haspopup="true" aria-expanded="false">Ещё ▾</button>
+          <div class="more-menu-list" id="moreMenuList" role="menu">
+            <button type="button" role="menuitem" id="statsBtn">📊 Статистика</button>
+            <button type="button" role="menuitem" id="financeReportBtn">🧾 Бухгалтерия</button>
+          </div>
+        </div>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
-    </div>
-    <div class="source-tracker" id="sourceTracker">
-      <div class="source-tracker-head">
-        <span class="source-tracker-title">Источники броней — <span id="sourceTrackerMonth"></span></span>
-        <button type="button" class="source-tracker-more" id="sourceTrackerMore">Все месяцы и суммы →</button>
-      </div>
-      <div class="source-tracker-items" id="sourceTrackerItems"><div class="load-note">Загрузка…</div></div>
     </div>
     <div class="list-tabs">
       <button type="button" class="list-tab active" data-tab="active">Активные <span class="tab-count" id="tabCountActive"></span></button>
@@ -495,7 +532,7 @@
   </div>
 </div>
 
-<!-- Month overview calendar: color-coded busy / closed / open per day -->
+<!-- Month overview calendar: pick a day, then see its slots color-coded busy / closed / open -->
 <div class="modal-overlay" id="overviewOverlay">
   <div class="modal-box">
     <button class="modal-close-x" data-close="overview">✕</button>
@@ -509,19 +546,18 @@
       <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
     </div>
     <div class="cal-grid" id="overviewCalGrid"></div>
-    <div class="cal-legend">
-      <div class="cal-legend-item"><span class="cal-legend-swatch busy"></span>Есть бронь клиента</div>
-      <div class="cal-legend-item"><span class="cal-legend-swatch closed"></span>Закрыто технически</div>
-      <div class="cal-legend-item"><span class="cal-legend-swatch open"></span>Полностью свободно</div>
-    </div>
+    <p style="font-size:12.5px; color:var(--muted); margin-top:12px;" id="overviewHint">Нажмите на день, чтобы увидеть его слоты, а на слот — чтобы прочитать детали брони.</p>
 
     <div id="overviewDayPanel" style="display:none;">
       <div class="overview-day-heading" id="overviewDayHeading"></div>
+      <div class="cal-legend" style="margin-top:0; padding-top:0; border-top:none;">
+        <div class="cal-legend-item"><span class="cal-legend-swatch busy"></span>Есть бронь клиента</div>
+        <div class="cal-legend-item"><span class="cal-legend-swatch closed"></span>Закрыто технически</div>
+        <div class="cal-legend-item"><span class="cal-legend-swatch open"></span>Полностью свободно</div>
+      </div>
       <div class="slot-grid" id="overviewSlotGrid"></div>
       <div class="day-status" id="overviewSlotDetail" style="display:none;"></div>
     </div>
-
-    <p style="font-size:12.5px; color:var(--muted); margin-top:12px;" id="overviewHint">Нажмите на день, чтобы увидеть его слоты, а на слот — чтобы прочитать детали брони.</p>
   </div>
 </div>
 
@@ -702,17 +738,29 @@
   </div>
 </div>
 
-<!-- Stats dashboard -->
+<!-- Stats dashboard: booking stats only (money moved to "Бухгалтерия") -->
 <div class="modal-overlay" id="statsOverlay">
   <div class="modal-box" style="max-width:720px;">
     <button class="modal-close-x" data-close="stats">✕</button>
-    <h2>Статистика и отчёты</h2>
-    <div class="type-toggle" id="statsTabToggle">
-      <button type="button" class="type-toggle-btn active" data-stats-tab="bookings">Брони</button>
-      <button type="button" class="type-toggle-btn" data-stats-tab="finance">Финансы</button>
-    </div>
+    <h2>Статистика броней</h2>
     <div id="statsBody"><div class="load-note">Загрузка…</div></div>
-    <div id="reportBody" style="display:none;">
+  </div>
+</div>
+
+<!-- Бухгалтерия: источники броней + денежный отчёт по дням (бывшая вкладка
+     "Финансы" внутри Статистики, плюс виджет источников, который раньше
+     всегда висел на главном экране) -->
+<div class="modal-overlay" id="financeReportOverlay">
+  <div class="modal-box" style="max-width:720px;">
+    <button class="modal-close-x" data-close="financeReport">✕</button>
+    <h2>Бухгалтерия</h2>
+    <div class="source-tracker" id="sourceTracker">
+      <div class="source-tracker-head">
+        <span class="source-tracker-title">Источники броней — <span id="sourceTrackerMonth"></span></span>
+      </div>
+      <div class="source-tracker-items" id="sourceTrackerItems"><div class="load-note">Загрузка…</div></div>
+    </div>
+    <div id="reportBody">
       <div class="cal-head" style="margin-bottom:14px;">
         <button type="button" class="cal-nav" id="reportMonthPrev" aria-label="Предыдущий месяц">‹</button>
         <span class="cal-month" id="reportMonthLabel"></span>
@@ -1186,6 +1234,27 @@
   });
 
   document.getElementById('refreshBtn').addEventListener('click', () => { loadBookings(); loadSourceTracker(); });
+
+  // ---------- «Ещё» — выпадающее меню (Статистика / Бухгалтерия) ----------
+  const moreMenu = document.getElementById('moreMenu');
+  const moreMenuBtn = document.getElementById('moreMenuBtn');
+  const moreMenuList = document.getElementById('moreMenuList');
+  function closeMoreMenu(){
+    moreMenuList.classList.remove('show');
+    moreMenuBtn.setAttribute('aria-expanded', 'false');
+  }
+  moreMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willShow = !moreMenuList.classList.contains('show');
+    moreMenuList.classList.toggle('show', willShow);
+    moreMenuBtn.setAttribute('aria-expanded', String(willShow));
+  });
+  document.addEventListener('click', (e) => {
+    if (!moreMenu.contains(e.target)) closeMoreMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMoreMenu();
+  });
 
   // ---------- toolbar: search, day filter, CSV export ----------
   const searchBox = document.getElementById('searchBox');
@@ -1987,20 +2056,6 @@
   const overviewSlotGrid = document.getElementById('overviewSlotGrid');
   const overviewSlotDetail = document.getElementById('overviewSlotDetail');
 
-  // Priority rule for a single day's color: any customer booking makes the
-  // whole day "busy" (the thing staff actually care about at a glance);
-  // otherwise a technical block makes it "closed"; only a day with neither
-  // is "open". A day is almost never purely one of these — the tooltip on
-  // each cell spells out the actual split.
-  function dayStatusFor(dateISO){
-    const dayBookings = allBookings.filter(b => b.dateISO === dateISO && b.status === 'active');
-    const customer = dayBookings.filter(b => b.type !== 'technical').length;
-    const technical = dayBookings.filter(b => b.type === 'technical').length;
-    if (customer > 0) return 'busy';
-    if (technical > 0) return 'closed';
-    return 'open';
-  }
-
   function dayStatusTooltip(dateISO){
     const dayBookings = allBookings.filter(b => b.dateISO === dateISO && b.status === 'active');
     const customer = dayBookings.filter(b => b.type !== 'technical').length;
@@ -2031,9 +2086,8 @@
       const inRange = d >= minD && d <= maxD;
       const btn = document.createElement('button');
       btn.type = 'button';
-      const statusCls = inRange ? ' cal-status-' + dayStatusFor(iso) : '';
       const selectedCls = (inRange && iso === overviewSelectedDateISO) ? ' overview-selected' : '';
-      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + statusCls + selectedCls;
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + selectedCls;
       btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
       if (!inRange) {
         btn.disabled = true;
@@ -2261,9 +2315,6 @@
   }
 
   async function openStatsModal(){
-    document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.statsTab === 'bookings'));
-    document.getElementById('statsBody').style.display = 'block';
-    document.getElementById('reportBody').style.display = 'none';
     statsBody.innerHTML = '<div class="load-note">Загрузка…</div>';
     statsOverlay.classList.add('show');
     try{
@@ -2281,29 +2332,32 @@
       statsBody.innerHTML = '<div class="stats-empty">Ошибка сети. Попробуйте ещё раз.</div>';
     }
   }
-  document.getElementById('statsBtn').addEventListener('click', openStatsModal);
+  document.getElementById('statsBtn').addEventListener('click', () => { closeMoreMenu(); openStatsModal(); });
   document.querySelectorAll('[data-close="stats"]').forEach(b => b.addEventListener('click', () => statsOverlay.classList.remove('show')));
   statsOverlay.addEventListener('click', e => { if (e.target === statsOverlay) statsOverlay.classList.remove('show'); });
 
-  // ---------- financial report ("Финансы" tab inside Статистика) ----------
-  // Shows one CALENDAR MONTH at a time (not a rolling N-day window) so
-  // "сколько броней/денег в этом месяце" always starts back at zero the
-  // moment a new month begins, exactly like the owner's old paper ledger —
-  // navigating with ‹ › just re-queries /api/admin/report for that month's
-  // exact date range.
+  // ---------- "Бухгалтерия": источники броней + денежный отчёт по дням ----------
+  // Раньше это была вкладка "Финансы" внутри "Статистики" плюс отдельный
+  // виджет источников, всегда висевший на главном экране, — теперь это
+  // отдельный раздел (открывается через «Ещё»), а в "Статистике" остались
+  // только брони. Отчёт показывает один КАЛЕНДАРНЫЙ МЕСЯЦ за раз (не
+  // скользящее окно в N дней), чтобы "сколько броней/денег в этом месяце"
+  // всегда начиналось заново с нуля с началом нового месяца, как в старом
+  // бумажном журнале — навигация ‹ › просто заново запрашивает
+  // /api/admin/report за точный диапазон дат этого месяца.
+  const financeReportOverlay = document.getElementById('financeReportOverlay');
   const today0 = new Date();
   let reportViewYear = today0.getFullYear();
   let reportViewMonth = today0.getMonth(); // 0-indexed
 
-  document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#statsTabToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
-      const tab = btn.dataset.statsTab;
-      document.getElementById('statsBody').style.display = tab === 'bookings' ? 'block' : 'none';
-      document.getElementById('reportBody').style.display = tab === 'finance' ? 'block' : 'none';
-      if (tab === 'finance') loadReport();
-    });
-  });
+  function openFinanceReportModal(){
+    financeReportOverlay.classList.add('show');
+    loadSourceTracker();
+    loadReport();
+  }
+  document.getElementById('financeReportBtn').addEventListener('click', () => { closeMoreMenu(); openFinanceReportModal(); });
+  document.querySelectorAll('[data-close="financeReport"]').forEach(b => b.addEventListener('click', () => financeReportOverlay.classList.remove('show')));
+  financeReportOverlay.addEventListener('click', e => { if (e.target === financeReportOverlay) financeReportOverlay.classList.remove('show'); });
 
   document.getElementById('reportMonthPrev').addEventListener('click', () => {
     reportViewMonth--; if (reportViewMonth < 0){ reportViewMonth = 11; reportViewYear--; }
@@ -2373,12 +2427,15 @@
     return { fromISO: isoDate(first), toISO: isoDate(last), days: last.getDate() };
   }
 
-  // ---------- always-visible source tracker (main screen, not inside a modal) ----------
-  // Same underlying numbers as the "Источники броней" table inside
-  // Статистика → Финансы, just surfaced right on the main screen — grouped
-  // onto exactly the 3 sources that matter (Сайт / Мир квестов /
-  // ExtraReality) plus one "Другое" catch-all for anything typed
-  // differently, so nothing silently disappears from the total.
+  // ---------- source tracker (внутри "Бухгалтерии") ----------
+  // Те же цифры, что и в таблице "Источники броней" ниже по отчёту, только
+  // вынесены наверх крупными плитками: 3 основных источника (Сайт / Мир
+  // квестов / ExtraReality) и общее количество броней за месяц по ВСЕМ
+  // источникам сразу (раньше вместо этого была плитка "Другое" — каталог
+  // всего, что не попало в 3 основных; теперь это просто общий счётчик).
+  // Брони без явно указанного источника (созданные прямо в админке) сервер
+  // считает как "Сайт" — см. api/admin/report.js — поэтому они уже включены
+  // в плитку "Сайт", а не теряются где-то в стороне.
   const TRACKED_SOURCES = ['Сайт', 'Мир квестов', 'ExtraReality'];
 
   async function loadSourceTracker(){
@@ -2395,25 +2452,18 @@
         return;
       }
       const channels = out.channels || {};
-      const other = { count: 0, total: 0 };
-      Object.entries(channels).forEach(([name, v]) => {
-        if (!TRACKED_SOURCES.includes(name)) { other.count += v.count; other.total += v.total; }
-      });
+      const totalAll = { count: 0, total: 0 };
+      Object.values(channels).forEach((v) => { totalAll.count += v.count; totalAll.total += v.total; });
       const tiles = TRACKED_SOURCES.map(name => {
         const v = channels[name] || { count: 0, total: 0 };
         const cls = name === 'Сайт' ? ' si-site' : '';
         return `<div class="source-item${cls}"><div class="si-label">${escapeHtml(name)}</div><div class="si-count">${v.count}</div><div class="si-sum">${Math.round(v.total)} Br</div></div>`;
-      }).join('') + `<div class="source-item"><div class="si-label">Другое</div><div class="si-count">${other.count}</div><div class="si-sum">${Math.round(other.total)} Br</div></div>`;
+      }).join('') + `<div class="source-item"><div class="si-label">Всего броней</div><div class="si-count">${totalAll.count}</div><div class="si-sum">${Math.round(totalAll.total)} Br</div></div>`;
       itemsEl.innerHTML = tiles;
     } catch(err){
       itemsEl.innerHTML = '<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">Ошибка сети.</div>';
     }
   }
-
-  document.getElementById('sourceTrackerMore').addEventListener('click', async () => {
-    await openStatsModal();
-    document.querySelector('#statsTabToggle [data-stats-tab="finance"]').click();
-  });
 
   async function loadReport(){
     document.getElementById('reportMonthLabel').textContent = MONTH_NAMES_NOM[reportViewMonth] + ' ' + reportViewYear;

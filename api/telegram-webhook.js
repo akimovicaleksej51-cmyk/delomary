@@ -383,11 +383,23 @@ export default async function handler(req, res) {
   }
 }
 
-const PAYMENT_PROMPT = 'Как оплатили эту игру? Напишите одним сообщением, например:\n' +
-  '• 140 — если полностью наличными\n' +
-  '• карта 140 — если полностью картой\n' +
-  '• ерип 140 — если полностью через ЕРИП\n' +
-  '• нал 100 карта 40 — если оплата разделена';
+// Payment buttons — one method covers the FULL price in one tap (no typing,
+// and the amount shown is always the booking's real price, never a fixed
+// "140" example), plus a "Свой вариант" fallback for a split or partial
+// payment (the one case buttons genuinely can't cover, since the split
+// could be anything). `price` is a number; when a booking somehow has no
+// price at all, callers fall back to a custom-only keyboard instead (see
+// askAboutPaymentOrSkip below).
+function buildPaymentKeyboard(dateISO, time, price) {
+  return {
+    inline_keyboard: [
+      [{ text: `💵 Нал ${price} Br`, callback_data: `co|pay|${dateISO}|${time}|cash|${price}` }],
+      [{ text: `💳 Карта ${price} Br`, callback_data: `co|pay|${dateISO}|${time}|card|${price}` }],
+      [{ text: `📱 ЕРИП ${price} Br`, callback_data: `co|pay|${dateISO}|${time}|erip|${price}` }],
+      [{ text: '🔀 Оплата частями / разделена', callback_data: `co|paycustom|${dateISO}|${time}|${price}` }],
+    ],
+  };
+}
 
 // A game has ONE payment, not one per performer — but a booking covered
 // by both an actor and an actress gets THIS SAME confirm/edit flow
@@ -395,9 +407,15 @@ const PAYMENT_PROMPT = 'Как оплатили эту игру? Напишит�
 // buttons). So right after either of them confirms/edits, this decides
 // whether to actually ask the payment question: if the OTHER performer
 // already reported it (record.paymentReportedBy is set), there's nothing
-// left to ask — just say so and finish; otherwise ask, and remember which
-// performer is now answering (pending.actorUsername) so the reply handler
-// can stamp who reported it.
+// left to ask — just say so and finish; otherwise ask via buttons, each
+// pre-filled with the booking's REAL price (fixes a report where the
+// example in this question always showed "140" regardless of the actual
+// amount — that was only ever illustrative text in the old free-text
+// prompt, never a stored value, but it read as if the price itself was
+// wrong). Whoever answers is resolved fresh at the moment they tap a
+// button (or, for a split payment, when they finish typing it) rather than
+// stored ahead of time, since a plain button tap needs no pending state at
+// all — see the 'pay' callback branch below.
 async function askAboutPaymentOrSkip(token, chatId, dateISO, time, record) {
   if (record.paymentReportedBy) {
     await clearPendingActorReply(chatId);
@@ -410,12 +428,67 @@ async function askAboutPaymentOrSkip(token, chatId, dateISO, time, record) {
     }
     return;
   }
-  const actorUsername = await resolveActorUsernameByChatId(chatId);
-  await setPendingActorReply(chatId, { dateISO, time, stage: 'payment', actorUsername });
-  const res = await tg(token, 'sendMessage', { chat_id: chatId, text: PAYMENT_PROMPT });
+  const price = Number(record.price) || 0;
+  const reply_markup = price
+    ? buildPaymentKeyboard(dateISO, time, price)
+    : { inline_keyboard: [[{ text: '🔀 Указать сумму', callback_data: `co|paycustom|${dateISO}|${time}|0` }]] };
+  const res = await tg(token, 'sendMessage', {
+    chat_id: chatId,
+    text: price ? `Как оплатили эту игру (${price} Br)?` : 'У этой игры не указана цена — как оплатили и сколько?',
+    reply_markup,
+  });
   if (!res || res.ok === false) {
     await tg(token, 'sendMessage', { chat_id: chatId, text: `⚠️ (диагностика) не удалось отправить вопрос про оплату: ${(res && res.description) || 'нет ответа от Telegram (таймаут?)'}` }).catch(() => {});
   }
+}
+
+// Shared landing point for every way a payment can end up recorded — a
+// direct нал/карта/ЕРИП button tap (the full price, one method) or a typed
+// split/partial reply after "🔀 Оплата частями". Re-fetches the booking
+// fresh right before writing (not the possibly-stale `record` the caller
+// already had) because a booking covered by both an actor and an actress
+// runs this same question independently in each chat — if the OTHER
+// performer reported the payment in the meantime, this must defer to them
+// instead of overwriting their numbers.
+async function applyPayment(token, chatId, dateISO, time, actorUsername, amounts) {
+  const hashKey = `bookings:${dateISO}`;
+  const freshRaw = await kv('hget', hashKey, time);
+  if (!freshRaw) {
+    await clearPendingActorReply(chatId);
+    await tg(token, 'sendMessage', { chat_id: chatId, text: 'Эта бронь уже не активна — сверка отменена.' });
+    return;
+  }
+  let freshRecord;
+  try { freshRecord = JSON.parse(freshRaw); } catch { freshRecord = null; }
+  if (!freshRecord) {
+    await clearPendingActorReply(chatId);
+    return;
+  }
+  if (freshRecord.paymentReportedBy) {
+    await clearPendingActorReply(chatId);
+    await tg(token, 'sendMessage', {
+      chat_id: chatId,
+      text: `Оплата по этой игре уже была записана (принял(а) @${freshRecord.paymentReportedBy}). Спасибо, сверка завершена!`,
+    });
+    return;
+  }
+  const updated = {
+    ...freshRecord,
+    payCash: String(amounts.cash),
+    payCard: String(amounts.card),
+    payErip: String(amounts.erip),
+    closeoutCashCollected: String(amounts.cash),
+    closeoutRepliedAt: new Date().toISOString(),
+    paymentReportedBy: actorUsername || null,
+  };
+  await kv('hset', hashKey, time, JSON.stringify(updated));
+  await clearPendingActorReply(chatId);
+  const parts = [
+    amounts.cash ? `нал ${amounts.cash} Br` : null,
+    amounts.card ? `карта ${amounts.card} Br` : null,
+    amounts.erip ? `ЕРИП ${amounts.erip} Br` : null,
+  ].filter(Boolean).join(', ');
+  await tg(token, 'sendMessage', { chat_id: chatId, text: `Записал: ${parts}. Спасибо! Сверка по этой игре завершена.` });
 }
 
 // A button tap on one of the "✅ Верно" / "✏️ Исправить" messages
@@ -668,6 +741,41 @@ async function handleCallbackQueryInner(token, cq) {
       }
       return;
     }
+
+    // A "💵 Нал" / "💳 Карта" / "📱 ЕРИП" button — the game's FULL price was
+    // paid through exactly this one method, no typing needed at all.
+    if (action === 'pay') {
+      const method = rest[0]; // 'cash' | 'card' | 'erip'
+      const amount = Number(rest[1]) || 0;
+      const actorUsername = await resolveActorUsernameByChatId(chatId);
+      await applyPayment(token, chatId, dateISO, time, actorUsername, {
+        cash: method === 'cash' ? amount : 0,
+        card: method === 'card' ? amount : 0,
+        erip: method === 'erip' ? amount : 0,
+      });
+      return;
+    }
+
+    // "🔀 Оплата частями / разделена" — the one case buttons can't cover
+    // (the split could be any combination), so fall back to a typed reply.
+    // The example in the prompt uses the booking's REAL price split roughly
+    // in half, never a fixed placeholder amount.
+    if (action === 'paycustom') {
+      const price = Number(rest[0]) || 0;
+      const actorUsername = await resolveActorUsernameByChatId(chatId);
+      await setPendingActorReply(chatId, { dateISO, time, stage: 'payment', actorUsername });
+      const half1 = price ? Math.ceil(price / 2) : 100;
+      const half2 = price ? price - half1 : 40;
+      const totalNote = price ? ` (в сумме должно получиться ${price} Br)` : '';
+      const sendResult = await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: `Как разделили оплату? Напишите одним сообщением — например: нал ${half1} карта ${half2}${totalNote}. Можно сочетать нал/карта/ерип в любом порядке.`,
+      });
+      if (!sendResult || sendResult.ok === false) {
+        await reportDiagnostic('не удалось отправить вопрос про разделённую оплату (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
+      }
+      return;
+    }
   } catch (err) {
     console.error('telegram-webhook: handleCallbackQueryInner (post-answer) threw:', err);
     await reportDiagnostic('внутренняя ошибка после нажатия кнопки', err && err.message ? err.message : String(err));
@@ -780,53 +888,25 @@ async function handleActorReplyInner(token, chatId, pending, text) {
     return;
   }
 
+  // Reached only via "🔀 Оплата частями / разделена" now (see the
+  // 'paycustom' callback branch above) — a single-method full payment is
+  // handled directly by the payment buttons and never reaches free text at
+  // all. The "already reported by someone else" race is checked inside
+  // applyPayment() itself (it re-fetches the booking fresh right before
+  // writing), so it's covered even though it isn't re-checked here first.
   if (stage === 'payment') {
-    // A booking covered by BOTH an actor and an actress asks each of them
-    // this same question independently (each gets their own confirm/edit
-    // flow — see the data-model comment in api/_closeout.js). But there is
-    // only ONE payment for the whole game, not one per performer, so if
-    // the OTHER performer already answered this in the meantime (a race:
-    // both are mid-reply at once), re-check the record fresh right before
-    // writing and skip overwriting their numbers with this reply.
-    const freshRaw = await kv('hget', hashKey, time);
-    let freshRecord = record;
-    if (freshRaw) {
-      try { freshRecord = JSON.parse(freshRaw) || record; } catch { freshRecord = record; }
-    }
-    if (freshRecord.paymentReportedBy) {
-      await clearPendingActorReply(chatId);
-      await tg(token, 'sendMessage', {
-        chat_id: chatId,
-        text: `Оплата по этой игре уже была записана (принял(а) @${freshRecord.paymentReportedBy}). Спасибо, сверка завершена!`,
-      });
-      return;
-    }
-
     const parsed = parsePayment(text);
     if (!parsed) {
+      const price = Number(record.price) || 0;
+      const half1 = price ? Math.ceil(price / 2) : 100;
+      const half2 = price ? price - half1 : 40;
       await tg(token, 'sendMessage', {
         chat_id: chatId,
-        text: 'Не получилось распознать. Напишите сумму и, если нужно, способ оплаты — например: 140, или карта 140, или нал 100 карта 40.',
+        text: `Не получилось распознать. Напишите сумму и способ оплаты — например: нал ${half1} карта ${half2}${price ? ` (в сумме ${price} Br)` : ''}.`,
       });
       return;
     }
-    const updated = {
-      ...freshRecord,
-      payCash: String(parsed.cash),
-      payCard: String(parsed.card),
-      payErip: String(parsed.erip),
-      closeoutCashCollected: String(parsed.cash),
-      closeoutRepliedAt: new Date().toISOString(),
-      paymentReportedBy: pending.actorUsername || null,
-    };
-    await kv('hset', hashKey, time, JSON.stringify(updated));
-    await clearPendingActorReply(chatId);
-    const parts = [
-      parsed.cash ? `нал ${parsed.cash} Br` : null,
-      parsed.card ? `карта ${parsed.card} Br` : null,
-      parsed.erip ? `ЕРИП ${parsed.erip} Br` : null,
-    ].filter(Boolean).join(', ');
-    await tg(token, 'sendMessage', { chat_id: chatId, text: `Записал: ${parts}. Спасибо! Сверка по этой игре завершена.` });
+    await applyPayment(token, chatId, dateISO, time, pending.actorUsername, parsed);
     return;
   }
 
