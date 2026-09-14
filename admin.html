@@ -117,15 +117,15 @@
   .more-menu-list button:hover{background:var(--black-3);}
 
   /* ---------- Source tracker (Сайт / Мир квестов / ExtraReality) ---------- */
-  /* Живёт внутри раздела "Бухгалтерия" (см. #financeReportOverlay) —
-     раньше это была всегда видимая плашка прямо на главном экране, теперь
-     для чистоты и мобильной вёрстки все денежные данные убраны в один
-     раздел. Пересчитывается по тем же данным, что и денежный отчёт по дням
-     ниже (тот же /api/admin/report), но сгруппировано в крупные плитки: 3
-     основных источника + общий счётчик броней за месяц. */
+  /* Всегда видимая плашка прямо на главном экране, над списком броней —
+     не нужно открывать "Бухгалтерию" ради того, чтобы увидеть "сколько
+     броней с какого источника в этом месяце". Пересчитывается по тем же
+     данным, что и денежный отчёт по дням внутри "Бухгалтерии" (тот же
+     /api/admin/report), но сгруппировано в крупные плитки: 3 основных
+     источника + общий счётчик броней за месяц. */
   .source-tracker{
     background:var(--black-2); border:1px solid #262626; border-radius:14px;
-    padding:14px 16px; margin-bottom:20px;
+    padding:14px 16px; margin-bottom:16px;
   }
   .source-tracker-head{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;}
   .source-tracker-title{font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
@@ -514,6 +514,12 @@
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
     </div>
+    <div class="source-tracker" id="sourceTracker">
+      <div class="source-tracker-head">
+        <span class="source-tracker-title">Источники броней — <span id="sourceTrackerMonth"></span></span>
+      </div>
+      <div class="source-tracker-items" id="sourceTrackerItems"><div class="load-note">Загрузка…</div></div>
+    </div>
     <div class="list-tabs">
       <button type="button" class="list-tab active" data-tab="active">Активные <span class="tab-count" id="tabCountActive"></span></button>
       <button type="button" class="list-tab" data-tab="cancelled">Отменённые <span class="tab-count" id="tabCountCancelled"></span></button>
@@ -747,19 +753,13 @@
   </div>
 </div>
 
-<!-- Бухгалтерия: источники броней + денежный отчёт по дням (бывшая вкладка
-     "Финансы" внутри Статистики, плюс виджет источников, который раньше
-     всегда висел на главном экране) -->
+<!-- Бухгалтерия: денежный отчёт по дням (бывшая вкладка "Финансы" внутри
+     Статистики). Источники броней остались отдельной плашкой на главном
+     экране, как и было — сюда не переносим. -->
 <div class="modal-overlay" id="financeReportOverlay">
   <div class="modal-box" style="max-width:720px;">
     <button class="modal-close-x" data-close="financeReport">✕</button>
     <h2>Бухгалтерия</h2>
-    <div class="source-tracker" id="sourceTracker">
-      <div class="source-tracker-head">
-        <span class="source-tracker-title">Источники броней — <span id="sourceTrackerMonth"></span></span>
-      </div>
-      <div class="source-tracker-items" id="sourceTrackerItems"><div class="load-note">Загрузка…</div></div>
-    </div>
     <div id="reportBody">
       <div class="cal-head" style="margin-bottom:14px;">
         <button type="button" class="cal-nav" id="reportMonthPrev" aria-label="Предыдущий месяц">‹</button>
@@ -2352,7 +2352,6 @@
 
   function openFinanceReportModal(){
     financeReportOverlay.classList.add('show');
-    loadSourceTracker();
     loadReport();
   }
   document.getElementById('financeReportBtn').addEventListener('click', () => { closeMoreMenu(); openFinanceReportModal(); });
@@ -2427,12 +2426,13 @@
     return { fromISO: isoDate(first), toISO: isoDate(last), days: last.getDate() };
   }
 
-  // ---------- source tracker (внутри "Бухгалтерии") ----------
-  // Те же цифры, что и в таблице "Источники броней" ниже по отчёту, только
-  // вынесены наверх крупными плитками: 3 основных источника (Сайт / Мир
-  // квестов / ExtraReality) и общее количество броней за месяц по ВСЕМ
-  // источникам сразу (раньше вместо этого была плитка "Другое" — каталог
-  // всего, что не попало в 3 основных; теперь это просто общий счётчик).
+  // ---------- always-visible source tracker (main screen, above the list) ----------
+  // Те же цифры, что и в таблице "Источники броней" внутри отчёта в
+  // "Бухгалтерии", только вынесены на главный экран крупными плитками: 3
+  // основных источника (Сайт / Мир квестов / ExtraReality) и общее
+  // количество броней за месяц по ВСЕМ источникам сразу (раньше вместо
+  // этого была плитка "Другое" — каталог всего, что не попало в 3
+  // основных; теперь это просто общий счётчик).
   // Брони без явно указанного источника (созданные прямо в админке) сервер
   // считает как "Сайт" — см. api/admin/report.js — поэтому они уже включены
   // в плитку "Сайт", а не теряются где-то в стороне.
