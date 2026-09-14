@@ -145,9 +145,88 @@ function playersLabel(n) {
 
 // "4, 200" / "4 200" / "игроков 4, цена 200" → [4, 200] — pulls out every
 // integer in the text and takes the first two (players, then price).
+// Kept only for the LEGACY 'players_price' free-text stage — any
+// conversation already mid-reply the moment this update goes out still
+// needs to finish the way it started, see the 'players_price' branch below.
 function extractIntegers(text) {
   const matches = String(text).match(/\d+/g);
   return matches ? matches.map(Number) : [];
+}
+
+// ── Button-based player-count / price / discount редизайн ────────────────
+// Replaces the old "reply with free text: 4, 200" flow for the "✏️
+// Исправить" path. Two reasons: (1) the site owner asked for buttons
+// instead of typing, and (2) typing invited exactly the kind of mistake
+// that made every sverka in one report show the same price regardless of
+// the actual booking — a stray or misread digit in free text silently
+// became the new price with no cross-check. Buttons remove that class of
+// mistake entirely for the standard cases, while still allowing a typed
+// custom price or a discount note for the exceptional ones.
+//
+// All the state this multi-step conversation needs (which booking, which
+// player count was already picked) travels INSIDE each button's own
+// callback_data instead of a server-side session — simpler and more
+// robust than a KV-backed pending state for the button-only steps (no TTL
+// to race against, nothing to leave dangling if the actor never finishes).
+// A KV-backed pendingActorReply is still used, exactly as before, for the
+// two steps that need the actor to actually type something (a custom
+// price, a discount, or a custom player count).
+
+// The exact set of prices this business uses across every combination of
+// day type (будни/выходной), team size tier, and the +20 Br late-session
+// (23:00) surcharge — see tiersFor()/lateSurcharge in index.html. Shown as
+// one flat list of buttons so correcting a sverka is always "tap the right
+// number", never "remember which of four tiers plus a surcharge applies".
+const PRICE_OPTIONS = [140, 160, 180, 190, 200, 210, 220, 230, 240, 260];
+const PLAYER_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function buildPlayersKeyboard(dateISO, time) {
+  const rows = chunk(PLAYER_OPTIONS, 4).map((row) =>
+    row.map((n) => ({ text: String(n), callback_data: `co|pl|${dateISO}|${time}|${n}` }))
+  );
+  rows.push([{ text: '✏️ Другое количество', callback_data: `co|plcustom|${dateISO}|${time}` }]);
+  return { inline_keyboard: rows };
+}
+
+function buildPriceKeyboard(dateISO, time, playersNum) {
+  const rows = chunk(PRICE_OPTIONS, 5).map((row) =>
+    row.map((p) => ({ text: String(p), callback_data: `co|pr|${dateISO}|${time}|${playersNum}|${p}` }))
+  );
+  rows.push([
+    { text: '✏️ Своя цена', callback_data: `co|prcustom|${dateISO}|${time}|${playersNum}` },
+    { text: '🏷 Скидка', callback_data: `co|discount|${dateISO}|${time}|${playersNum}` },
+  ]);
+  return { inline_keyboard: rows };
+}
+
+// Applies the final players+price(+discount note) choice to a booking,
+// saves it, and continues into the existing payment question — the single
+// landing point for every path through the new button flow (a plain price
+// button, a custom typed price, or a discount reply).
+async function finalizeEdit(token, chatId, dateISO, time, record, playersNum, priceValue, discountNote) {
+  const hashKey = `bookings:${dateISO}`;
+  const worked = await resolveWorkedField(dateISO, time, chatId);
+  const updated = {
+    ...record,
+    players: playersLabel(playersNum),
+    price: String(priceValue),
+    ...(discountNote != null ? { discountNote } : {}),
+    closeoutStatus: 'edited',
+    closeoutEditedFrom: { players: record.players || '', price: record.price || '' },
+    closeoutRepliedAt: new Date().toISOString(),
+    ...(worked ? { [worked.field]: worked.name } : {}),
+  };
+  await kv('hset', hashKey, time, JSON.stringify(updated));
+  const summaryParts = [`${playersLabel(playersNum)}`, `${priceValue} Br`];
+  if (discountNote) summaryParts.push(`скидка: ${discountNote}`);
+  await tg(token, 'sendMessage', { chat_id: chatId, text: `Обновлено: ${summaryParts.join(', ')}.` });
+  await askAboutPaymentOrSkip(token, chatId, dateISO, time, updated);
 }
 
 // A single amount, comma or dot as the decimal separator: "150", "150,50".
@@ -156,6 +235,20 @@ function extractAmount(text) {
   if (!m) return null;
   const n = parseFloat(m[0].replace(',', '.'));
   return Number.isFinite(n) ? n : null;
+}
+
+// "150, постоянный клиент" → { price: 150, note: 'постоянный клиент' } — the
+// reply to the "🏷 Скидка" button: a price, then everything after it (minus
+// a leading separator) is kept verbatim as the discount reason. Returns
+// null only if no number at all was found.
+function parseDiscountReply(text) {
+  const s = String(text);
+  const m = s.match(/\d+(?:[.,]\d+)?/);
+  if (!m) return null;
+  const price = parseFloat(m[0].replace(',', '.'));
+  if (!Number.isFinite(price)) return null;
+  const note = s.slice(m.index + m[0].length).replace(/^[\s,;:\-]+/, '').trim();
+  return { price, note };
 }
 
 // How a game was paid for — cash, card, ERIP, or any split between them,
@@ -383,13 +476,17 @@ async function handleCallbackQueryInner(token, cq) {
   const data = String(cq.data || '');
   const chatId = cq.message && cq.message.chat && cq.message.chat.id;
   const messageId = cq.message && cq.message.message_id;
-  const parts = data.split('|'); // ['co', 'ok'|'edit', dateISO, time]
+  // ['co', action, dateISO, time, ...rest] — rest carries whatever the
+  // button-based players/price/discount flow below needs to pass along
+  // (the chosen player count, then the chosen price) entirely inside the
+  // callback_data itself, so no extra actions grow the base 4-part shape.
+  const parts = data.split('|');
 
   if (parts[0] !== 'co' || parts.length < 4 || !chatId) {
     await tg(token, 'answerCallbackQuery', { callback_query_id: cq.id });
     return;
   }
-  const [, action, dateISO, time] = parts;
+  const [, action, dateISO, time, ...rest] = parts;
 
   // Only one closeout conversation at a time per actor — tapping a button
   // on a DIFFERENT booking while one is still mid-reply would otherwise
@@ -471,6 +568,12 @@ async function handleCallbackQueryInner(token, cq) {
     }
 
     if (action === 'edit') {
+      // Clear any stale pending text-reply left over from an earlier,
+      // unfinished conversation on this SAME booking (e.g. the actor
+      // tapped "Исправить", then never finished before tapping it again) —
+      // otherwise a leftover 'custom_price'/'discount' stage could
+      // misinterpret the actor's next ordinary message.
+      await clearPendingActorReply(chatId);
       if (messageId) {
         const editResult = await tg(token, 'editMessageText', {
           chat_id: chatId, message_id: messageId,
@@ -481,14 +584,89 @@ async function handleCallbackQueryInner(token, cq) {
           await reportDiagnostic('не удалось отредактировать сообщение (editMessageText)', (editResult && editResult.description) || 'нет ответа от Telegram (таймаут?)');
         }
       }
-      await setPendingActorReply(chatId, { dateISO, time, stage: 'players_price' });
       const sendResult = await tg(token, 'sendMessage', {
         chat_id: chatId,
-        text: 'Укажите верное количество игроков и цену через запятую. Например: 4, 200',
+        text: 'Сколько игроков было на самом деле?',
+        reply_markup: buildPlayersKeyboard(dateISO, time),
       });
       if (!sendResult || sendResult.ok === false) {
-        await reportDiagnostic('не удалось отправить следующий вопрос (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
+        await reportDiagnostic('не удалось отправить кнопки количества игроков (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
       }
+      return;
+    }
+
+    // Player count picked via a button — ask for the price next. The
+    // chosen count travels forward inside the price buttons' own
+    // callback_data (co|pr|date|time|players|amount), so nothing needs to
+    // be stored server-side between this step and the next.
+    if (action === 'pl') {
+      const playersNum = Number(rest[0]);
+      if (!Number.isFinite(playersNum) || playersNum <= 0) return;
+      const sendResult = await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: `Игроков: ${playersLabel(playersNum)}. Теперь выберите цену:`,
+        reply_markup: buildPriceKeyboard(dateISO, time, playersNum),
+      });
+      if (!sendResult || sendResult.ok === false) {
+        await reportDiagnostic('не удалось отправить кнопки цены (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
+      }
+      return;
+    }
+
+    // "✏️ Другое количество" — the 8 buttons don't cover it, fall back to
+    // typing the exact number.
+    if (action === 'plcustom') {
+      await setPendingActorReply(chatId, { dateISO, time, stage: 'custom_players' });
+      const sendResult = await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Напишите точное количество игроков числом. Например: 9',
+      });
+      if (!sendResult || sendResult.ok === false) {
+        await reportDiagnostic('не удалось отправить вопрос про количество игроков (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
+      }
+      return;
+    }
+
+    // A standard price button tapped — players + price are both known now,
+    // save and move on to the payment question exactly as before.
+    if (action === 'pr') {
+      const playersNum = Number(rest[0]);
+      const priceValue = Number(rest[1]);
+      if (!Number.isFinite(playersNum) || !Number.isFinite(priceValue)) return;
+      await finalizeEdit(token, chatId, dateISO, time, record, playersNum, priceValue, null);
+      return;
+    }
+
+    // "✏️ Своя цена" — none of the standard buttons match, type the exact
+    // amount instead.
+    if (action === 'prcustom') {
+      const playersNum = Number(rest[0]);
+      await setPendingActorReply(chatId, { dateISO, time, stage: 'custom_price', players: playersNum });
+      const sendResult = await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Напишите цену числом. Например: 205',
+      });
+      if (!sendResult || sendResult.ok === false) {
+        await reportDiagnostic('не удалось отправить вопрос про цену (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
+      }
+      return;
+    }
+
+    // "🏷 Скидка" — a discounted final price plus an optional reason, both
+    // in one typed reply (kept as free text since a discount's reason is
+    // inherently open-ended — "постоянный клиент", "промокод", etc. — not
+    // something a fixed set of buttons could cover).
+    if (action === 'discount') {
+      const playersNum = Number(rest[0]);
+      await setPendingActorReply(chatId, { dateISO, time, stage: 'discount', players: playersNum });
+      const sendResult = await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Укажите итоговую цену со скидкой и, если нужно, причину — например: 150, постоянный клиент',
+      });
+      if (!sendResult || sendResult.ok === false) {
+        await reportDiagnostic('не удалось отправить вопрос про скидку (sendMessage)', (sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)');
+      }
+      return;
     }
   } catch (err) {
     console.error('telegram-webhook: handleCallbackQueryInner (post-answer) threw:', err);
@@ -525,6 +703,12 @@ async function handleActorReplyInner(token, chatId, pending, text) {
     return;
   }
 
+  // Legacy stage — the free-text "4, 200" flow this replaced with buttons
+  // (see buildPlayersKeyboard/buildPriceKeyboard above). Kept only so an
+  // actor already mid-reply the moment this update goes out (tapped
+  // "Исправить" under the OLD code, hasn't replied yet) still gets a
+  // working conversation instead of a reply that lands nowhere. Every NEW
+  // "Исправить" tap now goes through the button flow instead.
   if (stage === 'players_price') {
     const nums = extractIntegers(text);
     if (nums.length < 2 || nums[0] <= 0 || nums[1] <= 0) {
@@ -535,19 +719,64 @@ async function handleActorReplyInner(token, chatId, pending, text) {
       return;
     }
     const [playersNum, priceNum] = nums;
-    const worked = await resolveWorkedField(dateISO, time, chatId);
-    const updated = {
-      ...record,
-      players: playersLabel(playersNum),
-      price: String(priceNum),
-      closeoutStatus: 'edited',
-      closeoutEditedFrom: { players: record.players || '', price: record.price || '' },
-      closeoutRepliedAt: new Date().toISOString(),
-      ...(worked ? { [worked.field]: worked.name } : {}),
-    };
-    await kv('hset', hashKey, time, JSON.stringify(updated));
-    await tg(token, 'sendMessage', { chat_id: chatId, text: `Обновлено: ${playersLabel(playersNum)}, ${priceNum} Br.` });
-    await askAboutPaymentOrSkip(token, chatId, dateISO, time, updated);
+    await finalizeEdit(token, chatId, dateISO, time, record, playersNum, priceNum, null);
+    return;
+  }
+
+  // "✏️ Другое количество" reply — a typed player count, then straight on
+  // to the same price-buttons step a normal button tap would reach.
+  if (stage === 'custom_players') {
+    const nums = extractIntegers(text);
+    const playersNum = nums[0];
+    if (!playersNum || playersNum <= 0) {
+      await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Не получилось распознать. Напишите количество игроков числом, например: 9',
+      });
+      return;
+    }
+    await clearPendingActorReply(chatId);
+    const sendResult = await tg(token, 'sendMessage', {
+      chat_id: chatId,
+      text: `Игроков: ${playersLabel(playersNum)}. Теперь выберите цену:`,
+      reply_markup: buildPriceKeyboard(dateISO, time, playersNum),
+    });
+    if (!sendResult || sendResult.ok === false) {
+      await tg(token, 'sendMessage', { chat_id: chatId, text: `⚠️ (диагностика) не удалось отправить кнопки цены: ${(sendResult && sendResult.description) || 'нет ответа от Telegram (таймаут?)'}` }).catch(() => {});
+    }
+    return;
+  }
+
+  // "✏️ Своя цена" reply — a typed exact price; the player count picked
+  // earlier travelled here via pending.players (set when the button was
+  // tapped — see the 'prcustom' callback branch above).
+  if (stage === 'custom_price') {
+    const priceNum = extractAmount(text);
+    if (priceNum == null || priceNum <= 0) {
+      await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Не получилось распознать цену. Напишите число, например: 205',
+      });
+      return;
+    }
+    await clearPendingActorReply(chatId);
+    await finalizeEdit(token, chatId, dateISO, time, record, pending.players, priceNum, null);
+    return;
+  }
+
+  // "🏷 Скидка" reply — a discounted final price plus an optional reason
+  // in one message; the player count again travelled via pending.players.
+  if (stage === 'discount') {
+    const parsed = parseDiscountReply(text);
+    if (!parsed || parsed.price <= 0) {
+      await tg(token, 'sendMessage', {
+        chat_id: chatId,
+        text: 'Не получилось распознать. Напишите итоговую цену и, если нужно, причину — например: 150, постоянный клиент',
+      });
+      return;
+    }
+    await clearPendingActorReply(chatId);
+    await finalizeEdit(token, chatId, dateISO, time, record, pending.players, parsed.price, parsed.note || 'без указания причины');
     return;
   }
 

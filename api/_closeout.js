@@ -13,8 +13,9 @@
 // owner's explicit request, it now works exactly like booking reminders
 // (api/_reminders.js) — one independent job PER BOOKING PER PERFORMER,
 // timed off that booking's own start time — so a sverka for an 11:00 game
-// arrives at 12:20 regardless of when the shift as a whole ends, instead
-// of everyone's sverka arriving in one batch at shift end.
+// arrives at 12:00 (exactly 1 hour later) regardless of when the shift as
+// a whole ends, instead of everyone's sverka arriving in one batch at
+// shift end.
 //
 // Not a route — Vercel ignores files starting with "_" — imported by
 // api/book.js and api/admin/bookings.js (schedule/cancel a booking's
@@ -44,14 +45,29 @@
 //                                 while an actor is mid-reply to a
 //                                 closeout question (correcting a booking,
 //                                 or reporting how it was paid):
-//                                 { dateISO, time, stage:'players_price'|
-//                                   'payment'|'cash' }
-//                                 ('cash' is a legacy stage kept for any
-//                                 conversation already in flight from
-//                                 before the cash/card/ERIP split existed
-//                                 — see api/telegram-webhook.js.) Short
-//                                 TTL — if the actor never replies, it
-//                                 just expires.
+//                                 { dateISO, time, stage, players? }
+//                                 stage is one of:
+//                                   'custom_players' — actor tapped "✏️
+//                                     Другое количество" on the player-count
+//                                     buttons, typing the exact number next.
+//                                   'custom_price'   — tapped "✏️ Своя
+//                                     цена" on the price buttons; `players`
+//                                     carries the count picked just before.
+//                                   'discount'       — tapped "🏷 Скидка";
+//                                     same `players` carry-over as above.
+//                                   'payment'        — the cash/card/ERIP
+//                                     question after players+price are set.
+//                                   'players_price'  — LEGACY free-text
+//                                     "4, 200" stage from before the button
+//                                     redesign; kept only so a conversation
+//                                     already in flight the moment this
+//                                     shipped still finishes correctly.
+//                                   'cash'           — even older legacy
+//                                     stage, from before the cash/card/ERIP
+//                                     split existed.
+//                                 See api/telegram-webhook.js for all of the
+//                                 above. Short TTL — if the actor never
+//                                 replies, it just expires.
 //
 // A closeout's own progress lives directly on the booking record:
 //   closeoutStatus        — 'awaiting' (message sent, no reply yet),
@@ -84,7 +100,7 @@ import { kv } from './_kv.js';
 import { businessDateTime } from './_time.js';
 import { getShiftsForDate, getActorsMap, resolveActorUsernamesForSlot, resolveActorUsernamesForSlotSync } from './_reminders.js';
 
-const CLOSEOUT_LEAD_MINUTES = 80; // 1 час 20 минут ПОСЛЕ начала игры
+const CLOSEOUT_LEAD_MINUTES = 60; // ровно 1 час ПОСЛЕ начала игры (бронь в 13:30 → сверка в 14:30)
 const PENDING_REPLY_TTL_SECONDS = 60 * 60 * 6; // long enough for an actor to reply the same evening
 const QSTASH_MAX_DELAY_SECONDS = 7 * 24 * 60 * 60;
 
@@ -139,8 +155,8 @@ async function tg(method, payload) {
 
 // Schedules one job per performer covering a customer booking's slot — an
 // actor AND an actress are routinely on shift for the very same booking,
-// and each gets their own independent sverka, 80 minutes after the game
-// STARTS (not tied to when their shift ends). Returns a patch object
+// and each gets their own independent sverka, exactly CLOSEOUT_LEAD_MINUTES
+// (1 hour) after the game STARTS (not tied to when their shift ends). Returns a patch object
 // ({ closeouts: [...] }) to merge into the booking record — callers are
 // responsible for persisting it back to KV, exactly like scheduleReminder()
 // in api/_reminders.js. Safe to call unconditionally for every customer
@@ -250,7 +266,7 @@ export function stripCloseoutFields(record) {
 // The actual "send ONE performer their sverka for ONE booking" logic —
 // the single-booking equivalent of what used to be a whole-shift batch.
 // Shared by: api/telegram-closeout.js (the automatic QStash job, firing
-// 80 minutes after that booking's start), api/admin/shifts.js's
+// 60 minutes (1 hour) after that booking's start), api/admin/shifts.js's
 // "Сверка сейчас" button (via runCloseoutForSlot below, for whenever the
 // automatic one didn't go out or needs retrying), and the daily
 // missed-closeout safety net (sweepMissedCloseouts below). Always returns
@@ -451,7 +467,7 @@ export async function runCloseoutForSlot(dateISO, slot) {
 }
 
 // Safety net for the daily sweep (api/cron/reminders-sweep.js): finds any
-// customer booking whose sverka time (start + 80 minutes) has already
+// customer booking whose sverka time (start + 60 minutes) has already
 // passed (checked over the last couple of days, not just today) but where
 // at least one of its covering performers still has NO send attempt
 // recorded at all for it — meaning the automatic QStash job for THAT
