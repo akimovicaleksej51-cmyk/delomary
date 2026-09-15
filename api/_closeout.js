@@ -421,10 +421,29 @@ export async function runCloseoutForSlot(dateISO, slot) {
   }
 
   // Each booking here is a DIFFERENT record (a different field in the
-  // bookings hash), so sending them all at once is safe — there's no
-  // shared record for two of these calls to race on. (Two performers on
-  // the SAME booking, e.g. an actor and an actress, is a different story —
-  // see sweepMissedCloseouts below, which keeps THAT part sequential.)
+  // bookings hash), so there's no shared record for two of these calls to
+  // race on — that part would be just as safe done concurrently. (Two
+  // performers on the SAME booking, e.g. an actor and an actress, is a
+  // different story — see sweepMissedCloseouts below, which keeps THAT
+  // part sequential.)
+  //
+  // But these ARE sent ONE AT A TIME, in ascending time order, on purpose —
+  // this used to fire all of them at once with Promise.all, which sent the
+  // requests correctly but let Telegram's own network timing decide which
+  // one actually ARRIVED in the actor's chat first. The admin reported
+  // exactly that: clicking "Сверка сейчас" for a shift with games at
+  // 11:00/12:30/14:00/15:30/17:00 delivered them to the actor in a random
+  // order (e.g. 11:00, 17:00, 14:00, ...) instead of matching the order the
+  // games actually happen in, which is confusing to read through. Sending
+  // them strictly in sequence (await, not Promise.all) makes delivery order
+  // match dispatch order — Telegram processes one bot's consecutive
+  // sendMessage calls to the same chat in the order they're received. The
+  // shifts/bookings/actors maps are still all fetched ONCE up front (the
+  // fix for the earlier "button just spins forever" bug — see
+  // test_closeout_slot_performance.mjs), so this only serializes the
+  // actual per-booking send (1 KV write + 1 Telegram call each) — for a
+  // normal shift's handful of bookings that's a barely-noticeable delay,
+  // not the old N+1-reads-per-booking blowup.
   //
   // force:true — this is the admin explicitly clicking "Сверка сейчас",
   // which now means it FOR REAL, right now: it resends even to a performer
@@ -432,9 +451,10 @@ export async function runCloseoutForSlot(dateISO, slot) {
   // but they say it never arrived) — see the comment on the skip check in
   // runCloseoutForBooking above. Only a booking the performer has actually
   // ANSWERED is left alone.
-  const results = await Promise.all(
-    bookingTimes.map((time) => runCloseoutForBooking(dateISO, time, slotData.actorUsername, { actorsMap, force: true }))
-  );
+  const results = [];
+  for (const time of bookingTimes) {
+    results.push(await runCloseoutForBooking(dateISO, time, slotData.actorUsername, { actorsMap, force: true }));
+  }
 
   let sentCount = 0;
   let alreadyAnsweredCount = 0;
