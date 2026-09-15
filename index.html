@@ -617,24 +617,21 @@
      bottom-left caption here would sit right on top of it. */
   .map-cap{position:absolute; top:14px; left:14px; z-index:2; font-family:var(--sans); font-weight:700; font-size:12px; color:var(--paper); background:rgba(0,0,0,.75); padding:6px 14px; border-radius:999px; pointer-events:none;}
   .map-col .btn{align-self:flex-start;}
-  /* ---------- "Как добраться" video — placeholder until a real clip exists ---------- */
+  /* ---------- "Как добраться" — реальное вертикальное видео (9:16) ---------- */
+  .howto-video-block{margin-top:44px;}
+  .howto-video-note{margin:0 0 18px; max-width:480px; color:var(--muted); font-size:14.5px;}
   .video-frame{
-    position:relative; height:260px; border-radius:20px; overflow:hidden;
-    border:1px dashed var(--line); margin-top:28px; background:var(--black-3);
+    position:relative; border-radius:20px; overflow:hidden;
+    border:1px solid var(--line); background:var(--black-3);
   }
-  .video-frame-poster{width:100%; height:100%; object-fit:cover; opacity:.4; display:block;}
-  .video-frame-play{
-    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  .video-frame.video-frame-portrait{
+    width:100%; max-width:300px; aspect-ratio:9/16; height:auto;
+    box-shadow:0 24px 60px -22px rgba(0,0,0,.7);
   }
-  .video-frame-play span{
-    width:64px; height:64px; border-radius:50%; background:var(--ochre-bright);
-    color:var(--black); display:flex; align-items:center; justify-content:center;
+  .video-frame.video-frame-portrait video{
+    width:100%; height:100%; display:block; object-fit:cover; background:#000;
   }
-  .video-frame-cap{
-    position:absolute; left:16px; bottom:14px; font-family:var(--sans); font-weight:700;
-    font-size:12.5px; color:var(--paper); background:rgba(0,0,0,.55); padding:6px 12px; border-radius:999px;
-  }
-  @media (max-width:560px){ .video-frame{height:200px;} }
+  @media (max-width:560px){ .video-frame.video-frame-portrait{max-width:230px;} }
 
   /* ===== FOOTER ===== */
   footer{padding:56px 28px 36px; text-align:center; border-top:1px solid var(--line);}
@@ -1322,29 +1319,20 @@
       </div>
     </div>
 
-    <!-- ЗАГОТОВКА ПОД ВИДЕО «КАК ДОБРАТЬСЯ» ------------------------------
-         Пока это просто заглушка — как только появится готовое видео,
-         замените блок ниже (весь <div class="video-frame">...</div>)
-         одним из двух вариантов:
-
-         1) Свой файл видео (mp4/webm), по образцу видео в шапке сайта:
-              <div class="video-frame" style="height:auto;">
-                <video controls playsinline poster="assets/ваш-кадр.jpg" style="width:100%; display:block; border-radius:20px;">
-                  <source src="assets/how-to-get-here.webm" type="video/webm">
-                  <source src="assets/how-to-get-here.mp4" type="video/mp4">
-                </video>
-              </div>
-
-         2) Видео с YouTube/VK — вставьте их код <iframe> вместо всего
-            блока ниже, оставив на обёртке class="video-frame" для рамки
-            и скруглённых углов.
-    -->
-    <div class="video-frame">
-      <img class="video-frame-poster" src="assets/photo-exit-light.jpg" alt="" loading="lazy">
-      <div class="video-frame-play" aria-hidden="true">
-        <span><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+    <!-- ВИДЕО «КАК ДОБРАТЬСЯ» — реальный ролик (снят вертикально, 9:16).
+         Если когда-нибудь заменят на новый файл — просто положите его
+         в assets/ под теми же тремя именами (how-to-get-here.mp4,
+         how-to-get-here.webm, how-to-get-here-poster.jpg) и залейте
+         поверх старых через GitHub — менять разметку не придётся. -->
+    <div class="howto-video-block">
+      <div class="sub-label" style="margin-bottom:6px;">Видео — маршрут от метро «Первомайская»</div>
+      <p class="howto-video-note">Прошли и сняли на камеру реальную дорогу от выхода из метро до дверей квеста — чтобы вы точно не заблудились.</p>
+      <div class="video-frame video-frame-portrait">
+        <video controls playsinline preload="metadata" poster="assets/how-to-get-here-poster.jpg">
+          <source src="assets/how-to-get-here.webm" type="video/webm">
+          <source src="assets/how-to-get-here.mp4" type="video/mp4">
+        </video>
       </div>
-      <span class="video-frame-cap">Видео «Как добраться» — скоро</span>
     </div>
   </div>
 </section>
