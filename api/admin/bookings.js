@@ -28,6 +28,15 @@
 //       it's recorded in history as 'rescheduled', with rescheduledTo
 //       pointing at the new date/time, so the move stays visible in the
 //       panel. The new slot's record carries a matching rescheduledFrom.
+//   { action:'cancelCloseout', dateISO, time }
+//       Undoes an ALREADY-COMPLETED sverka (closeoutStatus 'confirmed' or
+//       'edited') — clears closeoutStatus, the per-performer send-tracking,
+//       payCash/payCard/payErip, closeoutCashCollected/RepliedAt,
+//       paymentReportedBy, workedActor/workedActress and discountNote, so
+//       the booking looks like sverka never happened. Does NOT touch price/
+//       players/comment (real booking data) and does NOT re-schedule the
+//       automatic QStash job — use "Сверка сейчас" in Смены и напоминания
+//       afterwards to actually resend it.
 //   { action:'blockDay', dateISO, comment }
 //       Blocks every slot on a date that isn't already taken by a customer
 //       (fills in "technical" bookings for the gaps). Existing customer
@@ -409,6 +418,41 @@ export default async function handler(req, res) {
           await notifyTelegramCancel(existing);
         }
       }
+
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'cancelCloseout') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const cleanTime = isValidTime(body.time) ? body.time.trim() : '';
+      if (!cleanDateISO || !cleanTime) {
+        return res.status(400).json({ error: 'Укажите дату и время брони.' });
+      }
+
+      const hashKey = `bookings:${cleanDateISO}`;
+      const existingRaw = await kv('hget', hashKey, cleanTime);
+      if (!existingRaw) {
+        return res.status(404).json({ error: 'Бронь не найдена.' });
+      }
+      let existing;
+      try { existing = JSON.parse(existingRaw); } catch { existing = null; }
+      if (!existing) {
+        return res.status(400).json({ error: 'Повреждённая запись брони.' });
+      }
+      if (existing.type !== 'customer') {
+        return res.status(400).json({ error: 'Это не клиентская бронь.' });
+      }
+      if (existing.closeoutStatus !== 'confirmed' && existing.closeoutStatus !== 'edited') {
+        return res.status(400).json({ error: 'По этой брони ещё нет завершённой сверки — отменять нечего.' });
+      }
+
+      const {
+        closeoutStatus, closeouts, payCash, payCard, payErip,
+        closeoutCashCollected, closeoutRepliedAt, paymentReportedBy,
+        workedActor, workedActress, discountNote,
+        ...rest
+      } = existing;
+      await kv('hset', hashKey, cleanTime, JSON.stringify(rest));
 
       return res.status(200).json({ ok: true });
     }

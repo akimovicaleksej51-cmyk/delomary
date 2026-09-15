@@ -556,7 +556,7 @@
 
     <div id="overviewDayPanel" style="display:none;">
       <div class="overview-day-heading" id="overviewDayHeading"></div>
-      <div class="cal-legend" style="margin-top:0; padding-top:0; border-top:none;">
+      <div class="cal-legend" style="margin-top:0; padding-top:0; border-top:none; margin-bottom:16px;">
         <div class="cal-legend-item"><span class="cal-legend-swatch busy"></span>Есть бронь клиента</div>
         <div class="cal-legend-item"><span class="cal-legend-swatch closed"></span>Закрыто технически</div>
         <div class="cal-legend-item"><span class="cal-legend-swatch open"></span>Полностью свободно</div>
@@ -590,8 +590,10 @@
       <div class="modal-actions" id="detailActiveActions">
         <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
         <button class="btn-secondary" id="editBtn">Редактировать</button>
+        <button class="btn-secondary" id="cancelCloseoutBtn" style="display:none; border-color:var(--danger-bright); color:var(--danger-bright);" title="Сбросить результат уже полученной сверки (оплату и кто отыграл), чтобы актёр мог пройти её заново через бота">Отменить сверку</button>
         <button class="btn-danger" id="cancelBookingBtn">Отменить</button>
       </div>
+      <div class="modal-msg" id="cancelCloseoutMsg"></div>
     </div>
 
     <div id="editView" style="display:none;">
@@ -651,10 +653,10 @@
   </div>
 </div>
 
-<!-- Cancel confirmation modal -->
+<!-- Shared confirmation modal: cancel a booking OR cancel an already-done sverka -->
 <div class="modal-overlay" id="confirmOverlay">
   <div class="modal-box" style="max-width:380px;">
-    <h2 style="font-size:17px;">Отменить бронь?</h2>
+    <h2 style="font-size:17px;" id="confirmTitle">Отменить бронь?</h2>
     <p style="color:var(--muted); font-size:14px; margin:0 0 4px;" id="confirmText"></p>
     <div class="modal-actions">
       <button class="btn-danger" id="confirmYes">Да, отменить</button>
@@ -880,6 +882,7 @@
   let adminPassword = null;
   let allBookings = [];
   let activeBooking = null; // the booking currently open in the detail modal
+  let pendingConfirmAction = 'cancel'; // which action the shared confirm dialog (below) performs on "Да"
   let searchQuery = '';
   let filterDateISO = ''; // '' = show every date; otherwise show only this one day
 
@@ -1458,8 +1461,11 @@
     }
 
     const dvCloseoutRow = document.getElementById('dvCloseoutRow');
+    const cancelCloseoutBtn = document.getElementById('cancelCloseoutBtn');
+    document.getElementById('cancelCloseoutMsg').textContent = '';
     if (isTech) {
       dvCloseoutRow.style.display = 'none';
+      cancelCloseoutBtn.style.display = 'none';
     } else {
       const closeoutText = formatCloseoutStatus(booking);
       const hasReminders = Array.isArray(booking.reminders) && booking.reminders.length > 0;
@@ -1479,6 +1485,11 @@
       } else {
         dvCloseoutRow.style.display = 'none';
       }
+      // "Отменить сверку" only makes sense once sverka is actually DONE
+      // (актёр подтвердил/исправил) — before that, «Сверка сейчас» in
+      // Смены и напоминания already covers resending.
+      const closeoutDone = !isHistory && (booking.closeoutStatus === 'confirmed' || booking.closeoutStatus === 'edited');
+      cancelCloseoutBtn.style.display = closeoutDone ? '' : 'none';
     }
 
     // Cancelled/rescheduled entries are history, not live bookings — nothing
@@ -1681,12 +1692,22 @@
     }
   });
 
-  // -- cancel --
+  // -- cancel booking / cancel a completed sverka (shared confirm dialog) --
   const confirmOverlay = document.getElementById('confirmOverlay');
   document.getElementById('cancelBookingBtn').addEventListener('click', () => {
     if (!activeBooking) return;
+    pendingConfirmAction = 'cancel';
+    document.getElementById('confirmTitle').textContent = 'Отменить бронь?';
     document.getElementById('confirmText').textContent =
       `${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}${activeBooking.name ? ' — ' + activeBooking.name : ''}`;
+    confirmOverlay.classList.add('show');
+  });
+  document.getElementById('cancelCloseoutBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    pendingConfirmAction = 'cancelCloseout';
+    document.getElementById('confirmTitle').textContent = 'Отменить сверку?';
+    document.getElementById('confirmText').textContent =
+      `Оплата и «кто отыграл» по этой игре (${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}) будут сброшены, чтобы актёр мог заново пройти сверку через бота. Сама бронь и её цена не изменятся.`;
     confirmOverlay.classList.add('show');
   });
   document.getElementById('confirmNo').addEventListener('click', () => confirmOverlay.classList.remove('show'));
@@ -1694,19 +1715,41 @@
 
   document.getElementById('confirmYes').addEventListener('click', async () => {
     if (!activeBooking) return;
+    const action = pendingConfirmAction;
+    const bookingId = activeBooking.id;
     try{
       const res = await fetch('/api/admin/bookings', {
         method:'POST', headers: authHeaders(),
-        body: JSON.stringify({ action:'cancel', dateISO: activeBooking.dateISO, time: activeBooking.time })
+        body: JSON.stringify({ action, dateISO: activeBooking.dateISO, time: activeBooking.time })
       });
       const out = await res.json().catch(() => ({}));
       confirmOverlay.classList.remove('show');
-      if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось отменить бронь.'; detailMsg.className = 'modal-msg err'; return; }
+      if (!res.ok){
+        const msg = out.error || (action === 'cancelCloseout' ? 'Не удалось отменить сверку.' : 'Не удалось отменить бронь.');
+        if (action === 'cancelCloseout') {
+          document.getElementById('cancelCloseoutMsg').textContent = msg;
+          document.getElementById('cancelCloseoutMsg').className = 'modal-msg err';
+        } else {
+          detailMsg.textContent = msg; detailMsg.className = 'modal-msg err';
+        }
+        return;
+      }
       await loadBookings();
-      closeDetail();
+      if (action === 'cancelCloseout') {
+        const fresh = allBookings.find(b => b.id === bookingId);
+        if (fresh) openDetail(fresh); else closeDetail();
+      } else {
+        closeDetail();
+      }
     } catch(err){
       confirmOverlay.classList.remove('show');
-      detailMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; detailMsg.className = 'modal-msg err';
+      const msg = 'Ошибка сети. Попробуйте ещё раз.';
+      if (action === 'cancelCloseout') {
+        document.getElementById('cancelCloseoutMsg').textContent = msg;
+        document.getElementById('cancelCloseoutMsg').className = 'modal-msg err';
+      } else {
+        detailMsg.textContent = msg; detailMsg.className = 'modal-msg err';
+      }
     }
   });
 
@@ -2375,11 +2418,20 @@
     const totalErip = days.reduce((s,d) => s + d.erip, 0);
     const totalOut = days.reduce((s,d) => s + d.expenses + d.payroll, 0);
 
+    const today = todayISO();
+    const todayRow = days.find(d => d.dateISO === today);
+
     const channelRows = Object.entries(data.channels || {}).sort((a,b) => b[1].count - a[1].count)
       .map(([name, v]) => `<tr><td>${escapeHtml(name)}</td><td>${v.count}</td><td>${Math.round(v.total)} Br</td></tr>`).join('');
     const actorRows = Object.entries(data.actors || {}).sort((a,b) => b[1] - a[1])
       .map(([name, count]) => `<tr><td>${escapeHtml(name)}</td><td>${count}</td></tr>`).join('');
-    const dayRows = days.slice().reverse().map(d => `
+
+    // Раньше здесь всегда был список ВСЕХ дней месяца (30 строк, почти все
+    // нулевые) — глаз терялся. Теперь по дням показываем только те дни, где
+    // реально что-то было, и то — свёрнуто по кнопке; сразу видно только
+    // сегодняшний день и итог за месяц целиком.
+    const nonEmptyDays = days.filter(d => d.bookings || d.cash || d.card || d.erip || d.expenses || d.payroll);
+    const dayRows = nonEmptyDays.slice().reverse().map(d => `
         <tr>
           <td>${formatDateHeading(d.dateISO)}</td>
           <td>${d.bookings}</td>
@@ -2391,7 +2443,19 @@
           <td>${Math.round(d.netChange)}</td>
         </tr>`).join('');
 
+    const todayBlock = todayRow ? `
+      <div class="stats-chart-head"><span class="stats-chart-title">Сегодня, ${escapeHtml(formatDateHeading(today))}</span></div>
+      <div class="stats-kpis" style="grid-template-columns:repeat(4,1fr); margin-bottom:22px;">
+        <div class="stat-tile"><div class="stat-label">Броней</div><div class="stat-value">${todayRow.bookings}</div></div>
+        <div class="stat-tile"><div class="stat-label">Нал</div><div class="stat-value">${Math.round(todayRow.cash)}</div></div>
+        <div class="stat-tile"><div class="stat-label">Безнал</div><div class="stat-value">${Math.round(todayRow.card)}</div></div>
+        <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(todayRow.erip)}</div></div>
+      </div>
+    ` : '';
+
     document.getElementById('reportContent').innerHTML = `
+      ${todayBlock}
+      <div class="stats-chart-head"><span class="stats-chart-title">Итого за месяц</span></div>
       <div class="stats-kpis">
         <div class="stat-tile"><div class="stat-label">Всего броней</div><div class="stat-value">${totalBookings}</div></div>
         <div class="stat-tile"><div class="stat-label">Нал</div><div class="stat-value">${Math.round(totalCash)}</div></div>
@@ -2399,12 +2463,15 @@
         <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(totalErip)}</div></div>
         <div class="stat-tile"><div class="stat-label">Расходы + ЗП</div><div class="stat-value">${Math.round(totalOut)}</div></div>
       </div>
-      <div class="stats-chart-head"><span class="stats-chart-title">По дням (${escapeHtml(data.from || '')} — ${escapeHtml(data.to || '')})</span></div>
-      <div style="overflow-x:auto;">
-        <table class="stats-table">
-          <thead><tr><th>Дата</th><th>Броней</th><th>Нал</th><th>Безнал</th><th>ЕРИП</th><th>Расходы</th><th>ЗП/инкасс.</th><th>Итог в кассу</th></tr></thead>
-          <tbody>${dayRows || '<tr><td colspan="8" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
-        </table>
+      <div style="text-align:right; margin-bottom:8px;"><button class="stats-toggle-table" id="reportToggleDaysBtn">Показать по дням</button></div>
+      <div id="reportDaysTableWrap" hidden>
+        <div class="stats-chart-head"><span class="stats-chart-title">Дни, когда что-то было (${escapeHtml(data.from || '')} — ${escapeHtml(data.to || '')})</span></div>
+        <div style="overflow-x:auto;">
+          <table class="stats-table">
+            <thead><tr><th>Дата</th><th>Броней</th><th>Нал</th><th>Безнал</th><th>ЕРИП</th><th>Расходы</th><th>ЗП/инкасс.</th><th>Итог в кассу</th></tr></thead>
+            <tbody>${dayRows || '<tr><td colspan="8" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
+          </table>
+        </div>
       </div>
       <div class="stats-chart-head" style="margin-top:20px;"><span class="stats-chart-title">Источники броней в этом месяце</span></div>
       <table class="stats-table">
@@ -2417,6 +2484,14 @@
         <tbody>${actorRows || '<tr><td colspan="2" style="text-align:center; color:var(--muted);">Нет данных</td></tr>'}</tbody>
       </table>
     `;
+
+    const toggleBtn = document.getElementById('reportToggleDaysBtn');
+    const daysWrap = document.getElementById('reportDaysTableWrap');
+    toggleBtn.addEventListener('click', () => {
+      const showing = !daysWrap.hidden;
+      daysWrap.hidden = showing;
+      toggleBtn.textContent = showing ? 'Показать по дням' : 'Скрыть по дням';
+    });
   }
 
   // First/last ISO date of the given calendar month, plus how many days it has.
