@@ -404,6 +404,7 @@
   .shift-slot-row .shift-dash{color:var(--muted);}
   .shift-slot-row .shift-slot-save{padding:8px 14px; font-size:13px; flex:0 0 auto;}
   .shift-slot-row .shift-slot-closeout{padding:8px 14px; font-size:13px; flex:0 0 auto; border-color:var(--ochre-bright); color:var(--ochre-bright);}
+  .shift-slot-row .shift-slot-cancel-closeout{padding:8px 14px; font-size:13px; flex:0 0 auto;}
   .shift-actor-status{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; flex:0 0 100%; margin:-2px 0 2px 92px;}
   .shift-actor-status.ok{color:#199e70;}
   .shift-actor-status.warn{color:var(--ochre-bright);}
@@ -653,8 +654,14 @@
   </div>
 </div>
 
-<!-- Shared confirmation modal: cancel a booking OR cancel an already-done sverka -->
-<div class="modal-overlay" id="confirmOverlay">
+<!-- Shared confirmation modal: cancel a booking, cancel an already-done sverka
+     for one booking, OR cancel a whole shift's sverka from "Смены и
+     напоминания". It can now be opened FROM INSIDE another already-open
+     modal (shiftsOverlay), so it needs a higher z-index than the plain
+     .modal-overlay default (50) — otherwise, since shiftsOverlay sits later
+     in the page than this element, equal z-index would let shiftsOverlay's
+     own inputs paint on top and swallow clicks meant for this dialog. -->
+<div class="modal-overlay" id="confirmOverlay" style="z-index:60;">
   <div class="modal-box" style="max-width:380px;">
     <h2 style="font-size:17px;" id="confirmTitle">Отменить бронь?</h2>
     <p style="color:var(--muted); font-size:14px; margin:0 0 4px;" id="confirmText"></p>
@@ -883,6 +890,7 @@
   let allBookings = [];
   let activeBooking = null; // the booking currently open in the detail modal
   let pendingConfirmAction = 'cancel'; // which action the shared confirm dialog (below) performs on "Да"
+  let pendingShiftSlotTarget = null; // {dateISO, slot, btn} — only set when pendingConfirmAction is 'cancelCloseoutForSlot'
   let searchQuery = '';
   let filterDateISO = ''; // '' = show every date; otherwise show only this one day
 
@@ -1714,6 +1722,33 @@
   confirmOverlay.addEventListener('click', e => { if (e.target === confirmOverlay) confirmOverlay.classList.remove('show'); });
 
   document.getElementById('confirmYes').addEventListener('click', async () => {
+    if (pendingConfirmAction === 'cancelCloseoutForSlot') {
+      const target = pendingShiftSlotTarget;
+      confirmOverlay.classList.remove('show');
+      if (!target) return;
+      const { dateISO, slot, btn } = target;
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = 'Отменяю…';
+      shiftsMsg.textContent = '';
+      try {
+        const res = await fetch('/api/admin/shifts', {
+          method:'POST', headers: authHeaders(),
+          body: JSON.stringify({ action:'cancelCloseoutForSlot', dateISO, slot })
+        });
+        const out = await res.json().catch(() => ({}));
+        shiftsMsg.textContent = out.message || out.error || (out.ok ? 'Готово.' : 'Не удалось отменить сверку.');
+        shiftsMsg.className = out.ok ? 'modal-msg ok' : 'modal-msg err';
+      } catch(err){
+        shiftsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+        shiftsMsg.className = 'modal-msg err';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        pendingShiftSlotTarget = null;
+      }
+      return;
+    }
     if (!activeBooking) return;
     const action = pendingConfirmAction;
     const bookingId = activeBooking.id;
@@ -2706,6 +2741,7 @@
             <input type="text" class="shift-slot-actor" placeholder="username" list="knownActorsList" value="${escapeHtml(s.actorUsername || '')}">
             <button type="button" class="btn-secondary shift-slot-save">Сохранить</button>
             ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-closeout" title="Отправить актёру сверку по броням этой смены прямо сейчас — не дожидаясь конца смены и автоматики. Отправит ЕЩЁ РАЗ, даже если сверка уже была отправлена, но не пришла — не отправит только по игре, на которую актёр уже точно ответил.">Сверка сейчас</button>' : ''}
+            ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-cancel-closeout" style="border-color:var(--danger-bright); color:var(--danger-bright);" title="Сбросить результат уже полученной сверки (оплату и кто отыграл) по всем броням этой смены, чтобы актёр мог пройти её заново — только для тех броней, где сверка уже завершена.">Отменить сверку</button>' : ''}
             ${statusHtml}
           </div>`;
       }).join('');
@@ -2721,6 +2757,9 @@
     });
     shiftsDaysList.querySelectorAll('.shift-slot-closeout').forEach(btn => {
       btn.addEventListener('click', () => runCloseoutNow(btn));
+    });
+    shiftsDaysList.querySelectorAll('.shift-slot-cancel-closeout').forEach(btn => {
+      btn.addEventListener('click', () => cancelCloseoutForSlotBtn(btn));
     });
   }
 
@@ -2764,6 +2803,23 @@
       btn.disabled = false;
       btn.textContent = originalText;
     }
+  }
+
+  // "Отменить сверку" for a whole shift slot — the batch counterpart of the
+  // single-booking version in the booking detail modal (shared confirm
+  // dialog below, same as that one). Only clears bookings whose sverka is
+  // already confirmed/edited; leaves everything else in the shift alone.
+  function cancelCloseoutForSlotBtn(btn){
+    const row = btn.closest('.shift-slot-row');
+    const dateISO = row.dataset.date;
+    const slot = row.dataset.slot;
+    const label = row.querySelector('.shift-slot-label').textContent;
+    pendingConfirmAction = 'cancelCloseoutForSlot';
+    pendingShiftSlotTarget = { dateISO, slot, btn };
+    document.getElementById('confirmTitle').textContent = 'Отменить сверку по смене?';
+    document.getElementById('confirmText').textContent =
+      `Оплата и «кто отыграл» по уже сверенным броням этой смены (${formatDateHeading(dateISO)}, ${label}) будут сброшены, чтобы актёр мог заново пройти сверку через бота. Брони, где сверки ещё не было или актёр ещё не ответил, не тронутся.`;
+    confirmOverlay.classList.add('show');
   }
 
   async function loadShifts(){

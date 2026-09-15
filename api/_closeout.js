@@ -466,6 +466,77 @@ export async function runCloseoutForSlot(dateISO, slot) {
   };
 }
 
+// The "Отменить сверку" counterpart of runCloseoutForSlot above, for the
+// same (date, slot) unit the "Смены и напоминания" screen shows — the
+// admin doesn't need to open every booking's own card one by one to redo a
+// whole shift's sverka. For every booking this slot's actor covers on that
+// date whose sverka is already COMPLETE (closeoutStatus 'confirmed' or
+// 'edited'), clears that result — same fields api/admin/bookings.js's
+// per-booking 'cancelCloseout' action clears (payment, who worked it, the
+// per-performer send-tracking, the shared closeoutStatus) — leaving the
+// booking as if sverka never happened for it. Bookings still only
+// 'awaiting' a reply, or with no sverka yet at all, are left untouched
+// (nothing to cancel there). Does NOT resend anything — use "Сверка
+// сейчас" for that afterwards, same as the single-booking flow.
+export async function cancelCloseoutForSlot(dateISO, slot) {
+  const shiftsMap = await getShiftsForDate(dateISO);
+  const slotData = shiftsMap[slot];
+  if (!slotData || !slotData.actorUsername) {
+    return { ok: false, reason: 'no-shift', message: 'На эту смену никто не назначен.' };
+  }
+
+  const hashKey = `bookings:${dateISO}`;
+  const bookingsRaw = await kv('hgetall', hashKey);
+  const candidates = [];
+  if (Array.isArray(bookingsRaw)) {
+    for (let i = 0; i < bookingsRaw.length - 1; i += 2) {
+      const time = bookingsRaw[i];
+      let record;
+      try { record = JSON.parse(bookingsRaw[i + 1]); } catch { continue; }
+      if (!record || record.type !== 'customer') continue;
+      if (record.status === 'cancelled' || record.status === 'rescheduled') continue;
+      const resolvedTime = record.time || time;
+      const resolvedActors = resolveActorUsernamesForSlotSync(shiftsMap, resolvedTime);
+      if (!resolvedActors.includes(slotData.actorUsername)) continue;
+      candidates.push({ time, record });
+    }
+  }
+
+  if (!candidates.length) {
+    return { ok: false, reason: 'no-bookings', message: 'На это время не нашлось броней для этой смены.', actorUsername: slotData.actorUsername };
+  }
+
+  const toCancel = candidates.filter(({ record }) => record.closeoutStatus === 'confirmed' || record.closeoutStatus === 'edited');
+  if (!toCancel.length) {
+    return {
+      ok: true,
+      reason: 'nothing-to-cancel',
+      message: 'По броням этой смены ещё нет завершённой сверки — отменять нечего.',
+      bookingsCount: candidates.length,
+      actorUsername: slotData.actorUsername,
+    };
+  }
+
+  await Promise.all(toCancel.map(({ time, record }) => {
+    const {
+      closeoutStatus, closeouts, payCash, payCard, payErip,
+      closeoutCashCollected, closeoutRepliedAt, paymentReportedBy,
+      workedActor, workedActress, discountNote,
+      ...rest
+    } = record;
+    return kv('hset', hashKey, time, JSON.stringify(rest));
+  }));
+
+  return {
+    ok: true,
+    reason: 'cancelled',
+    message: `Сверка отменена по ${toCancel.length} из ${candidates.length} броней этой смены (остальные ещё не были завершены). Нажмите «Сверка сейчас», чтобы отправить их актёру @${slotData.actorUsername} заново.`,
+    bookingsCount: candidates.length,
+    cancelledCount: toCancel.length,
+    actorUsername: slotData.actorUsername,
+  };
+}
+
 // Safety net for the daily sweep (api/cron/reminders-sweep.js): finds any
 // customer booking whose sverka time (start + 60 minutes) has already
 // passed (checked over the last couple of days, not just today) but where

@@ -617,21 +617,25 @@
      bottom-left caption here would sit right on top of it. */
   .map-cap{position:absolute; top:14px; left:14px; z-index:2; font-family:var(--sans); font-weight:700; font-size:12px; color:var(--paper); background:rgba(0,0,0,.75); padding:6px 14px; border-radius:999px; pointer-events:none;}
   .map-col .btn{align-self:flex-start;}
-  /* ---------- "Как добраться" — реальное вертикальное видео (9:16) ---------- */
+  /* ---------- "Как добраться" — реальное видео, снятое вертикально.
+     Показываем горизонтальной "сторис"-карточкой на всю ширину секции:
+     само видео целиком по центру, а по бокам — размытая увеличенная
+     копия того же кадра фоном (как в Instagram при показе сторис на
+     широком экране), чтобы не резать кадр и не торчать чёрным столбиком
+     посреди горизонтального сайта. ---------- */
   .howto-video-block{margin-top:44px;}
   .howto-video-note{margin:0 0 18px; max-width:480px; color:var(--muted); font-size:14.5px;}
   .video-frame{
     position:relative; border-radius:20px; overflow:hidden;
     border:1px solid var(--line); background:var(--black-3);
   }
-  .video-frame.video-frame-portrait{
-    width:100%; max-width:300px; aspect-ratio:9/16; height:auto;
+  .video-frame.video-frame-wide{
+    width:100%; max-width:640px; aspect-ratio:16/9; height:auto;
     box-shadow:0 24px 60px -22px rgba(0,0,0,.7);
   }
-  .video-frame.video-frame-portrait video{
+  .video-frame.video-frame-wide video{
     width:100%; height:100%; display:block; object-fit:cover; background:#000;
   }
-  @media (max-width:560px){ .video-frame.video-frame-portrait{max-width:230px;} }
 
   /* ===== FOOTER ===== */
   footer{padding:56px 28px 36px; text-align:center; border-top:1px solid var(--line);}
@@ -1319,15 +1323,18 @@
       </div>
     </div>
 
-    <!-- ВИДЕО «КАК ДОБРАТЬСЯ» — реальный ролик (снят вертикально, 9:16).
-         Если когда-нибудь заменят на новый файл — просто положите его
-         в assets/ под теми же тремя именами (how-to-get-here.mp4,
-         how-to-get-here.webm, how-to-get-here-poster.jpg) и залейте
-         поверх старых через GitHub — менять разметку не придётся. -->
+    <!-- ВИДЕО «КАК ДОБРАТЬСЯ» — реальный ролик, снят вертикально на
+         телефон, но упакован в горизонтальный кадр 16:9 с размытым
+         фоном по бокам (см. комментарий у .video-frame-wide выше), чтобы
+         красиво смотреться на широком сайте. Если когда-нибудь заменят
+         на новый файл — так же обработайте его (или пришлите нам) и
+         положите под теми же тремя именами (how-to-get-here.mp4,
+         how-to-get-here.webm, how-to-get-here-poster.jpg) поверх старых
+         через GitHub — менять разметку не придётся. -->
     <div class="howto-video-block">
       <div class="sub-label" style="margin-bottom:6px;">Видео — маршрут от метро «Первомайская»</div>
       <p class="howto-video-note">Прошли и сняли на камеру реальную дорогу от выхода из метро до дверей квеста — чтобы вы точно не заблудились.</p>
-      <div class="video-frame video-frame-portrait">
+      <div class="video-frame video-frame-wide">
         <video controls playsinline preload="metadata" poster="assets/how-to-get-here-poster.jpg">
           <source src="assets/how-to-get-here.webm" type="video/webm">
           <source src="assets/how-to-get-here.mp4" type="video/mp4">

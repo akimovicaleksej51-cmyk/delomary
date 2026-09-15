@@ -37,7 +37,7 @@
 //   { action:'runCloseoutNow', dateISO, slot }
 //       Manually sends the sverka right now for every booking in that
 //       (date, slot) shift that hasn't been sent one yet — regardless of
-//       whether each booking's own 80-minutes-after-start automatic QStash
+//       whether each booking's own 60-minutes-after-start automatic QStash
 //       job has already fired. See runCloseoutForSlot() in
 //       api/_closeout.js (each shift's actual per-booking sverka timing is
 //       now set independently by scheduleGameCloseout() when the booking
@@ -45,10 +45,19 @@
 //       "send anything still pending, right now"). Only (re)sends for
 //       bookings that don't already have a reply/awaiting status, so it's
 //       always safe to click again.
+//   { action:'cancelCloseoutForSlot', dateISO, slot }
+//       Undoes an ALREADY-COMPLETED sverka (closeoutStatus 'confirmed' or
+//       'edited') for every booking that (date, slot) shift's actor covers
+//       — the whole-shift counterpart of api/admin/bookings.js's
+//       'cancelCloseout' (which does one booking at a time from its own
+//       card). See cancelCloseoutForSlot() in api/_closeout.js for exactly
+//       which fields get cleared. Bookings still 'awaiting' a reply, or
+//       with no sverka yet, are left alone. Doesn't resend anything — use
+//       'runCloseoutNow' (the "Сверка сейчас" button) afterwards for that.
 
 import { kv } from '../_kv.js';
 import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS, scheduleReminder } from '../_reminders.js';
-import { runCloseoutForSlot, scheduleGameCloseout } from '../_closeout.js';
+import { runCloseoutForSlot, cancelCloseoutForSlot, scheduleGameCloseout } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
 
@@ -191,7 +200,7 @@ export default async function handler(req, res) {
       await saveShiftsForDate(cleanDateISO, shiftsMap);
       // Note: sverka (closeout) scheduling is no longer tied to shift
       // start/end times at all — each individual booking schedules its own
-      // sverka 80 minutes after ITS game starts (scheduleGameCloseout() in
+      // sverka 60 minutes after ITS game starts (scheduleGameCloseout() in
       // api/_closeout.js, called from api/book.js and
       // api/admin/bookings.js). Saving a shift here only affects who gets
       // reminders/sverka messages for bookings in this time window, not
@@ -216,6 +225,21 @@ export default async function handler(req, res) {
       } catch (err) {
         console.error('runCloseoutNow failed:', err);
         return res.status(500).json({ ok: false, error: 'Не удалось выполнить сверку — ошибка сервера.' });
+      }
+    }
+
+    if (body.action === 'cancelCloseoutForSlot') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const slot = typeof body.slot === 'string' ? body.slot : '';
+      if (!cleanDateISO || !SHIFT_SLOTS.includes(slot)) {
+        return res.status(400).json({ error: 'Некорректная дата или смена.' });
+      }
+      try {
+        const result = await cancelCloseoutForSlot(cleanDateISO, slot);
+        return res.status(200).json(result);
+      } catch (err) {
+        console.error('cancelCloseoutForSlot failed:', err);
+        return res.status(500).json({ ok: false, error: 'Не удалось отменить сверку — ошибка сервера.' });
       }
     }
 
