@@ -2043,5 +2043,13 @@
   })();
 </script>
 
+<!-- Vercel Web Analytics — обычный HTML-сниппет (не React), т.к. сайт без
+     Next.js/npm-пакетов. Ничего не собирает и не отправляет, пока в панели
+     Vercel не включена сама аналитика (Project → Analytics → Enable). -->
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+
 </body>
 </html>
