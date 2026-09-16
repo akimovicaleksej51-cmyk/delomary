@@ -147,6 +147,11 @@
     background:#101a12; border:1px solid rgba(95,224,138,.45);
     padding:2px 8px; border-radius:999px; line-height:1.4; white-space:nowrap;
   }
+  /* Игра не состоялась — та же плашка, но красная, чтобы сразу было видно
+     разницу с обычной "успешной" сверкой. */
+  .row-sverka-badge.not-played{
+    color:var(--danger-bright); background:#1a1011; border-color:rgba(255,107,111,.45);
+  }
   .row-price-old{color:var(--muted); font-weight:600; text-decoration:line-through; margin-right:2px;}
   .row-time{
     font-family:var(--display); font-weight:400; font-size:17px; min-width:58px; color:var(--paper);
@@ -305,6 +310,24 @@
   .slot-btn.slot-customer{background:#d95926; border-color:#d95926; color:#fff;}
   .slot-btn.overview-slot.picked{outline:2px solid #fff; outline-offset:1px;}
 
+  /* ---------- "Кто в смене" (read-only weekly shift schedule) ---------- */
+  .shift-view-day{margin-bottom:18px;}
+  .shift-view-day-heading{
+    font-family:var(--sans); font-weight:800; font-size:13.5px; letter-spacing:.05em;
+    text-transform:uppercase; color:var(--ochre-bright); margin:0 0 8px;
+  }
+  .shift-view-row{display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid #262626;}
+  .shift-view-day:last-child .shift-view-row:last-child{border-bottom:none;}
+  .shift-view-role{
+    font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em;
+    padding:3px 9px; border-radius:999px; flex:0 0 auto; white-space:nowrap;
+  }
+  .shift-view-role.role-actor{background:rgba(91,155,213,.18); color:var(--info-bright);}
+  .shift-view-role.role-actress{background:rgba(245,197,24,.16); color:var(--ochre-bright);}
+  .shift-view-name{flex:1; font-weight:700; color:var(--paper); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .shift-view-name.empty{color:var(--muted); font-weight:400; font-style:italic;}
+  .shift-view-time{color:var(--muted); font-size:13px; flex:0 0 auto;}
+
   /* ---------- Payment split (edit form + Касса) ---------- */
   .pay-split{display:flex; gap:8px; flex-wrap:wrap;}
   .pay-split-item{display:flex; flex-direction:column; gap:4px; flex:1 1 90px;}
@@ -392,6 +415,7 @@
       <div class="topbar-actions">
         <button class="btn-secondary" id="refreshBtn">Обновить</button>
         <button class="btn-secondary" id="calendarBtn">Календарь</button>
+        <button class="btn-secondary" id="shiftsViewBtn">Смена на неделю</button>
         <button class="btn-secondary" id="financeBtn">Касса</button>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
@@ -409,7 +433,6 @@
         <button type="button" class="day-filter-clear" id="dayFilterClear" aria-label="Сбросить фильтр по дате">✕</button>
       </div>
       <button class="btn-secondary" id="todayToggleBtn">Сегодня</button>
-      <button class="btn-secondary" id="exportCsvBtn">Экспорт CSV</button>
     </div>
     <div id="listContainer"><div class="load-note">Загрузка…</div></div>
   </div>
@@ -441,6 +464,25 @@
       <div class="slot-grid" id="overviewSlotGrid"></div>
       <div class="day-status" id="overviewSlotDetail" style="display:none;"></div>
     </div>
+  </div>
+</div>
+
+<!-- Read-only weekly shift schedule — "кто в какую смену работает на этой
+     неделе". Просмотр, без редактирования (заполняет смены владелец/админ
+     в обычной админке, «Смены и напоминания») — сотрудникам/актёрам нужно
+     только посмотреть. Данные берутся из того же GET /api/admin/shifts,
+     что и полноценный редактор смен. -->
+<div class="modal-overlay" id="shiftsViewOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="shiftsView">✕</button>
+    <h2>Кто в смене</h2>
+    <div class="cal-head">
+      <button type="button" class="cal-nav" id="shiftsViewPrev" aria-label="Предыдущая неделя">‹</button>
+      <span class="cal-month" id="shiftsViewWeekLabel"></span>
+      <button type="button" class="cal-nav" id="shiftsViewNext" aria-label="Следующая неделя">›</button>
+    </div>
+    <div id="shiftsViewDaysList"><div class="load-note">Загрузка…</div></div>
+    <div class="modal-msg" id="shiftsViewMsg"></div>
   </div>
 </div>
 
@@ -481,12 +523,13 @@
           <div class="detail-field"><label>Цена, Br</label><input id="sverkaPrice" inputmode="numeric"></div>
           <div class="detail-field"><label>Скидка / номер сертификата</label><input id="sverkaDiscount" placeholder="Например: скидка 10% или серт. №123"></div>
           <div class="detail-field">
-            <label>Как оплатили</label>
-            <div class="type-toggle" id="sverkaPayToggle">
-              <button type="button" class="type-toggle-btn active" data-pay="cash">Нал</button>
-              <button type="button" class="type-toggle-btn" data-pay="card">Карта</button>
-              <button type="button" class="type-toggle-btn" data-pay="erip">ЕРИП</button>
+            <label>Как оплатили (можно частями)</label>
+            <div class="pay-split">
+              <div class="pay-split-item"><span>Нал</span><input id="sverkaPayCash" inputmode="numeric" placeholder="0"></div>
+              <div class="pay-split-item"><span>Безнал</span><input id="sverkaPayCard" inputmode="numeric" placeholder="0"></div>
+              <div class="pay-split-item"><span>ЕРИП</span><input id="sverkaPayErip" inputmode="numeric" placeholder="0"></div>
             </div>
+            <div class="pay-split-total">Итого: <b id="sverkaPayTotal">0</b> Br</div>
           </div>
         </div>
         <div class="modal-actions">
@@ -1009,8 +1052,9 @@
           // Зелёная плашка в уголке — единственный признак того, что сверка
           // по этой брони проведена (played:false — «игра не состоялась» —
           // тоже считается проведённой сверкой, просто с другим текстом).
+          const sverkaNotPlayed = Boolean(sverka && sverka.label && sverka.label.startsWith('Игра не состоялась'));
           const sverkaBadge = sverka
-            ? `<span class="row-sverka-badge"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverka.label && sverka.label.startsWith('Игра не состоялась') ? '✓ Сверено · не было' : '✓ Сверено'}</span>`
+            ? `<span class="row-sverka-badge${sverkaNotPlayed ? ' not-played' : ''}"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverkaNotPlayed ? '✕ Игра не состоялась' : '✓ Сверено'}</span>`
             : '';
           const badge = typeBadge(b);
           return `
@@ -1056,12 +1100,11 @@
 
   document.getElementById('refreshBtn').addEventListener('click', () => { loadBookings(); });
 
-  // ---------- toolbar: search, day filter, CSV export ----------
+  // ---------- toolbar: search, day filter ----------
   const searchBox = document.getElementById('searchBox');
   const dayFilterInput = document.getElementById('dayFilterInput');
   const dayFilterClear = document.getElementById('dayFilterClear');
   const todayToggleBtn = document.getElementById('todayToggleBtn');
-  const exportCsvBtn = document.getElementById('exportCsvBtn');
 
   searchBox.addEventListener('input', () => {
     searchQuery = searchBox.value;
@@ -1094,68 +1137,10 @@
     renderList();
   });
 
-  function csvEscape(value){
-    const s = String(value == null ? '' : value);
-    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  }
-
-  function statusLabelForCsv(b){
-    if (b.status === 'cancelled') return 'Отменена';
-    if (b.status === 'rescheduled') return 'Перенесена';
-    return 'Активна';
-  }
-
-  exportCsvBtn.addEventListener('click', () => {
-    const rows = getFilteredBookings().slice().sort((a,b) => {
-      return a.dateISO === b.dateISO ? a.time.localeCompare(b.time) : a.dateISO.localeCompare(b.dateISO);
-    });
-    if (!rows.length){
-      alert('Нет броней для экспорта — измените фильтр поиска или дату.');
-      return;
-    }
-    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Сверка','Комментарий','Как создано','Перенос'];
-    const lines = [header.join(';')];
-    rows.forEach(b => {
-      const isTech = b.type === 'technical';
-      const moveNote = b.status === 'rescheduled' && b.rescheduledTo
-        ? `на ${b.rescheduledTo.dateISO} ${b.rescheduledTo.time}`
-        : (b.status === 'active' && b.rescheduledFrom ? `с ${b.rescheduledFrom.dateISO} ${b.rescheduledFrom.time}` : '');
-      const sverkaForCsv = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : '';
-      lines.push([
-        b.dateISO || '',
-        b.time || '',
-        isTech ? 'Техническая' : 'Клиент',
-        statusLabelForCsv(b),
-        isTech ? '' : (b.name || ''),
-        isTech ? '' : (b.phone || ''),
-        isTech ? '' : (b.players || ''),
-        isTech ? '' : (b.price != null ? b.price : ''),
-        isTech ? '' : (b.payCash || ''),
-        isTech ? '' : (b.payCard || ''),
-        isTech ? '' : (b.payErip || ''),
-        isTech ? '' : (b.channel || ''),
-        isTech ? '' : (b.discountNote || ''),
-        isTech ? '' : (b.workedActor || ''),
-        isTech ? '' : (b.workedActress || ''),
-        isTech ? '' : (b.handledByAdmin || ''),
-        sverkaForCsv,
-        b.comment || '',
-        b.source === 'admin' ? 'вручную' : (b.source || ''),
-        moveNote
-      ].map(csvEscape).join(';'));
-    });
-    // Leading BOM so Excel opens Cyrillic text as UTF-8 instead of guessing wrong.
-    const csvContent = '﻿' + lines.join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `брони_${todayISO()}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
+  // Экспорт CSV убран из панели сотрудника (16.09.2026, по просьбе
+  // владельца) — выгрузка данных таблицей ни админам, ни актёрам здесь не
+  // нужна. Полноценная админка (admin.html) для владельца свою выгрузку
+  // не теряет.
 
   // ---------- detail modal ----------
   const detailOverlay = document.getElementById('detailOverlay');
@@ -1273,7 +1258,11 @@
       const sverka = formatManualSverka(booking);
       if (sverka) {
         dvSverkaRow.style.display = '';
-        document.getElementById('dvSverka').innerHTML = `<span style="color:#5fe08a; font-weight:700;">✓ Сверено</span> — ${escapeHtml(sverka.label)}`;
+        const notPlayed = sverka.label && sverka.label.startsWith('Игра не состоялась');
+        const markHtml = notPlayed
+          ? `<span style="color:var(--danger-bright); font-weight:700;">✕ Игра не состоялась</span>`
+          : `<span style="color:#5fe08a; font-weight:700;">✓ Сверено</span>`;
+        document.getElementById('dvSverka').innerHTML = `${markHtml} — ${escapeHtml(sverka.label)}`;
       } else {
         dvSverkaRow.style.display = 'none';
       }
@@ -1371,7 +1360,6 @@
 
   // -- ручная сверка --
   let sverkaPlayed = true; // true='Да', false='Нет' — see #sverkaPlayedToggle
-  let sverkaPayMethod = 'cash'; // 'cash'|'card'|'erip' — see #sverkaPayToggle
   const sverkaForm = document.getElementById('sverkaForm');
   const sverkaPlayedFields = document.getElementById('sverkaPlayedFields');
   const sverkaMsg = document.getElementById('sverkaMsg');
@@ -1400,14 +1388,17 @@
     btn.addEventListener('click', () => setSverkaPlayed(btn.dataset.played === 'yes'));
   });
 
-  function setSverkaPayMethod(method){
-    sverkaPayMethod = method;
-    document.querySelectorAll('#sverkaPayToggle .type-toggle-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.pay === method);
-    });
+  // Способ оплаты во время сверки — та же схема "можно частями" (Нал +
+  // Безнал + ЕРИП), что и в обычном редактировании брони (editPayCash/
+  // editPayCard/editPayErip), не единственный выбор одной кнопкой.
+  function updateSverkaPayTotal(){
+    const cash = toNum(document.getElementById('sverkaPayCash').value);
+    const card = toNum(document.getElementById('sverkaPayCard').value);
+    const erip = toNum(document.getElementById('sverkaPayErip').value);
+    document.getElementById('sverkaPayTotal').textContent = String(cash + card + erip);
   }
-  document.querySelectorAll('#sverkaPayToggle .type-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => setSverkaPayMethod(btn.dataset.pay));
+  ['sverkaPayCash', 'sverkaPayCard', 'sverkaPayErip'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateSverkaPayTotal);
   });
 
   document.getElementById('openSverkaBtn').addEventListener('click', () => {
@@ -1417,10 +1408,11 @@
     sverkaPlayersSelect.value = sverkaPlayersValueFor(activeBooking.players);
     document.getElementById('sverkaPrice').value = activeBooking.price || '';
     document.getElementById('sverkaDiscount').value = activeBooking.discountNote || '';
-    const initialPayMethod = toNum(activeBooking.payCard) > 0 ? 'card'
-      : toNum(activeBooking.payErip) > 0 ? 'erip'
-      : 'cash';
-    setSverkaPayMethod(initialPayMethod);
+    const hasBreakdown = activeBooking.payCash || activeBooking.payCard || activeBooking.payErip;
+    document.getElementById('sverkaPayCash').value = hasBreakdown ? (activeBooking.payCash || '') : (activeBooking.price || '');
+    document.getElementById('sverkaPayCard').value = activeBooking.payCard || '';
+    document.getElementById('sverkaPayErip').value = activeBooking.payErip || '';
+    updateSverkaPayTotal();
     sverkaMsg.textContent = '';
     sverkaForm.style.display = 'block';
     document.getElementById('detailActiveActions').style.display = 'none';
@@ -1441,9 +1433,9 @@
       price: priceVal,
       players: sverkaPlayersSelect.value,
       discountNote: document.getElementById('sverkaDiscount').value,
-      payCash: sverkaPayMethod === 'cash' ? priceVal : '',
-      payCard: sverkaPayMethod === 'card' ? priceVal : '',
-      payErip: sverkaPayMethod === 'erip' ? priceVal : '',
+      payCash: document.getElementById('sverkaPayCash').value,
+      payCard: document.getElementById('sverkaPayCard').value,
+      payErip: document.getElementById('sverkaPayErip').value,
       confirmedBy: localStorage.getItem('lastHandledByAdmin') || '',
     };
     const btn = document.getElementById('saveSverkaBtn');
@@ -2010,6 +2002,105 @@
         [...new Set(names)].map(n => `<option value="${escapeHtml(n)}">`).join('');
     } catch(err){ /* best-effort only */ }
   }
+
+  // ---------- "Кто в смене" (read-only weekly shift schedule) ----------
+  // Только просмотр — заполняет смены владелец/админ в обычной админке
+  // ("Смены и напоминания"), сотрудникам/актёрам здесь нужно только
+  // посмотреть, кто работает на этой неделе. Использует тот же GET
+  // /api/admin/shifts, что и полноценный редактор (см. api/admin/shifts.js).
+  const shiftsViewOverlay = document.getElementById('shiftsViewOverlay');
+  const shiftsViewDaysList = document.getElementById('shiftsViewDaysList');
+  const shiftsViewWeekLabel = document.getElementById('shiftsViewWeekLabel');
+  const shiftsViewMsg = document.getElementById('shiftsViewMsg');
+  const SHIFTS_VIEW_WINDOW_DAYS = 7;
+  let shiftsViewWeekStart = null; // ISO date the visible 7-day window starts at
+  const SHIFT_VIEW_SLOT_DEFS = [
+    { id: 'actor-1', label: 'Актёр 1', role: 'actor' },
+    { id: 'actor-2', label: 'Актёр 2', role: 'actor' },
+    { id: 'actress-1', label: 'Актриса 1', role: 'actress' },
+    { id: 'actress-2', label: 'Актриса 2', role: 'actress' },
+  ];
+
+  function shiftsViewWeekDates(){
+    const dates = [];
+    const [y, m, d] = shiftsViewWeekStart.split('-').map(Number);
+    const start = new Date(y, m - 1, d);
+    for (let i = 0; i < SHIFTS_VIEW_WINDOW_DAYS; i++){
+      const dd = new Date(start);
+      dd.setDate(start.getDate() + i);
+      dates.push(isoDate(dd));
+    }
+    return dates;
+  }
+
+  function renderShiftsView(shiftsByDate, actors){
+    const dates = shiftsViewWeekDates();
+    shiftsViewWeekLabel.textContent = `${formatDateHeading(dates[0])} — ${formatDateHeading(dates[dates.length - 1])}`;
+    shiftsViewDaysList.innerHTML = dates.map(dateISO => {
+      const daySlots = shiftsByDate[dateISO] || {};
+      const rows = SHIFT_VIEW_SLOT_DEFS.map(def => {
+        const s = daySlots[def.id];
+        const actorInfo = s && s.actorUsername ? actors[s.actorUsername] : null;
+        const name = s && s.actorUsername ? (actorInfo && actorInfo.displayName ? actorInfo.displayName : s.actorUsername) : '';
+        const nameHtml = name
+          ? escapeHtml(name)
+          : '<span class="shift-view-name empty">не назначен</span>';
+        const timeHtml = s && s.start && s.end ? `<span class="shift-view-time">${escapeHtml(s.start)}–${escapeHtml(s.end)}</span>` : '';
+        return `<div class="shift-view-row">
+            <span class="shift-view-role role-${def.role}">${def.label}</span>
+            <span class="shift-view-name">${nameHtml}</span>
+            ${timeHtml}
+          </div>`;
+      }).join('');
+      return `<div class="shift-view-day">
+          <div class="shift-view-day-heading">${formatDateHeading(dateISO)}</div>
+          ${rows}
+        </div>`;
+    }).join('');
+  }
+
+  async function loadShiftsView(){
+    shiftsViewMsg.textContent = '';
+    shiftsViewDaysList.innerHTML = '<div class="load-note">Загрузка…</div>';
+    try{
+      const res = await fetch(`/api/admin/shifts?from=${shiftsViewWeekStart}&days=${SHIFTS_VIEW_WINDOW_DAYS}`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        shiftsViewDaysList.innerHTML = '';
+        shiftsViewMsg.textContent = out.error || 'Не удалось загрузить расписание смен.';
+        shiftsViewMsg.className = 'modal-msg err';
+        return;
+      }
+      renderShiftsView(out.shifts || {}, out.actors || {});
+    } catch(err){
+      shiftsViewDaysList.innerHTML = '';
+      shiftsViewMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      shiftsViewMsg.className = 'modal-msg err';
+    }
+  }
+
+  function openShiftsViewModal(){
+    shiftsViewWeekStart = todayISO();
+    shiftsViewOverlay.classList.add('show');
+    loadShiftsView();
+  }
+  document.getElementById('shiftsViewBtn').addEventListener('click', openShiftsViewModal);
+  document.getElementById('shiftsViewPrev').addEventListener('click', () => {
+    const [y, m, d] = shiftsViewWeekStart.split('-').map(Number);
+    const dd = new Date(y, m - 1, d);
+    dd.setDate(dd.getDate() - SHIFTS_VIEW_WINDOW_DAYS);
+    shiftsViewWeekStart = isoDate(dd);
+    loadShiftsView();
+  });
+  document.getElementById('shiftsViewNext').addEventListener('click', () => {
+    const [y, m, d] = shiftsViewWeekStart.split('-').map(Number);
+    const dd = new Date(y, m - 1, d);
+    dd.setDate(dd.getDate() + SHIFTS_VIEW_WINDOW_DAYS);
+    shiftsViewWeekStart = isoDate(dd);
+    loadShiftsView();
+  });
+  document.querySelectorAll('[data-close="shiftsView"]').forEach(b => b.addEventListener('click', () => shiftsViewOverlay.classList.remove('show')));
+  shiftsViewOverlay.addEventListener('click', e => { if (e.target === shiftsViewOverlay) shiftsViewOverlay.classList.remove('show'); });
 
   // ---------- cash register ("Касса") ----------
   const financeOverlay = document.getElementById('financeOverlay');
