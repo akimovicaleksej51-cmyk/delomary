@@ -1,0 +1,2109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Панель сотрудника — Дело Мэри</title>
+<link rel="icon" href="/assets/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.png">
+
+<!-- Упрощённая панель для сотрудников на месте: брони + касса + календарь +
+     ручная сверка. Тот же пароль, что и в полной админке (admin.html) —
+     см. /api/admin/login — но отдельная страница с меньшим набором кнопок.
+     PWA-манифест сюда сознательно не подключаем (он рассчитан на
+     admin.html) — при желании добавим отдельный в следующий раз. -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --black:#000000; --black-2:#0C0C0C; --black-3:#171717;
+    --ochre:#E0A722; --ochre-bright:#F5C518; --ochre-deep:#8a6a15;
+    --paper:#F3EFE4; --muted:#B9B4A6; --line:#2a2a2a;
+    --danger:#e5484d; --danger-bright:#ff6b6f;
+    --info:#5b9bd5; --info-bright:#7ab8ec;
+    --display:'Anton','Arial Narrow',sans-serif;
+    --sans:'Manrope',Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; min-height:100vh; background:var(--black); color:var(--paper);
+    font-family:var(--sans); padding:24px 16px 60px;
+  }
+  h1,h2,h3{font-family:var(--display); font-weight:400; text-transform:uppercase; letter-spacing:.02em; margin:0;}
+  a{color:var(--ochre-bright);}
+  button{font-family:var(--sans); cursor:pointer;}
+  .wrap{max-width:920px; margin:0 auto;}
+
+  /* ---------- Login screen ---------- */
+  #loginScreen{
+    min-height:70vh; display:flex; align-items:center; justify-content:center;
+  }
+  .login-card{
+    width:100%; max-width:360px; background:var(--black-2); border:1px solid #2a2a2a;
+    border-radius:18px; padding:32px 28px; text-align:center;
+  }
+  .login-card h1{font-size:22px; margin-bottom:6px;}
+  .login-card p{color:var(--muted); font-size:14px; margin:0 0 22px;}
+  .pw-field{position:relative; margin-bottom:14px;}
+  .pw-field input{
+    width:100%; padding:13px 44px 13px 14px; border-radius:10px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:15px; font-family:var(--sans);
+  }
+  .pw-field input:focus{outline:none; border-color:var(--ochre);}
+  .pw-toggle{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    background:none; border:none; color:var(--muted); padding:8px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .pw-toggle:hover{color:var(--paper); background:#2a2a2a;}
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--ochre-bright); color:var(--black); border:none; font-weight:800;
+    font-size:14.5px; padding:13px 20px; border-radius:10px; width:100%;
+    transition:transform .15s, background .15s;
+  }
+  .btn:hover{background:var(--ochre);}
+  .btn:active{transform:scale(.98);}
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  .btn-secondary{
+    background:transparent; color:var(--paper); border:1px solid #3a3a3a; width:auto;
+  }
+  .btn-secondary:hover{background:var(--black-3); border-color:#4a4a4a;}
+  .btn-secondary:disabled{opacity:.4; cursor:not-allowed;}
+  .btn-danger{background:var(--danger); color:#fff;}
+  .btn-danger:hover{background:var(--danger-bright);}
+  .err-msg{
+    color:var(--danger-bright); font-size:13.5px; margin-top:12px; min-height:1em;
+  }
+
+  /* ---------- Panel shell ---------- */
+  #panel{display:none;}
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
+    margin-bottom:26px; padding-bottom:18px; border-bottom:1px solid #262626;
+  }
+  .topbar h1{font-size:24px;}
+  .topbar-actions{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;}
+  .btn-secondary, .btn-danger{padding:11px 18px;}
+
+  /* ---------- Status tabs (active / cancelled / rescheduled) ---------- */
+  /* Splitting the list by status is the actual fix for "everything blurs
+     together" — each tab is homogeneous, so a row doesn't need a status
+     badge fighting for attention on top of its type badge. */
+  .list-tabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .list-tab{
+    padding:10px 16px; border-radius:9px; border:1.5px solid #333; background:var(--black-3);
+    color:var(--muted); font-weight:800; font-size:13.5px; font-family:var(--sans);
+  }
+  .list-tab:hover{border-color:#454545;}
+  .list-tab.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  .tab-count{opacity:.75; font-weight:700;}
+
+  .list-toolbar{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px;}
+  .list-toolbar input[type="text"]{
+    flex:1 1 220px; min-width:0; padding:10px 14px; border-radius:9px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:14px; font-family:var(--sans);
+  }
+  .list-toolbar input[type="text"]:focus{outline:none; border-color:var(--ochre);}
+  .list-toolbar .btn-secondary{padding:10px 16px; font-size:13.5px; flex:0 0 auto;}
+  .list-toolbar .btn-secondary.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  /* Native date input, dark-themed to match — this is a quick "jump to a
+     day" filter, so it doesn't need the full custom calendar-grid treatment
+     used for actual booking flows elsewhere in the panel. */
+  .list-toolbar .day-filter-wrap{display:flex; align-items:center; gap:6px; flex:0 0 auto;}
+  .list-toolbar input[type="date"]{
+    color-scheme:dark; padding:9px 12px; border-radius:9px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:13.5px; font-family:var(--sans);
+  }
+  .list-toolbar input[type="date"]:focus{outline:none; border-color:var(--ochre);}
+  .day-filter-clear{
+    background:none; border:1px solid #333; color:var(--muted); border-radius:9px;
+    width:34px; height:36px; font-size:15px; flex-shrink:0; display:none;
+  }
+  .day-filter-clear:hover{border-color:var(--danger-bright); color:var(--danger-bright);}
+  .day-filter-clear.show{display:block;}
+
+  /* ---------- Bookings list ---------- */
+  .day-group{margin-bottom:26px;}
+  .day-heading{
+    font-family:var(--sans); font-weight:800; font-size:13.5px; letter-spacing:.05em;
+    text-transform:uppercase; color:var(--ochre-bright); margin-bottom:10px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .day-heading .weekend-tag{color:var(--danger-bright);}
+  .booking-row{
+    position:relative; display:flex; align-items:center; gap:14px; background:var(--black-2);
+    border:1px solid #262626; border-radius:12px; padding:13px 16px; margin-bottom:8px;
+    cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .booking-row:hover{border-color:#3d3d3d; background:#141414;}
+  /* Ручная сверка проведена — тихая зелёная плашка в уголке карточки, как
+     просили: не мешает основному контенту (он весь по центру вертикали),
+     но сразу видна. */
+  .row-sverka-badge{
+    position:absolute; top:-7px; right:12px; font-size:10px; font-weight:800;
+    text-transform:uppercase; letter-spacing:.03em; color:#5fe08a;
+    background:#101a12; border:1px solid rgba(95,224,138,.45);
+    padding:2px 8px; border-radius:999px; line-height:1.4; white-space:nowrap;
+  }
+  .row-price-old{color:var(--muted); font-weight:600; text-decoration:line-through; margin-right:2px;}
+  .row-time{
+    font-family:var(--display); font-weight:400; font-size:17px; min-width:58px; color:var(--paper);
+  }
+  .row-type{
+    font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    padding:4px 9px; border-radius:999px; flex-shrink:0;
+  }
+  .row-type.customer{background:rgba(224,167,34,.18); color:var(--ochre-bright);}
+  .row-type.technical{background:rgba(185,180,166,.18); color:var(--muted);}
+  .row-type.status-cancelled{background:rgba(229,72,77,.18); color:var(--danger-bright);}
+  .row-type.status-rescheduled{background:rgba(91,155,213,.18); color:var(--info-bright);}
+  .row-main{flex:1; min-width:0;}
+  .row-name{font-weight:700; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row-sub{font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row-price{font-weight:800; color:var(--ochre-bright); font-size:14.5px; flex-shrink:0;}
+  /* Cancelled/rescheduled rows are history, not live bookings — dim them and
+     strike the time to show the slot itself is free, without making the
+     whole row hard to read (the badge + text label still carry the status,
+     per accessibility: never color alone). */
+  .booking-row.is-history{opacity:.68;}
+  .booking-row.is-history .row-time{text-decoration:line-through; text-decoration-color:var(--muted);}
+  .empty-note, .load-note{color:var(--muted); font-size:14.5px; padding:30px 0; text-align:center;}
+
+  /* ---------- Modal ---------- */
+  .modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.72);
+    align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; z-index:50;
+  }
+  .modal-overlay.show{display:flex;}
+  .modal-box{
+    width:100%; max-width:480px; background:var(--black-2); border:1px solid #2c2c2c;
+    border-radius:18px; padding:26px 24px; margin:auto;
+  }
+  .modal-box h2{font-size:19px; margin-bottom:18px;}
+  .modal-close-x{
+    float:right; background:none; border:none; color:var(--muted); font-size:20px; line-height:1;
+    padding:4px 8px; border-radius:8px;
+  }
+  .modal-close-x:hover{color:var(--paper); background:#2a2a2a;}
+  .detail-field{margin-bottom:14px;}
+  .detail-field label{
+    display:block; font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--muted); margin-bottom:5px;
+  }
+  .detail-field .value{font-size:15px; word-break:break-word;}
+  .detail-field input, .detail-field textarea{
+    width:100%; padding:10px 12px; border-radius:8px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:14.5px; font-family:var(--sans);
+  }
+  .detail-field textarea{resize:vertical; min-height:64px;}
+  .detail-field input:focus, .detail-field textarea:focus{outline:none; border-color:var(--ochre);}
+  .modal-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:20px;}
+  .modal-actions .btn, .modal-actions .btn-secondary, .modal-actions .btn-danger{width:auto; flex:1 1 auto;}
+  .modal-msg{font-size:13.5px; margin-top:12px; min-height:1em;}
+  .modal-msg.err{color:var(--danger-bright);}
+  .modal-msg.ok{color:var(--ochre-bright);}
+
+  /* ---------- Type toggle (customer vs technical booking) ---------- */
+  .type-toggle{display:flex; gap:8px; margin-bottom:18px;}
+  .type-toggle-btn{
+    flex:1; padding:11px; border-radius:9px; border:1.5px solid #333; background:var(--black-3);
+    color:var(--muted); font-weight:800; font-size:13px; font-family:var(--sans); text-transform:uppercase;
+    letter-spacing:.03em; transition:all .15s;
+  }
+  .type-toggle-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+
+  /* ---------- Slot grid (reused for reschedule + technical booking) ---------- */
+  .slot-grid{display:flex; flex-wrap:wrap; gap:8px;}
+  .slot-btn{
+    padding:9px 14px; border-radius:9px; border:1px solid #333; background:var(--black-3);
+    color:var(--paper); font-weight:700; font-size:13.5px; font-family:var(--sans);
+  }
+  .slot-btn:hover{border-color:var(--ochre);}
+  .slot-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  .slot-btn.taken{opacity:.35; cursor:not-allowed; text-decoration:line-through; pointer-events:none;}
+
+  .day-status{
+    background:var(--black-3); border:1px solid #2a2a2a; border-radius:10px;
+    padding:12px 14px; font-size:13.5px; color:var(--muted); margin-bottom:14px; line-height:1.5;
+  }
+  .day-status b{color:var(--paper);}
+
+  /* ---------- Month calendar (reused for reschedule + new-booking date pick) ---------- */
+  .cal-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;}
+  .cal-month{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:15px; letter-spacing:.02em; color:var(--paper);}
+  .cal-nav{
+    width:32px; height:32px; flex-shrink:0; border-radius:9px;
+    border:1.5px solid var(--line); background:var(--black-3); color:var(--paper);
+    font-family:var(--sans); font-size:17px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:all .15s;
+  }
+  .cal-nav:hover:not(:disabled){border-color:var(--ochre); color:var(--ochre-bright);}
+  .cal-nav:disabled{opacity:.25; cursor:not-allowed;}
+  .cal-weekdays{display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:6px;}
+  .cal-weekdays span{text-align:center; font-family:var(--sans); font-weight:700; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.02em;}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:5px;}
+  .day{
+    font-family:var(--sans); font-weight:700; font-size:13px; text-align:center;
+    aspect-ratio:1/1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+    border:1.5px solid var(--line); border-radius:9px; cursor:pointer; padding:0;
+    color:var(--paper); background:var(--black-3); transition:all .15s;
+  }
+  .day small{display:block; font-size:8.5px; font-weight:600; color:var(--muted); margin:0; text-transform:uppercase;}
+  .day:not(.disabled):not(.empty):hover{border-color:var(--ochre);}
+  .day.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
+  .day.active small{color:var(--black); opacity:.7;}
+  .day.weekend small{color:var(--ochre-bright);}
+  .day.active.weekend small{color:var(--black);}
+  .day.empty{visibility:hidden; border:none; background:none; pointer-events:none;}
+  /* "Общая сетка" — дни вне диапазона брони (уже прошли, или дальше того,
+     на сколько вперёд вообще можно забронировать). Раньше это была почти
+     чёрная заливка поверх и без того чёрного фона страницы — числа дней
+     было почти не видно, вся сетка календаря казалась пустой дырой. Теперь
+     у этих ячеек своя, явно видимая тёмно-серая заливка (не путается ни с
+     чёрным фоном, ни с одним из трёх цветов занятости ниже), а «недоступность»
+     дня показывает приглушённый цвет текста, а не почти невидимая ячейка. */
+  .day.disabled{
+    background:#2a2620; border-color:#3d3728; color:var(--muted);
+    cursor:not-allowed; pointer-events:none;
+  }
+  .day.disabled small{color:var(--muted); opacity:.65;}
+
+  /* ---------- Month overview grid ---------- */
+  /* Раньше каждый день в сетке сразу красился в оранжевый/синий/зелёный
+     (занято/закрыто/свободно) — на глаз сетка рябила, а буквы Пн/Вт/...
+     наследовали тот же цвет и получалось неаккуратно. Теперь у самой сетки
+     все дни — один и тот же спокойный (не чёрный, чтобы не сливаться с
+     фоном страницы) цвет, а буква дня недели над числом — всегда одного
+     нейтрального цвета, независимо от дня и статуса. Разбивка
+     занято/закрыто/свободно никуда не делась — она показывается ПО СЛОТАМ
+     (см. .slot-open/.slot-technical/.slot-customer ниже) как только нажать
+     на конкретный день, и легенда под сеткой как раз про эту, слотовую,
+     раскраску. */
+  #overviewCalGrid .day:not(.disabled):not(.empty){background:#3a3428; border-color:#4a4436; color:var(--paper);}
+  #overviewCalGrid .day small{color:var(--muted);}
+  .cal-legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid #2a2a2a; font-size:13px; color:var(--muted);}
+  .cal-legend-item{display:flex; align-items:center; gap:8px;}
+  .cal-legend-swatch{width:14px; height:14px; border-radius:4px; flex-shrink:0;}
+  .cal-legend-swatch.busy{background:#d95926;}
+  .cal-legend-swatch.closed{background:#3987e5;}
+  .cal-legend-swatch.open{background:#199e70;}
+  /* Выбранный день в сетке получает яркое кольцо, чтобы было видно, какому
+     дню принадлежит панель слотов ниже. */
+  .day.overview-selected{box-shadow:0 0 0 2px var(--paper) inset;}
+  .overview-day-heading{
+    font-family:var(--sans); font-weight:800; font-size:13.5px; letter-spacing:.05em;
+    text-transform:uppercase; color:var(--ochre-bright); margin:18px 0 10px;
+    padding-top:16px; border-top:1px solid #2a2a2a;
+  }
+  /* Same three validated colors as the month grid, reused on the slot
+     buttons so the mapping (orange/blue/green -> booking/technical/open)
+     stays consistent everywhere in this modal. */
+  .slot-btn.slot-open{background:#199e70; border-color:#199e70; color:#fff;}
+  .slot-btn.slot-technical{background:#3987e5; border-color:#3987e5; color:#fff;}
+  .slot-btn.slot-customer{background:#d95926; border-color:#d95926; color:#fff;}
+  .slot-btn.overview-slot.picked{outline:2px solid #fff; outline-offset:1px;}
+
+  /* ---------- Payment split (edit form + Касса) ---------- */
+  .pay-split{display:flex; gap:8px; flex-wrap:wrap;}
+  .pay-split-item{display:flex; flex-direction:column; gap:4px; flex:1 1 90px;}
+  .pay-split-item span{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; font-weight:700;}
+  .pay-split-item input{
+    padding:9px 10px; border-radius:8px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:14px; font-family:var(--sans);
+  }
+  .pay-split-item input:focus{outline:none; border-color:var(--ochre);}
+  .pay-split-total{font-size:13.5px; color:var(--muted); margin-top:8px;}
+  .pay-split-total b{color:var(--ochre-bright); font-size:15px;}
+
+  /* ---------- Cash register ("Касса") ---------- */
+  .finance-balance{
+    background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px;
+    padding:16px; margin-bottom:18px; text-align:center;
+  }
+  .finance-balance-label{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:6px;}
+  .finance-balance-value{font-family:var(--display); font-weight:400; font-size:34px; color:var(--ochre-bright);}
+  .finance-balance-sub{font-size:12px; color:var(--muted); margin-top:4px; line-height:1.4;}
+  .finance-opening{border:1px solid #2a2a2a; border-radius:10px; padding:10px 14px; margin-bottom:6px;}
+  .finance-opening summary{cursor:pointer; font-size:13px; font-weight:700; color:var(--paper);}
+  .finance-row{
+    display:flex; align-items:center; gap:10px; background:var(--black-3); border:1px solid #262626;
+    border-radius:10px; padding:10px 12px; margin-bottom:8px;
+  }
+  .finance-row .fr-date{font-size:12px; color:var(--muted); flex:0 0 70px;}
+  .finance-row .fr-kind{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:3px 8px; border-radius:999px; flex-shrink:0;}
+  .finance-row .fr-kind.expense{background:rgba(229,72,77,.18); color:var(--danger-bright);}
+  .finance-row .fr-kind.payroll{background:rgba(91,155,213,.18); color:var(--info-bright);}
+  .finance-row .fr-label{flex:1; min-width:0; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .finance-row .fr-amount{font-weight:800; color:var(--paper); font-size:13.5px; flex-shrink:0;}
+  .finance-row .fr-del{background:none; border:none; color:var(--muted); font-size:16px; padding:4px 6px; flex-shrink:0;}
+  .finance-row .fr-del:hover{color:var(--danger-bright);}
+
+  @media (max-width:480px){
+    .modal-box{padding:20px 16px;}
+    .row-sub{display:none;}
+  }
+
+  /* ---------- Мобильная оптимизация ---------- */
+  @media (max-width:680px){
+    body{padding:16px 10px 50px;}
+    .topbar{gap:12px; margin-bottom:20px; padding-bottom:14px;}
+    .topbar h1{font-size:19px;}
+    .topbar-actions{display:grid; grid-template-columns:repeat(2,1fr); gap:8px; width:100%;}
+    .topbar-actions .btn-secondary, .topbar-actions .btn{
+      width:100%; padding:12px 10px; font-size:13px;
+    }
+    .list-tabs{gap:6px;}
+    .list-tab{padding:9px 12px; font-size:12.5px; flex:1 1 auto; text-align:center;}
+    .list-toolbar{gap:8px;}
+    .list-toolbar input[type="text"]{flex:1 1 100%;}
+    .day-filter-wrap{flex:1 1 auto;}
+    .list-toolbar .btn-secondary{flex:1 1 auto;}
+    .booking-row{flex-wrap:wrap;}
+    .modal-overlay{padding:16px 8px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>Админка</h1>
+    <p>Дело Мэри — вход по паролю</p>
+    <div class="pw-field">
+      <input type="password" id="loginPassword" placeholder="Пароль" autocomplete="current-password">
+      <button type="button" class="pw-toggle" id="loginPwToggle" aria-label="Показать пароль">
+        <svg id="loginEyeIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
+    <button class="btn" id="loginSubmit">Войти</button>
+    <div class="err-msg" id="loginErr"></div>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="wrap">
+    <div class="topbar">
+      <h1>Панель сотрудника — Дело Мэри</h1>
+      <div class="topbar-actions">
+        <button class="btn-secondary" id="refreshBtn">Обновить</button>
+        <button class="btn-secondary" id="calendarBtn">Календарь</button>
+        <button class="btn-secondary" id="financeBtn">Касса</button>
+        <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
+        <button class="btn-secondary" id="logoutBtn">Выйти</button>
+      </div>
+    </div>
+    <div class="list-tabs">
+      <button type="button" class="list-tab active" data-tab="active">Активные <span class="tab-count" id="tabCountActive"></span></button>
+      <button type="button" class="list-tab" data-tab="cancelled">Отменённые <span class="tab-count" id="tabCountCancelled"></span></button>
+      <button type="button" class="list-tab" data-tab="rescheduled">Перенесённые <span class="tab-count" id="tabCountRescheduled"></span></button>
+    </div>
+    <div class="list-toolbar">
+      <input type="text" id="searchBox" placeholder="Поиск по имени или телефону…">
+      <div class="day-filter-wrap">
+        <input type="date" id="dayFilterInput" title="Показать брони только на этот день">
+        <button type="button" class="day-filter-clear" id="dayFilterClear" aria-label="Сбросить фильтр по дате">✕</button>
+      </div>
+      <button class="btn-secondary" id="todayToggleBtn">Сегодня</button>
+      <button class="btn-secondary" id="exportCsvBtn">Экспорт CSV</button>
+    </div>
+    <div id="listContainer"><div class="load-note">Загрузка…</div></div>
+  </div>
+</div>
+
+<!-- Month overview calendar: pick a day, then see its slots color-coded busy / closed / open -->
+<div class="modal-overlay" id="overviewOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="overview">✕</button>
+    <h2>Календарь на месяц</h2>
+    <div class="cal-head">
+      <button type="button" class="cal-nav" id="overviewCalPrev" aria-label="Предыдущий месяц">‹</button>
+      <span class="cal-month" id="overviewCalMonthLabel"></span>
+      <button type="button" class="cal-nav" id="overviewCalNext" aria-label="Следующий месяц">›</button>
+    </div>
+    <div class="cal-weekdays">
+      <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+    </div>
+    <div class="cal-grid" id="overviewCalGrid"></div>
+    <p style="font-size:12.5px; color:var(--muted); margin-top:12px;" id="overviewHint">Нажмите на день, чтобы увидеть его слоты, а на слот — чтобы прочитать детали брони.</p>
+
+    <div id="overviewDayPanel" style="display:none;">
+      <div class="overview-day-heading" id="overviewDayHeading"></div>
+      <div class="cal-legend" style="margin-top:0; padding-top:0; border-top:none; margin-bottom:16px;">
+        <div class="cal-legend-item"><span class="cal-legend-swatch busy"></span>Есть бронь клиента</div>
+        <div class="cal-legend-item"><span class="cal-legend-swatch closed"></span>Закрыто технически</div>
+        <div class="cal-legend-item"><span class="cal-legend-swatch open"></span>Полностью свободно</div>
+      </div>
+      <div class="slot-grid" id="overviewSlotGrid"></div>
+      <div class="day-status" id="overviewSlotDetail" style="display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Booking detail modal -->
+<div class="modal-overlay" id="detailOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="detail">✕</button>
+    <h2 id="detailTitle">Бронь</h2>
+
+    <div id="detailView">
+      <div class="detail-field"><label>Статус</label><div class="value" id="dvStatus"></div></div>
+      <div class="detail-field"><label>Тип</label><div class="value" id="dvType"></div></div>
+      <div class="detail-field"><label>Имя</label><div class="value" id="dvName"></div></div>
+      <div class="detail-field"><label>Телефон</label><div class="value" id="dvPhone"></div></div>
+      <div class="detail-field"><label>Игроков</label><div class="value" id="dvPlayers"></div></div>
+      <div class="detail-field"><label>Цена</label><div class="value" id="dvPrice"></div></div>
+      <div class="detail-field"><label>Комментарий</label><div class="value" id="dvComment"></div></div>
+      <div class="detail-field" id="dvChannelRow"><label>Источник брони</label><div class="value" id="dvChannel"></div></div>
+      <div class="detail-field" id="dvDiscountRow"><label>Скидка / сертификат</label><div class="value" id="dvDiscount"></div></div>
+      <div class="detail-field" id="dvWorkedRow"><label>Кто отыграл</label><div class="value" id="dvWorked"></div></div>
+      <div class="detail-field" id="dvHandledRow"><label>Оформил</label><div class="value" id="dvHandled"></div></div>
+      <div class="detail-field" id="dvReminderRow"><label>Напоминание актёру</label><div class="value" id="dvReminder"></div></div>
+      <div class="detail-field" id="dvSverkaRow" style="display:none;"><label>Сверка</label><div class="value" id="dvSverka"></div></div>
+
+      <!-- Ручная сверка (вместо бота): отметить, была ли игра, и поправить
+           цену/число игроков. Свёрнута по умолчанию — раскрывается кнопкой
+           «Провести сверку» / «Изменить сверку» ниже. -->
+      <div id="sverkaForm" style="display:none; margin-top:6px;">
+        <div class="detail-field">
+          <label>Игра состоялась?</label>
+          <div class="type-toggle" id="sverkaPlayedToggle">
+            <button type="button" class="type-toggle-btn active" data-played="yes">Да</button>
+            <button type="button" class="type-toggle-btn" data-played="no">Нет</button>
+          </div>
+        </div>
+        <div id="sverkaPlayedFields">
+          <div class="detail-field"><label>Игроков</label><input id="sverkaPlayers" inputmode="numeric"></div>
+          <div class="detail-field"><label>Цена, Br</label><input id="sverkaPrice" inputmode="numeric"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="saveSverkaBtn">Сохранить сверку</button>
+          <button class="btn-secondary" id="cancelSverkaFormBtn">Отмена</button>
+        </div>
+      </div>
+
+      <div class="modal-actions" id="detailActiveActions">
+        <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
+        <button class="btn-secondary" id="editBtn">Редактировать</button>
+        <button class="btn-secondary" id="openSverkaBtn">Провести сверку</button>
+        <button class="btn-secondary" id="resetSverkaBtn" style="display:none; border-color:var(--danger-bright); color:var(--danger-bright);" title="Отменить сверку и вернуть цену/число игроков к значению до неё">Сбросить сверку</button>
+        <button class="btn-danger" id="cancelBookingBtn">Отменить</button>
+      </div>
+      <div class="modal-msg" id="sverkaMsg"></div>
+    </div>
+
+    <div id="editView" style="display:none;">
+      <div class="detail-field"><label>Имя</label><input id="editName"></div>
+      <div class="detail-field"><label>Телефон</label><input id="editPhone"></div>
+      <div class="detail-field"><label>Игроков</label><input id="editPlayers"></div>
+      <div class="detail-field">
+        <label>Способ оплаты</label>
+        <div class="pay-split">
+          <div class="pay-split-item"><span>Нал</span><input id="editPayCash" inputmode="numeric" placeholder="0"></div>
+          <div class="pay-split-item"><span>Безнал</span><input id="editPayCard" inputmode="numeric" placeholder="0"></div>
+          <div class="pay-split-item"><span>ЕРИП</span><input id="editPayErip" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="pay-split-total">Итого: <b id="editPayTotal">0</b> Br</div>
+      </div>
+      <div class="detail-field"><label>Скидка / номер сертификата</label><input id="editDiscountNote" placeholder="Например: скидка 10% или серт. №123"></div>
+      <div class="detail-field"><label>Источник брони</label><input id="editChannel" list="knownChannelsList" placeholder="Сайт, Мир квестов, ExtraReality…"></div>
+      <div class="detail-field">
+        <label>Кто отыграл</label>
+        <div class="pay-split">
+          <div class="pay-split-item" style="flex:1;"><span>Актёр</span><input id="editWorkedActor" list="knownActorNamesList" placeholder="Имя"></div>
+          <div class="pay-split-item" style="flex:1;"><span>Актриса</span><input id="editWorkedActress" list="knownActorNamesList" placeholder="Имя"></div>
+        </div>
+      </div>
+      <div class="detail-field"><label>Кто из админов оформил</label><input id="editHandledByAdmin" placeholder="Ваше имя"></div>
+      <div class="detail-field"><label>Комментарий</label><textarea id="editComment" rows="3"></textarea></div>
+      <div class="modal-actions">
+        <button class="btn" id="saveEditBtn">Сохранить</button>
+        <button class="btn-secondary" id="cancelEditBtn">Назад</button>
+      </div>
+    </div>
+
+    <div id="rescheduleView" style="display:none;">
+      <div class="detail-field">
+        <label>Новая дата</label>
+        <div class="cal-head">
+          <button type="button" class="cal-nav" id="reschedCalPrev" aria-label="Предыдущий месяц">‹</button>
+          <span class="cal-month" id="reschedCalMonthLabel"></span>
+          <button type="button" class="cal-nav" id="reschedCalNext" aria-label="Следующий месяц">›</button>
+        </div>
+        <div class="cal-weekdays">
+          <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+        </div>
+        <div class="cal-grid" id="reschedCalGrid"></div>
+      </div>
+      <div class="detail-field">
+        <label>Новое время</label>
+        <div class="slot-grid" id="rescheduleSlots"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="saveRescheduleBtn">Перенести бронь</button>
+        <button class="btn-secondary" id="cancelRescheduleBtn">Назад</button>
+      </div>
+    </div>
+
+    <div class="modal-msg" id="detailMsg"></div>
+  </div>
+</div>
+
+<!-- Shared confirmation modal: cancel a booking, cancel an already-done sverka
+     for one booking, OR cancel a whole shift's sverka from "Смены и
+     напоминания". It can now be opened FROM INSIDE another already-open
+     modal (shiftsOverlay), so it needs a higher z-index than the plain
+     .modal-overlay default (50) — otherwise, since shiftsOverlay sits later
+     in the page than this element, equal z-index would let shiftsOverlay's
+     own inputs paint on top and swallow clicks meant for this dialog. -->
+<div class="modal-overlay" id="confirmOverlay" style="z-index:60;">
+  <div class="modal-box" style="max-width:380px;">
+    <h2 style="font-size:17px;" id="confirmTitle">Отменить бронь?</h2>
+    <p style="color:var(--muted); font-size:14px; margin:0 0 4px;" id="confirmText"></p>
+    <div class="modal-actions">
+      <button class="btn-danger" id="confirmYes">Да, отменить</button>
+      <button class="btn-secondary" id="confirmNo">Нет</button>
+    </div>
+  </div>
+</div>
+
+<!-- New booking modal (real customer booking or technical block) -->
+<div class="modal-overlay" id="techOverlay">
+  <div class="modal-box">
+    <button class="modal-close-x" data-close="tech">✕</button>
+    <h2 id="techTitle">Новая бронь</h2>
+
+    <div class="type-toggle" id="bookingTypeToggle">
+      <button type="button" class="type-toggle-btn active" data-type="customer">Клиент</button>
+      <button type="button" class="type-toggle-btn" data-type="technical">Техническая</button>
+    </div>
+
+    <div class="detail-field">
+      <label>Дата</label>
+      <div class="cal-head">
+        <button type="button" class="cal-nav" id="techCalPrev" aria-label="Предыдущий месяц">‹</button>
+        <span class="cal-month" id="techCalMonthLabel"></span>
+        <button type="button" class="cal-nav" id="techCalNext" aria-label="Следующий месяц">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+      </div>
+      <div class="cal-grid" id="techCalGrid"></div>
+    </div>
+    <div class="detail-field">
+      <label>Время</label>
+      <div class="slot-grid" id="techSlots"></div>
+    </div>
+
+    <div id="customerFields">
+      <div class="detail-field"><label>Имя клиента</label><input id="techName" placeholder="Имя"></div>
+      <div class="detail-field"><label>Телефон</label><input id="techPhone" placeholder="+375 (__) ___-__-__"></div>
+      <div class="detail-field"><label>Количество игроков</label><select id="techPlayers"></select></div>
+      <div class="detail-field"><label>Цена (можно исправить вручную)</label><input id="techPrice" inputmode="numeric" placeholder="Рассчитается автоматически"></div>
+    </div>
+
+    <div class="detail-field">
+      <label id="techCommentLabel">Комментарий (необязательно)</label>
+      <textarea id="techComment" rows="3" maxlength="500" placeholder="Например: уборка, съёмки, ремонт"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="techSubmitBtn">Создать бронь</button>
+      <button class="btn-secondary" id="techCancelBtn">Отмена</button>
+    </div>
+    <div class="modal-msg" id="techMsg"></div>
+  </div>
+</div>
+
+<!-- Закрыть день / Смены / Статистика / Бухгалтерия — только в полной
+     админке (admin.html). Здесь их нет по просьбе владельца: эта панель
+     упрощённая, только для повседневной работы на месте. -->
+
+<!-- Cash register ("Касса") — running cash balance, replaces the manual
+     running-total column from the owner's old spreadsheet -->
+<div class="modal-overlay" id="financeOverlay">
+  <div class="modal-box" style="max-width:560px;">
+    <button class="modal-close-x" data-close="finance">✕</button>
+    <h2>Касса</h2>
+
+    <div class="finance-balance">
+      <div class="finance-balance-label">Текущий остаток в кассе</div>
+      <div class="finance-balance-value" id="financeBalance">—</div>
+      <div class="finance-balance-sub" id="financeBalanceSub"></div>
+    </div>
+
+    <details class="finance-opening">
+      <summary>Задать точку отсчёта вручную</summary>
+      <p style="color:var(--muted); font-size:12.5px; margin:8px 0 12px;">
+        Укажите дату и сколько наличных было в кассе на НАЧАЛО этого дня —
+        то есть до того, как вы начали вносить брони/расходы за этот день.
+        Дальше остаток за эту и все следующие даты будет считаться
+        автоматически (наличные из броней минус расходы и выплаты ниже).
+        Если настраиваете это прямо сейчас, среди дня — смело ставьте
+        сегодняшнюю дату и то, что сейчас реально лежит в кассе: всё, что
+        вы внесёте в систему начиная с этого момента, добавится сверху.
+      </p>
+      <div class="pay-split">
+        <div class="pay-split-item" style="flex:1;"><span>Дата</span><input type="date" id="financeOpeningDate"></div>
+        <div class="pay-split-item" style="flex:1;"><span>Сумма, Br</span><input type="text" id="financeOpeningBalance" inputmode="numeric" placeholder="0"></div>
+      </div>
+      <button class="btn-secondary" id="financeOpeningSave" style="margin-top:10px;">Сохранить точку отсчёта</button>
+    </details>
+
+    <h3 style="font-size:14px; margin:22px 0 12px;">Добавить расход или выплату</h3>
+    <div class="type-toggle" id="financeKindToggle">
+      <button type="button" class="type-toggle-btn active" data-kind="expense">Расход</button>
+      <button type="button" class="type-toggle-btn" data-kind="payroll">Зарплата / инкассация</button>
+    </div>
+    <div class="pay-split" style="margin-top:12px;">
+      <div class="pay-split-item" style="flex:0 0 140px;"><span>Дата</span><input type="date" id="financeCashoutDate"></div>
+      <div class="pay-split-item" style="flex:1;"><span>Описание</span><input type="text" id="financeCashoutLabel" placeholder="Например: реквизит, ЗП Ивану"></div>
+      <div class="pay-split-item" style="flex:0 0 110px;"><span>Сумма, Br</span><input type="text" id="financeCashoutAmount" inputmode="numeric" placeholder="0"></div>
+    </div>
+    <button class="btn" id="financeCashoutAdd" style="margin-top:10px;">Записать</button>
+
+    <h3 style="font-size:14px; margin:22px 0 12px;">Последние записи</h3>
+    <div id="financeList"><div class="load-note">Загрузка…</div></div>
+
+    <div class="modal-msg" id="financeMsg"></div>
+  </div>
+</div>
+<datalist id="knownChannelsList">
+  <option value="Сайт"><option value="Мир квестов"><option value="ExtraReality"><option value="Instagram"><option value="Пинкертон"><option value="Сливки"><option value="Бартер"><option value="Телефон">
+</datalist>
+<datalist id="knownActorNamesList"></datalist>
+
+<script>
+(function(){
+  const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
+  const LATE_IDX = 8;
+  const BOOKING_DAYS_AHEAD = 65;
+  const WEEKDAY_TIERS = [
+    {max:2, price:140, people:'1–2 человека'},
+    {max:4, price:160, people:'3–4 человека'},
+    {max:5, price:190, people:'5 человек'},
+    {max:6, price:220, people:'6 человек'}
+  ];
+  const WEEKEND_TIERS = [
+    {max:2, price:160, people:'1–2 человека'},
+    {max:4, price:180, people:'3–4 человека'},
+    {max:5, price:210, people:'5 человек'},
+    {max:6, price:240, people:'6 человек'}
+  ];
+  function tiersFor(weekend){ return weekend ? WEEKEND_TIERS : WEEKDAY_TIERS; }
+  const WEEKDAY_NAMES = ['вс','пн','вт','ср','чт','пт','сб'];
+  const MONTH_NAMES = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  const MONTH_NAMES_NOM = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const WEEKDAY_SHORT = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']; // Monday-first, for the calendar grid cells
+
+  let adminPassword = null;
+  let allBookings = [];
+  let activeBooking = null; // the booking currently open in the detail modal
+  let pendingConfirmAction = 'cancel'; // which action the shared confirm dialog (below) performs on "Да"
+  let searchQuery = '';
+  let filterDateISO = ''; // '' = show every date; otherwise show only this one day
+
+  // ---------- helpers ----------
+  function todayISO(){
+    const d = new Date();
+    d.setHours(0,0,0,0);
+    return isoDate(d);
+  }
+  function isoDate(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  function maxDateISO(){
+    const d = new Date();
+    d.setDate(d.getDate() + BOOKING_DAYS_AHEAD);
+    return isoDate(d);
+  }
+  function parseISO(iso){
+    const [y,m,d] = iso.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+  function isWeekendISO(iso){
+    const dow = parseISO(iso).getDay();
+    return dow === 0 || dow === 6;
+  }
+  function formatDateHeading(iso){
+    const d = parseISO(iso);
+    const wd = WEEKDAY_NAMES[d.getDay()];
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${wd}`;
+  }
+  // Formats a full ISO datetime (e.g. one reminder entry's fireAt) as "16
+  // сентября в 18:30" for display in the booking detail modal.
+  function formatReminderMoment(iso){
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} в ${hh}:${mm}`;
+  }
+  function toNum(v){
+    const n = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+    return Number.isFinite(n) ? n : 0;
+  }
+  // "160 Br (Нал 100 + Безнал 60)" when a payment breakdown is on record,
+  // otherwise just the plain total — same as before this feature existed.
+  function formatPriceBreakdown(b){
+    if (!b.price) return '—';
+    const parts = [];
+    if (toNum(b.payCash) > 0) parts.push(`Нал ${b.payCash}`);
+    if (toNum(b.payCard) > 0) parts.push(`Безнал ${b.payCard}`);
+    if (toNum(b.payErip) > 0) parts.push(`ЕРИП ${b.payErip}`);
+    return parts.length ? `${b.price} Br (${parts.join(' + ')})` : `${b.price} Br`;
+  }
+  // Ручная сверка (setManualCloseout/cancelManualCloseout в api/_closeout.js).
+  // Возвращает null, если сверки ещё не было (карточка тогда молчит об
+  // этом), иначе — объект с готовой подписью и флагами "цена/игроки
+  // менялись" (нужны renderList(), чтобы показать стрелку "было → стало").
+  function formatManualSverka(b){
+    const mc = b.manualCloseout;
+    if (!mc || !mc.done) return null;
+    const priceChanged = Object.prototype.hasOwnProperty.call(mc, 'priceBefore');
+    const playersChanged = Object.prototype.hasOwnProperty.call(mc, 'playersBefore');
+    const parts = [mc.played === false ? 'Игра не состоялась' : 'Игра состоялась'];
+    if (mc.played !== false && priceChanged) parts.push(`цена: ${mc.priceBefore} → ${b.price} Br`);
+    if (mc.played !== false && playersChanged) parts.push(`игроков: ${mc.playersBefore} → ${b.players}`);
+    if (mc.confirmedBy) parts.push(`отметил(а): ${mc.confirmedBy}`);
+    return { label: parts.join(' · '), priceChanged, playersChanged };
+  }
+  // Auto-format phone numbers as +375 (XX) XXX-XX-XX while typing, so every
+  // booking entered by hand ends up in the same shape as ones from the site.
+  function formatByPhone(raw){
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('375')) digits = digits.slice(3);
+    else if (digits.startsWith('80')) digits = digits.slice(2);
+    else if (digits.startsWith('0')) digits = digits.slice(1);
+    digits = digits.slice(0, 9);
+    if (!digits) return '';
+    let out = '+375 (' + digits.slice(0, 2);
+    if (digits.length >= 2) out += ')';
+    if (digits.length > 2) out += ' ' + digits.slice(2, 5);
+    if (digits.length > 5) out += '-' + digits.slice(5, 7);
+    if (digits.length > 7) out += '-' + digits.slice(7, 9);
+    return out;
+  }
+  function attachPhoneMask(el){
+    if (!el) return;
+    el.addEventListener('input', () => { el.value = formatByPhone(el.value); });
+  }
+  function escapeHtml(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function authHeaders(){
+    return { 'Content-Type':'application/json', 'X-Admin-Password': adminPassword || '' };
+  }
+
+  // ---------- login ----------
+  const loginScreen = document.getElementById('loginScreen');
+  const panel = document.getElementById('panel');
+  const loginPassword = document.getElementById('loginPassword');
+  const loginPwToggle = document.getElementById('loginPwToggle');
+  const loginEyeIcon = document.getElementById('loginEyeIcon');
+  const loginSubmit = document.getElementById('loginSubmit');
+  const loginErr = document.getElementById('loginErr');
+
+  loginPwToggle.addEventListener('click', () => {
+    const showing = loginPassword.type === 'text';
+    loginPassword.type = showing ? 'password' : 'text';
+    loginEyeIcon.innerHTML = showing
+      ? '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/>'
+      : '<path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 0 0 4.24 4.24"/><path d="M9.9 4.24A11 11 0 0 1 12 4c7 0 11 7 11 7a13.4 13.4 0 0 1-3.17 3.88M6.6 6.6C3.87 8.36 2 11 2 11s4 7 11 7a10.9 10.9 0 0 0 5.4-1.4"/>';
+  });
+
+  async function tryLogin(){
+    const pw = loginPassword.value;
+    if (!pw){ loginErr.textContent = 'Введите пароль.'; return; }
+    loginSubmit.disabled = true;
+    loginErr.textContent = '';
+    try{
+      const res = await fetch('/api/admin/login', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pw })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok){
+        adminPassword = pw;
+        localStorage.setItem('adminPassword', pw);
+        showPanel();
+      } else {
+        loginErr.textContent = out.error || 'Неверный пароль.';
+      }
+    } catch(err){
+      loginErr.textContent = 'Не удалось связаться с сервером. Попробуйте ещё раз.';
+    } finally {
+      loginSubmit.disabled = false;
+    }
+  }
+  loginSubmit.addEventListener('click', tryLogin);
+  loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    adminPassword = null;
+    localStorage.removeItem('adminPassword');
+    panel.style.display = 'none';
+    loginScreen.style.display = 'flex';
+    loginPassword.value = '';
+  });
+
+  function showPanel(){
+    loginScreen.style.display = 'none';
+    panel.style.display = 'block';
+    loadBookings();
+    loadKnownActorNames();
+  }
+
+  // ---------- loading & rendering the bookings list ----------
+  const listContainer = document.getElementById('listContainer');
+
+  async function loadBookings(){
+    listContainer.innerHTML = '<div class="load-note">Загрузка…</div>';
+    try{
+      const res = await fetch('/api/admin/bookings', { headers: authHeaders(), cache:'no-store' });
+      if (res.status === 401){
+        adminPassword = null;
+        localStorage.removeItem('adminPassword');
+        panel.style.display = 'none';
+        loginScreen.style.display = 'flex';
+        loginErr.textContent = 'Сессия истекла — войдите снова.';
+        return;
+      }
+      const out = await res.json().catch(() => ({}));
+      allBookings = Array.isArray(out.bookings) ? out.bookings : [];
+      renderList();
+    } catch(err){
+      listContainer.innerHTML = '<div class="empty-note">Не удалось загрузить брони. Проверьте соединение и нажмите «Обновить».</div>';
+    }
+  }
+
+  function takenTimesFor(dateISO, excludeBooking){
+    // Only ACTIVE bookings actually occupy a slot — a cancelled or
+    // rescheduled entry stays in allBookings (as history) but its slot is
+    // free again, so it must not block picking that time for something new.
+    return allBookings
+      .filter(b => b.dateISO === dateISO && b.status === 'active' && b !== excludeBooking)
+      .map(b => b.time);
+  }
+
+  let activeTab = 'active'; // 'active' | 'cancelled' | 'rescheduled' — which tab is showing
+
+  const TAB_EMPTY_LABELS = {
+    active: 'Активных броней',
+    cancelled: 'Отменённых броней',
+    rescheduled: 'Перенесённых броней',
+  };
+
+  // Applies the current tab, the search box, and the day filter on top of
+  // allBookings. `status` defaults to the active tab but can be overridden
+  // (used to compute the OTHER tabs' counts without switching the view).
+  // Kept separate from renderList so CSV export can reuse exactly what's
+  // currently on screen.
+  function getFilteredBookings(status){
+    let list = allBookings.filter(b => b.status === (status || activeTab));
+    if (filterDateISO){
+      list = list.filter(b => b.dateISO === filterDateISO);
+    }
+    const q = searchQuery.trim().toLowerCase();
+    if (q){
+      list = list.filter(b => {
+        const name = (b.name || '').toLowerCase();
+        const phone = (b.phone || '').toLowerCase();
+        return name.includes(q) || phone.includes(q);
+      });
+    }
+    return list;
+  }
+
+  // Each tab is already one status, so the row badge goes back to plain
+  // TYPE (Клиент / Техническая) — repeating the status on every row was
+  // exactly the clutter this tab split was meant to fix.
+  function typeBadge(b){
+    // A cancelled/rescheduled booking gets its own clearly-colored plaque
+    // (red "Отменена" / blue "Перенесена") instead of just fading its
+    // normal Клиент/Техническая badge — the CSS for status-cancelled and
+    // status-rescheduled already existed, this just actually uses it.
+    if (b.status === 'cancelled') return { cls: 'status-cancelled', label: 'Отменена' };
+    if (b.status === 'rescheduled') return { cls: 'status-rescheduled', label: 'Перенесена' };
+    return b.type === 'technical' ? { cls: 'technical', label: 'Техническая' } : { cls: 'customer', label: 'Клиент' };
+  }
+
+  function updateTabCounts(){
+    document.getElementById('tabCountActive').textContent = getFilteredBookings('active').length;
+    document.getElementById('tabCountCancelled').textContent = getFilteredBookings('cancelled').length;
+    document.getElementById('tabCountRescheduled').textContent = getFilteredBookings('rescheduled').length;
+  }
+
+  function renderList(){
+    updateTabCounts();
+
+    if (!allBookings.length){
+      listContainer.innerHTML = '<div class="empty-note">Броней пока нет.</div>';
+      return;
+    }
+    const filtered = getFilteredBookings();
+    if (!filtered.length){
+      const reason = filterDateISO ? ' на выбранную дату' : (searchQuery.trim() ? ' по вашему запросу' : '');
+      listContainer.innerHTML = `<div class="empty-note">${TAB_EMPTY_LABELS[activeTab]} не найдено${reason}.</div>`;
+      return;
+    }
+    const byDate = {};
+    filtered.forEach(b => {
+      (byDate[b.dateISO] = byDate[b.dateISO] || []).push(b);
+    });
+    const dates = Object.keys(byDate).sort();
+
+    listContainer.innerHTML = dates.map(dateISO => {
+      const weekend = isWeekendISO(dateISO);
+      const rows = byDate[dateISO]
+        .slice()
+        .sort((a,b) => a.time.localeCompare(b.time))
+        .map(b => {
+          const isTech = b.type === 'technical';
+          const isHistory = b.status !== 'active';
+          const name = isTech ? 'Техническая бронь' : (b.name || '—');
+          const subParts = [];
+          if (!isTech){
+            if (b.phone) subParts.push(b.phone);
+            if (b.source === 'admin') subParts.push('внесено вручную');
+            // Комментарий к брони теперь виден прямо в общем списке, а не
+            // только в карточке — так сотрудник видит его не открывая бронь.
+            if (b.comment) subParts.push(b.comment);
+          } else if (b.comment){
+            subParts.push(b.comment);
+          }
+          if (b.status === 'rescheduled' && b.rescheduledTo){
+            subParts.push(`→ перенесена на ${formatDateHeading(b.rescheduledTo.dateISO)} в ${b.rescheduledTo.time}`);
+          }
+          if (b.status === 'active' && b.rescheduledFrom){
+            subParts.push(`перенесена с ${formatDateHeading(b.rescheduledFrom.dateISO)}, ${b.rescheduledFrom.time}`);
+          }
+          const sub = subParts.filter(Boolean).join(' · ');
+          // Ручная сверка: если цена поменялась при сверке, показываем
+          // "было → стало" вместо просто текущей цены (b.price уже содержит
+          // НОВУЮ цену — старая берётся из manualCloseout.priceBefore).
+          const sverka = (!isTech && !isHistory) ? formatManualSverka(b) : null;
+          let priceLabel = '';
+          if (!isTech && b.price && !isHistory){
+            priceLabel = (sverka && sverka.priceChanged)
+              ? `<span class="row-price-old">${escapeHtml(String(b.manualCloseout.priceBefore))}</span> → ${escapeHtml(b.price)} Br`
+              : `${escapeHtml(b.price)} Br`;
+          }
+          // Зелёная плашка в уголке — единственный признак того, что сверка
+          // по этой брони проведена (played:false — «игра не состоялась» —
+          // тоже считается проведённой сверкой, просто с другим текстом).
+          const sverkaBadge = sverka
+            ? `<span class="row-sverka-badge"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverka.label && sverka.label.startsWith('Игра не состоялась') ? '✓ Сверено · не было' : '✓ Сверено'}</span>`
+            : '';
+          const badge = typeBadge(b);
+          return `
+            <div class="booking-row${isHistory ? ' is-history' : ''}" data-id="${escapeHtml(b.id)}">
+              ${sverkaBadge}
+              <div class="row-time">${escapeHtml(b.time)}</div>
+              <div class="row-type ${badge.cls}">${badge.label}</div>
+              <div class="row-main">
+                <div class="row-name">${escapeHtml(name)}${!isTech && b.players ? ` · ${escapeHtml(b.players)}` : ''}</div>
+                ${sub ? `<div class="row-sub">${escapeHtml(sub)}</div>` : ''}
+              </div>
+              ${priceLabel ? `<div class="row-price">${priceLabel}</div>` : ''}
+            </div>`;
+        }).join('');
+
+      return `
+        <div class="day-group">
+          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : ''}</div>
+          ${rows}
+        </div>`;
+    }).join('');
+
+    listContainer.querySelectorAll('.booking-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const booking = allBookings.find(b => b.id === row.dataset.id);
+        if (booking) openDetail(booking);
+      });
+    });
+  }
+
+  // ---------- status tabs ----------
+  const listTabs = document.querySelectorAll('.list-tab');
+  function syncTabsUI(){
+    listTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === activeTab));
+  }
+  listTabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTab = btn.dataset.tab;
+      syncTabsUI();
+      renderList();
+    });
+  });
+
+  document.getElementById('refreshBtn').addEventListener('click', () => { loadBookings(); });
+
+  // ---------- toolbar: search, day filter, CSV export ----------
+  const searchBox = document.getElementById('searchBox');
+  const dayFilterInput = document.getElementById('dayFilterInput');
+  const dayFilterClear = document.getElementById('dayFilterClear');
+  const todayToggleBtn = document.getElementById('todayToggleBtn');
+  const exportCsvBtn = document.getElementById('exportCsvBtn');
+
+  searchBox.addEventListener('input', () => {
+    searchQuery = searchBox.value;
+    renderList();
+  });
+
+  // The date input and the "Сегодня" quick-button both drive the same
+  // filterDateISO state, so they're kept visually in sync with each other.
+  function syncDayFilterUI(){
+    dayFilterInput.value = filterDateISO || '';
+    todayToggleBtn.classList.toggle('active', filterDateISO === todayISO());
+    dayFilterClear.classList.toggle('show', Boolean(filterDateISO));
+  }
+
+  dayFilterInput.addEventListener('change', () => {
+    filterDateISO = dayFilterInput.value || '';
+    syncDayFilterUI();
+    renderList();
+  });
+
+  dayFilterClear.addEventListener('click', () => {
+    filterDateISO = '';
+    syncDayFilterUI();
+    renderList();
+  });
+
+  todayToggleBtn.addEventListener('click', () => {
+    filterDateISO = (filterDateISO === todayISO()) ? '' : todayISO();
+    syncDayFilterUI();
+    renderList();
+  });
+
+  function csvEscape(value){
+    const s = String(value == null ? '' : value);
+    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  function statusLabelForCsv(b){
+    if (b.status === 'cancelled') return 'Отменена';
+    if (b.status === 'rescheduled') return 'Перенесена';
+    return 'Активна';
+  }
+
+  exportCsvBtn.addEventListener('click', () => {
+    const rows = getFilteredBookings().slice().sort((a,b) => {
+      return a.dateISO === b.dateISO ? a.time.localeCompare(b.time) : a.dateISO.localeCompare(b.dateISO);
+    });
+    if (!rows.length){
+      alert('Нет броней для экспорта — измените фильтр поиска или дату.');
+      return;
+    }
+    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Сверка','Комментарий','Как создано','Перенос'];
+    const lines = [header.join(';')];
+    rows.forEach(b => {
+      const isTech = b.type === 'technical';
+      const moveNote = b.status === 'rescheduled' && b.rescheduledTo
+        ? `на ${b.rescheduledTo.dateISO} ${b.rescheduledTo.time}`
+        : (b.status === 'active' && b.rescheduledFrom ? `с ${b.rescheduledFrom.dateISO} ${b.rescheduledFrom.time}` : '');
+      const sverkaForCsv = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : '';
+      lines.push([
+        b.dateISO || '',
+        b.time || '',
+        isTech ? 'Техническая' : 'Клиент',
+        statusLabelForCsv(b),
+        isTech ? '' : (b.name || ''),
+        isTech ? '' : (b.phone || ''),
+        isTech ? '' : (b.players || ''),
+        isTech ? '' : (b.price != null ? b.price : ''),
+        isTech ? '' : (b.payCash || ''),
+        isTech ? '' : (b.payCard || ''),
+        isTech ? '' : (b.payErip || ''),
+        isTech ? '' : (b.channel || ''),
+        isTech ? '' : (b.discountNote || ''),
+        isTech ? '' : (b.workedActor || ''),
+        isTech ? '' : (b.workedActress || ''),
+        isTech ? '' : (b.handledByAdmin || ''),
+        sverkaForCsv,
+        b.comment || '',
+        b.source === 'admin' ? 'вручную' : (b.source || ''),
+        moveNote
+      ].map(csvEscape).join(';'));
+    });
+    // Leading BOM so Excel opens Cyrillic text as UTF-8 instead of guessing wrong.
+    const csvContent = '﻿' + lines.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `брони_${todayISO()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // ---------- detail modal ----------
+  const detailOverlay = document.getElementById('detailOverlay');
+  const detailView = document.getElementById('detailView');
+  const editView = document.getElementById('editView');
+  const rescheduleView = document.getElementById('rescheduleView');
+  const detailMsg = document.getElementById('detailMsg');
+
+  function resetDetailViews(){
+    detailView.style.display = 'block';
+    editView.style.display = 'none';
+    rescheduleView.style.display = 'none';
+    document.getElementById('sverkaForm').style.display = 'none';
+    document.getElementById('detailActiveActions').style.display = 'flex';
+    detailMsg.textContent = '';
+    detailMsg.className = 'modal-msg';
+  }
+
+  function openDetail(booking){
+    activeBooking = booking;
+    resetDetailViews();
+    const isTech = booking.type === 'technical';
+    const isHistory = booking.status !== 'active';
+    document.getElementById('detailTitle').textContent =
+      `${isTech ? 'Техническая бронь' : 'Бронь'} · ${formatDateHeading(booking.dateISO)} в ${booking.time}`;
+
+    const dvStatus = document.getElementById('dvStatus');
+    if (booking.status === 'cancelled'){
+      dvStatus.innerHTML = `<span style="color:var(--danger-bright); font-weight:700;">Отменена</span>`;
+    } else if (booking.status === 'rescheduled'){
+      const to = booking.rescheduledTo;
+      dvStatus.innerHTML = `<span style="color:var(--info-bright); font-weight:700;">Перенесена</span>` +
+        (to ? ` → ${formatDateHeading(to.dateISO)} в ${to.time}` : '');
+    } else if (booking.rescheduledFrom){
+      const from = booking.rescheduledFrom;
+      dvStatus.innerHTML = `<span style="color:var(--ochre-bright); font-weight:700;">Активна</span>` +
+        ` (перенесена с ${formatDateHeading(from.dateISO)}, ${from.time})`;
+    } else {
+      dvStatus.innerHTML = `<span style="color:var(--ochre-bright); font-weight:700;">Активна</span>`;
+    }
+
+    document.getElementById('dvType').textContent = isTech ? 'Техническая (слот заблокирован)' : 'Клиентская бронь';
+    document.getElementById('dvName').textContent = booking.name || '—';
+    document.getElementById('dvPhone').textContent = booking.phone || '—';
+    document.getElementById('dvPlayers').textContent = booking.players || '—';
+    document.getElementById('dvPrice').textContent = formatPriceBreakdown(booking);
+    document.getElementById('dvComment').textContent = booking.comment || '—';
+
+    const dvChannelRow = document.getElementById('dvChannelRow');
+    const dvDiscountRow = document.getElementById('dvDiscountRow');
+    const dvWorkedRow = document.getElementById('dvWorkedRow');
+    const dvHandledRow = document.getElementById('dvHandledRow');
+    if (isTech) {
+      dvChannelRow.style.display = 'none';
+      dvDiscountRow.style.display = 'none';
+      dvWorkedRow.style.display = 'none';
+      dvHandledRow.style.display = 'none';
+    } else {
+      dvChannelRow.style.display = '';
+      document.getElementById('dvChannel').textContent = booking.channel || '—';
+      dvDiscountRow.style.display = '';
+      document.getElementById('dvDiscount').textContent = booking.discountNote || '—';
+      dvWorkedRow.style.display = '';
+      const workedParts = [];
+      if (booking.workedActor) workedParts.push(`Актёр: ${booking.workedActor}`);
+      if (booking.workedActress) workedParts.push(`Актриса: ${booking.workedActress}`);
+      document.getElementById('dvWorked').textContent = workedParts.length ? workedParts.join(' · ') : '—';
+      dvHandledRow.style.display = '';
+      document.getElementById('dvHandled').textContent = booking.handledByAdmin || '—';
+    }
+
+    const dvReminderRow = document.getElementById('dvReminderRow');
+    const dvReminder = document.getElementById('dvReminder');
+    if (isTech) {
+      dvReminderRow.style.display = 'none';
+    } else {
+      dvReminderRow.style.display = '';
+      const reminders = Array.isArray(booking.reminders) ? booking.reminders : [];
+      if (isHistory) {
+        dvReminder.textContent = reminders.length
+          ? 'Было запланировано — отменено вместе с бронью'
+          : '—';
+      } else if (!reminders.length) {
+        dvReminder.textContent = 'Актёр/актриса не назначены на это время — попросите владельца назначить смену в полной админке («Смены и напоминания»), и напоминание для этой брони запланируется само.';
+      } else {
+        // A booking routinely has BOTH an actor and an actress on shift at
+        // once (two-character show) — each gets listed with their own
+        // status rather than only showing whichever one was scheduled first.
+        dvReminder.textContent = reminders.map(r => {
+          if (r.status === 'scheduled') {
+            const when = r.fireAt ? formatReminderMoment(r.fireAt) : '';
+            return `@${r.actorUsername}${when ? ', ' + when : ''}`;
+          }
+          if (r.status === 'pending') {
+            return `@${r.actorUsername} — запланируется позже (бронь дальше чем на 7 дней)`;
+          }
+          if (r.status === 'actor-not-registered') {
+            return `@${r.actorUsername} ещё не подключил бота — попросите отправить /start`;
+          }
+          return `@${r.actorUsername}`;
+        }).join('; ');
+      }
+    }
+
+    // ---------- ручная сверка ----------
+    const dvSverkaRow = document.getElementById('dvSverkaRow');
+    const openSverkaBtn = document.getElementById('openSverkaBtn');
+    const resetSverkaBtn = document.getElementById('resetSverkaBtn');
+    document.getElementById('sverkaMsg').textContent = '';
+    if (isTech) {
+      dvSverkaRow.style.display = 'none';
+      openSverkaBtn.style.display = 'none';
+      resetSverkaBtn.style.display = 'none';
+    } else {
+      const sverka = formatManualSverka(booking);
+      if (sverka) {
+        dvSverkaRow.style.display = '';
+        document.getElementById('dvSverka').innerHTML = `<span style="color:#5fe08a; font-weight:700;">✓ Сверено</span> — ${escapeHtml(sverka.label)}`;
+      } else {
+        dvSverkaRow.style.display = 'none';
+      }
+      if (isHistory) {
+        openSverkaBtn.style.display = 'none';
+        resetSverkaBtn.style.display = 'none';
+      } else {
+        openSverkaBtn.textContent = sverka ? 'Изменить сверку' : 'Провести сверку';
+        openSverkaBtn.style.display = '';
+        resetSverkaBtn.style.display = sverka ? '' : 'none';
+      }
+    }
+
+    // Cancelled/rescheduled entries are history, not live bookings — nothing
+    // to edit, reschedule, or cancel about a slot that's already free.
+    document.getElementById('detailActiveActions').style.display = isHistory ? 'none' : 'flex';
+
+    detailOverlay.classList.add('show');
+  }
+
+  function closeDetail(){
+    detailOverlay.classList.remove('show');
+    activeBooking = null;
+  }
+
+  document.querySelectorAll('[data-close="detail"]').forEach(b => b.addEventListener('click', closeDetail));
+  detailOverlay.addEventListener('click', e => { if (e.target === detailOverlay) closeDetail(); });
+
+  // -- edit --
+  function updateEditPayTotal(){
+    const cash = toNum(document.getElementById('editPayCash').value);
+    const card = toNum(document.getElementById('editPayCard').value);
+    const erip = toNum(document.getElementById('editPayErip').value);
+    document.getElementById('editPayTotal').textContent = String(cash + card + erip);
+  }
+  ['editPayCash','editPayCard','editPayErip'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateEditPayTotal);
+  });
+
+  document.getElementById('editBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    detailView.style.display = 'none';
+    editView.style.display = 'block';
+    document.getElementById('editName').value = activeBooking.name || '';
+    document.getElementById('editPhone').value = activeBooking.phone || '';
+    document.getElementById('editPlayers').value = activeBooking.players || '';
+    // No breakdown recorded yet (a booking from before this feature, or
+    // one nobody has touched since) — default the "Нал" field to the
+    // existing single price so saving without changes doesn't zero it out.
+    const hasBreakdown = activeBooking.payCash || activeBooking.payCard || activeBooking.payErip;
+    document.getElementById('editPayCash').value = hasBreakdown ? (activeBooking.payCash || '') : (activeBooking.price || '');
+    document.getElementById('editPayCard').value = activeBooking.payCard || '';
+    document.getElementById('editPayErip').value = activeBooking.payErip || '';
+    updateEditPayTotal();
+    document.getElementById('editDiscountNote').value = activeBooking.discountNote || '';
+    document.getElementById('editChannel').value = activeBooking.channel || '';
+    document.getElementById('editWorkedActor').value = activeBooking.workedActor || '';
+    document.getElementById('editWorkedActress').value = activeBooking.workedActress || '';
+    document.getElementById('editHandledByAdmin').value = activeBooking.handledByAdmin || localStorage.getItem('lastHandledByAdmin') || '';
+    document.getElementById('editComment').value = activeBooking.comment || '';
+  });
+  document.getElementById('cancelEditBtn').addEventListener('click', resetDetailViews);
+
+  document.getElementById('saveEditBtn').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    const handledByAdmin = document.getElementById('editHandledByAdmin').value;
+    const payload = {
+      action:'edit',
+      dateISO: activeBooking.dateISO,
+      time: activeBooking.time,
+      name: document.getElementById('editName').value,
+      phone: document.getElementById('editPhone').value,
+      players: document.getElementById('editPlayers').value,
+      payCash: document.getElementById('editPayCash').value,
+      payCard: document.getElementById('editPayCard').value,
+      payErip: document.getElementById('editPayErip').value,
+      discountNote: document.getElementById('editDiscountNote').value,
+      channel: document.getElementById('editChannel').value,
+      workedActor: document.getElementById('editWorkedActor').value,
+      workedActress: document.getElementById('editWorkedActress').value,
+      handledByAdmin,
+      comment: document.getElementById('editComment').value,
+    };
+    try{
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось сохранить.'; detailMsg.className = 'modal-msg err'; return; }
+      if (handledByAdmin.trim()) localStorage.setItem('lastHandledByAdmin', handledByAdmin.trim());
+      await loadBookings();
+      closeDetail();
+    } catch(err){
+      detailMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; detailMsg.className = 'modal-msg err';
+    }
+  });
+
+  // -- ручная сверка --
+  let sverkaPlayed = true; // true='Да', false='Нет' — see #sverkaPlayedToggle
+  const sverkaForm = document.getElementById('sverkaForm');
+  const sverkaPlayedFields = document.getElementById('sverkaPlayedFields');
+  const sverkaMsg = document.getElementById('sverkaMsg');
+
+  function setSverkaPlayed(played){
+    sverkaPlayed = played;
+    document.querySelectorAll('#sverkaPlayedToggle .type-toggle-btn').forEach(b => {
+      b.classList.toggle('active', (b.dataset.played === 'yes') === played);
+    });
+    sverkaPlayedFields.style.display = played ? '' : 'none';
+  }
+  document.querySelectorAll('#sverkaPlayedToggle .type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => setSverkaPlayed(btn.dataset.played === 'yes'));
+  });
+
+  document.getElementById('openSverkaBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    const mc = activeBooking.manualCloseout;
+    setSverkaPlayed(!mc || mc.played !== false);
+    document.getElementById('sverkaPlayers').value = activeBooking.players || '';
+    document.getElementById('sverkaPrice').value = activeBooking.price || '';
+    sverkaMsg.textContent = '';
+    sverkaForm.style.display = 'block';
+    document.getElementById('detailActiveActions').style.display = 'none';
+  });
+  document.getElementById('cancelSverkaFormBtn').addEventListener('click', () => {
+    sverkaForm.style.display = 'none';
+    document.getElementById('detailActiveActions').style.display = 'flex';
+  });
+
+  document.getElementById('saveSverkaBtn').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    const payload = {
+      action: 'manualCloseout',
+      dateISO: activeBooking.dateISO,
+      time: activeBooking.time,
+      played: sverkaPlayed,
+      price: document.getElementById('sverkaPrice').value,
+      players: document.getElementById('sverkaPlayers').value,
+      confirmedBy: localStorage.getItem('lastHandledByAdmin') || '',
+    };
+    const btn = document.getElementById('saveSverkaBtn');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        sverkaMsg.textContent = out.error || 'Не удалось сохранить сверку.';
+        sverkaMsg.className = 'modal-msg err';
+        return;
+      }
+      await loadBookings();
+      const fresh = allBookings.find(b => b.id === activeBooking.id);
+      if (fresh) openDetail(fresh); else closeDetail();
+    } catch(err){
+      sverkaMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      sverkaMsg.className = 'modal-msg err';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('resetSverkaBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    pendingConfirmAction = 'cancelManualCloseout';
+    document.getElementById('confirmTitle').textContent = 'Сбросить сверку?';
+    document.getElementById('confirmText').textContent =
+      `Цена и число игроков по этой брони (${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}) вернутся к значению до сверки, а отметку «сверено» можно будет поставить заново.`;
+    confirmOverlay.classList.add('show');
+  });
+
+  // -- reschedule --
+  const rescheduleSlots = document.getElementById('rescheduleSlots');
+  let rescheduleSelectedTime = null;
+  let reschedSelectedDateISO = null;
+
+  const reschedCalGrid = document.getElementById('reschedCalGrid');
+  const reschedCalMonthLabel = document.getElementById('reschedCalMonthLabel');
+  const reschedCalPrev = document.getElementById('reschedCalPrev');
+  const reschedCalNext = document.getElementById('reschedCalNext');
+  let reschedCalViewYear, reschedCalViewMonth;
+
+  function renderReschedCalendar(){
+    reschedCalGrid.innerHTML = '';
+    reschedCalMonthLabel.textContent = MONTH_NAMES_NOM[reschedCalViewMonth] + ' ' + reschedCalViewYear;
+
+    const firstOfMonth = new Date(reschedCalViewYear, reschedCalViewMonth, 1);
+    const leadEmpty = (firstOfMonth.getDay() + 6) % 7;
+    for (let i = 0; i < leadEmpty; i++) {
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      reschedCalGrid.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(reschedCalViewYear, reschedCalViewMonth + 1, 0).getDate();
+    const minD = parseISO(todayISO());
+    const maxD = parseISO(maxDateISO());
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(reschedCalViewYear, reschedCalViewMonth, dnum);
+      const iso = isoDate(d);
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const inRange = d >= minD && d <= maxD;
+      const isSelected = iso === reschedSelectedDateISO;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + (isSelected ? ' active' : '');
+      btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
+      if (!inRange) {
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', () => {
+          reschedSelectedDateISO = iso;
+          rescheduleSelectedTime = null;
+          renderReschedCalendar();
+          renderRescheduleSlots();
+        });
+      }
+      reschedCalGrid.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(reschedCalViewYear, reschedCalViewMonth, 0);
+    reschedCalPrev.disabled = prevMonthLastDay < new Date(minD.getFullYear(), minD.getMonth(), 1);
+    const nextMonthFirstDay = new Date(reschedCalViewYear, reschedCalViewMonth + 1, 1);
+    reschedCalNext.disabled = nextMonthFirstDay > maxD;
+  }
+  reschedCalPrev.addEventListener('click', () => {
+    if (reschedCalPrev.disabled) return;
+    reschedCalViewMonth--; if (reschedCalViewMonth < 0){ reschedCalViewMonth = 11; reschedCalViewYear--; }
+    renderReschedCalendar();
+  });
+  reschedCalNext.addEventListener('click', () => {
+    if (reschedCalNext.disabled) return;
+    reschedCalViewMonth++; if (reschedCalViewMonth > 11){ reschedCalViewMonth = 0; reschedCalViewYear++; }
+    renderReschedCalendar();
+  });
+
+  function renderRescheduleSlots(){
+    const dateISO = reschedSelectedDateISO;
+    const taken = dateISO ? takenTimesFor(dateISO, activeBooking) : [];
+    rescheduleSlots.innerHTML = SLOTS.map(s => {
+      const isTaken = taken.includes(s);
+      const isActive = s === rescheduleSelectedTime;
+      return `<button type="button" class="slot-btn ${isTaken ? 'taken':''} ${isActive ? 'active':''}" data-time="${s}">${s}</button>`;
+    }).join('');
+    rescheduleSlots.querySelectorAll('.slot-btn:not(.taken)').forEach(btn => {
+      btn.addEventListener('click', () => {
+        rescheduleSelectedTime = btn.dataset.time;
+        renderRescheduleSlots();
+      });
+    });
+  }
+
+  document.getElementById('rescheduleBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    detailView.style.display = 'none';
+    rescheduleView.style.display = 'block';
+    const initialD = parseISO(activeBooking.dateISO);
+    reschedCalViewYear = initialD.getFullYear();
+    reschedCalViewMonth = initialD.getMonth();
+    reschedSelectedDateISO = activeBooking.dateISO;
+    rescheduleSelectedTime = null;
+    renderReschedCalendar();
+    renderRescheduleSlots();
+  });
+  document.getElementById('cancelRescheduleBtn').addEventListener('click', resetDetailViews);
+
+  document.getElementById('saveRescheduleBtn').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    if (!reschedSelectedDateISO || !rescheduleSelectedTime){
+      detailMsg.textContent = 'Выберите дату и время.'; detailMsg.className = 'modal-msg err'; return;
+    }
+    const payload = {
+      action:'reschedule',
+      fromDateISO: activeBooking.dateISO,
+      fromTime: activeBooking.time,
+      toDateISO: reschedSelectedDateISO,
+      toTime: rescheduleSelectedTime,
+    };
+    try{
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось перенести бронь.'; detailMsg.className = 'modal-msg err'; return; }
+      await loadBookings();
+      closeDetail();
+    } catch(err){
+      detailMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; detailMsg.className = 'modal-msg err';
+    }
+  });
+
+  // -- cancel booking / reset a manual sverka (shared confirm dialog) --
+  const confirmOverlay = document.getElementById('confirmOverlay');
+  document.getElementById('cancelBookingBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    pendingConfirmAction = 'cancel';
+    document.getElementById('confirmTitle').textContent = 'Отменить бронь?';
+    document.getElementById('confirmText').textContent =
+      `${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}${activeBooking.name ? ' — ' + activeBooking.name : ''}`;
+    confirmOverlay.classList.add('show');
+  });
+  document.getElementById('confirmNo').addEventListener('click', () => confirmOverlay.classList.remove('show'));
+  confirmOverlay.addEventListener('click', e => { if (e.target === confirmOverlay) confirmOverlay.classList.remove('show'); });
+
+  document.getElementById('confirmYes').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    const action = pendingConfirmAction;
+    const bookingId = activeBooking.id;
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action, dateISO: activeBooking.dateISO, time: activeBooking.time })
+      });
+      const out = await res.json().catch(() => ({}));
+      confirmOverlay.classList.remove('show');
+      if (!res.ok){
+        const msg = out.error || (action === 'cancelManualCloseout' ? 'Не удалось сбросить сверку.' : 'Не удалось отменить бронь.');
+        if (action === 'cancelManualCloseout') {
+          sverkaMsg.textContent = msg;
+          sverkaMsg.className = 'modal-msg err';
+        } else {
+          detailMsg.textContent = msg; detailMsg.className = 'modal-msg err';
+        }
+        return;
+      }
+      await loadBookings();
+      if (action === 'cancelManualCloseout') {
+        const fresh = allBookings.find(b => b.id === bookingId);
+        if (fresh) openDetail(fresh); else closeDetail();
+      } else {
+        closeDetail();
+      }
+    } catch(err){
+      confirmOverlay.classList.remove('show');
+      const msg = 'Ошибка сети. Попробуйте ещё раз.';
+      if (action === 'cancelManualCloseout') {
+        sverkaMsg.textContent = msg;
+        sverkaMsg.className = 'modal-msg err';
+      } else {
+        detailMsg.textContent = msg; detailMsg.className = 'modal-msg err';
+      }
+    }
+  });
+
+  // ---------- technical booking modal ----------
+  const techOverlay = document.getElementById('techOverlay');
+  const techSlots = document.getElementById('techSlots');
+  const techComment = document.getElementById('techComment');
+  const techCommentLabel = document.getElementById('techCommentLabel');
+  const techMsg = document.getElementById('techMsg');
+  const techTitle = document.getElementById('techTitle');
+  const techSubmitBtn = document.getElementById('techSubmitBtn');
+  const customerFields = document.getElementById('customerFields');
+  const techName = document.getElementById('techName');
+  const techPhone = document.getElementById('techPhone');
+  const techPlayers = document.getElementById('techPlayers');
+  const techPrice = document.getElementById('techPrice');
+  let techSelectedTime = null;
+  let techSelectedDateISO = null;
+  let techTierIdx = 0;
+  let bookingType = 'customer'; // 'customer' | 'technical'
+
+  const techCalGrid = document.getElementById('techCalGrid');
+  const techCalMonthLabel = document.getElementById('techCalMonthLabel');
+  const techCalPrev = document.getElementById('techCalPrev');
+  const techCalNext = document.getElementById('techCalNext');
+  let techCalViewYear, techCalViewMonth;
+
+  function renderTechCalendar(){
+    techCalGrid.innerHTML = '';
+    techCalMonthLabel.textContent = MONTH_NAMES_NOM[techCalViewMonth] + ' ' + techCalViewYear;
+
+    const firstOfMonth = new Date(techCalViewYear, techCalViewMonth, 1);
+    const leadEmpty = (firstOfMonth.getDay() + 6) % 7;
+    for (let i = 0; i < leadEmpty; i++) {
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      techCalGrid.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(techCalViewYear, techCalViewMonth + 1, 0).getDate();
+    const minD = parseISO(todayISO());
+    const maxD = parseISO(maxDateISO());
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(techCalViewYear, techCalViewMonth, dnum);
+      const iso = isoDate(d);
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const inRange = d >= minD && d <= maxD;
+      const isSelected = iso === techSelectedDateISO;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + (isSelected ? ' active' : '');
+      btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
+      if (!inRange) {
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', () => {
+          techSelectedDateISO = iso;
+          techSelectedTime = null;
+          renderTechCalendar();
+          renderTechSlots();
+          buildTechPlayersOptions();
+        });
+      }
+      techCalGrid.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(techCalViewYear, techCalViewMonth, 0);
+    techCalPrev.disabled = prevMonthLastDay < new Date(minD.getFullYear(), minD.getMonth(), 1);
+    const nextMonthFirstDay = new Date(techCalViewYear, techCalViewMonth + 1, 1);
+    techCalNext.disabled = nextMonthFirstDay > maxD;
+  }
+  techCalPrev.addEventListener('click', () => {
+    if (techCalPrev.disabled) return;
+    techCalViewMonth--; if (techCalViewMonth < 0){ techCalViewMonth = 11; techCalViewYear--; }
+    renderTechCalendar();
+  });
+  techCalNext.addEventListener('click', () => {
+    if (techCalNext.disabled) return;
+    techCalViewMonth++; if (techCalViewMonth > 11){ techCalViewMonth = 0; techCalViewYear++; }
+    renderTechCalendar();
+  });
+
+  function renderTechSlots(){
+    const dateISO = techSelectedDateISO;
+    const taken = dateISO ? takenTimesFor(dateISO, null) : [];
+    techSlots.innerHTML = SLOTS.map(s => {
+      const isTaken = taken.includes(s);
+      const isActive = s === techSelectedTime;
+      return `<button type="button" class="slot-btn ${isTaken ? 'taken':''} ${isActive ? 'active':''}" data-time="${s}">${s}</button>`;
+    }).join('');
+    techSlots.querySelectorAll('.slot-btn:not(.taken)').forEach(btn => {
+      btn.addEventListener('click', () => {
+        techSelectedTime = btn.dataset.time;
+        renderTechSlots();
+        buildTechPlayersOptions();
+      });
+    });
+  }
+
+  function buildTechPlayersOptions(){
+    if (bookingType !== 'customer') return;
+    const weekend = techSelectedDateISO ? isWeekendISO(techSelectedDateISO) : false;
+    const late = techSelectedTime === SLOTS[LATE_IDX];
+    const surcharge = late ? 20 : 0;
+    const list = tiersFor(weekend);
+    if (techTierIdx > list.length - 1) techTierIdx = 0;
+    techPlayers.innerHTML = list.map((t,i) =>
+      `<option value="${i}">${t.people}: ${t.price + surcharge} Br</option>`
+    ).join('');
+    techPlayers.value = String(techTierIdx);
+    techPrice.value = list[techTierIdx].price + surcharge;
+  }
+  techPlayers.addEventListener('change', () => {
+    techTierIdx = Number(techPlayers.value);
+    buildTechPlayersOptions();
+  });
+
+  function setBookingType(type){
+    bookingType = type;
+    document.querySelectorAll('.type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+    if (type === 'customer'){
+      customerFields.style.display = 'block';
+      techTitle.textContent = 'Новая бронь клиента';
+      techSubmitBtn.textContent = 'Создать бронь';
+      techCommentLabel.textContent = 'Комментарий (необязательно)';
+      techComment.placeholder = 'Например: пожелания, повод визита';
+      buildTechPlayersOptions();
+    } else {
+      customerFields.style.display = 'none';
+      techTitle.textContent = 'Техническая бронь';
+      techSubmitBtn.textContent = 'Заблокировать слот';
+      techCommentLabel.textContent = 'Комментарий (необязательно)';
+      techComment.placeholder = 'Например: уборка, съёмки, ремонт';
+    }
+  }
+  document.querySelectorAll('.type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => setBookingType(btn.dataset.type));
+  });
+
+  function openTechModal(){
+    const t = parseISO(todayISO());
+    techCalViewYear = t.getFullYear();
+    techCalViewMonth = t.getMonth();
+    techSelectedDateISO = todayISO();
+    techSelectedTime = null;
+    techTierIdx = 0;
+    techName.value = '';
+    techPhone.value = '';
+    techPrice.value = '';
+    techComment.value = '';
+    techMsg.textContent = '';
+    techMsg.className = 'modal-msg';
+    setBookingType('customer');
+    renderTechCalendar();
+    renderTechSlots();
+    techOverlay.classList.add('show');
+  }
+  document.getElementById('addTechBtn').addEventListener('click', openTechModal);
+  document.getElementById('techCancelBtn').addEventListener('click', () => techOverlay.classList.remove('show'));
+  document.querySelectorAll('[data-close="tech"]').forEach(b => b.addEventListener('click', () => techOverlay.classList.remove('show')));
+  techOverlay.addEventListener('click', e => { if (e.target === techOverlay) techOverlay.classList.remove('show'); });
+
+  document.getElementById('techSubmitBtn').addEventListener('click', async () => {
+    if (!techSelectedDateISO || !techSelectedTime){
+      techMsg.textContent = 'Выберите дату и время.'; techMsg.className = 'modal-msg err'; return;
+    }
+
+    const payload = { action:'create', type: bookingType, dateISO: techSelectedDateISO, time: techSelectedTime, comment: techComment.value };
+
+    if (bookingType === 'customer'){
+      const name = techName.value.trim();
+      const phone = techPhone.value.trim();
+      if (!name || !phone){
+        techMsg.textContent = 'Укажите имя и телефон клиента.'; techMsg.className = 'modal-msg err'; return;
+      }
+      const tier = tiersFor(techSelectedDateISO ? isWeekendISO(techSelectedDateISO) : false)[techTierIdx];
+      payload.name = name;
+      payload.phone = phone;
+      payload.players = tier ? tier.people : '';
+      payload.price = techPrice.value.trim() || (tier ? tier.price : '');
+    }
+
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify(payload)
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ techMsg.textContent = out.error || 'Не удалось создать бронь.'; techMsg.className = 'modal-msg err'; return; }
+      await loadBookings();
+      techOverlay.classList.remove('show');
+    } catch(err){
+      techMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; techMsg.className = 'modal-msg err';
+    }
+  });
+
+  attachPhoneMask(document.getElementById('editPhone'));
+  attachPhoneMask(document.getElementById('techPhone'));
+
+  // ---------- month overview calendar (busy / closed / open) ----------
+  const overviewOverlay = document.getElementById('overviewOverlay');
+  const overviewCalGrid = document.getElementById('overviewCalGrid');
+  const overviewCalMonthLabel = document.getElementById('overviewCalMonthLabel');
+  const overviewCalPrev = document.getElementById('overviewCalPrev');
+  const overviewCalNext = document.getElementById('overviewCalNext');
+  let overviewViewYear, overviewViewMonth;
+  let overviewSelectedDateISO = null;
+  const overviewDayPanel = document.getElementById('overviewDayPanel');
+  const overviewDayHeading = document.getElementById('overviewDayHeading');
+  const overviewSlotGrid = document.getElementById('overviewSlotGrid');
+  const overviewSlotDetail = document.getElementById('overviewSlotDetail');
+
+  function dayStatusTooltip(dateISO){
+    const dayBookings = allBookings.filter(b => b.dateISO === dateISO && b.status === 'active');
+    const customer = dayBookings.filter(b => b.type !== 'technical').length;
+    const technical = dayBookings.filter(b => b.type === 'technical').length;
+    const open = Math.max(0, SLOTS.length - customer - technical);
+    return `${formatDateHeading(dateISO)}: занято клиентами — ${customer}, закрыто технически — ${technical}, свободно — ${open} из ${SLOTS.length}`;
+  }
+
+  function renderOverviewCalendar(){
+    overviewCalGrid.innerHTML = '';
+    overviewCalMonthLabel.textContent = MONTH_NAMES_NOM[overviewViewMonth] + ' ' + overviewViewYear;
+
+    const firstOfMonth = new Date(overviewViewYear, overviewViewMonth, 1);
+    const leadEmpty = (firstOfMonth.getDay() + 6) % 7;
+    for (let i = 0; i < leadEmpty; i++) {
+      const filler = document.createElement('div');
+      filler.className = 'day empty';
+      overviewCalGrid.appendChild(filler);
+    }
+
+    const daysInMonth = new Date(overviewViewYear, overviewViewMonth + 1, 0).getDate();
+    const minD = parseISO(todayISO());
+    const maxD = parseISO(maxDateISO());
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(overviewViewYear, overviewViewMonth, dnum);
+      const iso = isoDate(d);
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const inRange = d >= minD && d <= maxD;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const selectedCls = (inRange && iso === overviewSelectedDateISO) ? ' overview-selected' : '';
+      btn.className = 'day' + (weekend ? ' weekend' : '') + (!inRange ? ' disabled' : '') + selectedCls;
+      btn.innerHTML = '<small>' + WEEKDAY_SHORT[(d.getDay() + 6) % 7] + '</small>' + dnum;
+      if (!inRange) {
+        btn.disabled = true;
+      } else {
+        btn.title = dayStatusTooltip(iso);
+        btn.addEventListener('click', () => {
+          // Select the day right here and show its slot breakdown below —
+          // everything stays inside this one calendar window instead of
+          // jumping out to the list.
+          overviewSelectedDateISO = iso;
+          renderOverviewCalendar();
+          renderOverviewDaySlots(iso);
+        });
+      }
+      overviewCalGrid.appendChild(btn);
+    }
+
+    const prevMonthLastDay = new Date(overviewViewYear, overviewViewMonth, 0);
+    overviewCalPrev.disabled = prevMonthLastDay < new Date(minD.getFullYear(), minD.getMonth(), 1);
+    const nextMonthFirstDay = new Date(overviewViewYear, overviewViewMonth + 1, 1);
+    overviewCalNext.disabled = nextMonthFirstDay > maxD;
+  }
+  overviewCalPrev.addEventListener('click', () => {
+    if (overviewCalPrev.disabled) return;
+    overviewViewMonth--; if (overviewViewMonth < 0){ overviewViewMonth = 11; overviewViewYear--; }
+    renderOverviewCalendar();
+  });
+  overviewCalNext.addEventListener('click', () => {
+    if (overviewCalNext.disabled) return;
+    overviewViewMonth++; if (overviewViewMonth > 11){ overviewViewMonth = 0; overviewViewYear++; }
+    renderOverviewCalendar();
+  });
+
+  // Draws the 9-slot grid for one day (green = free, blue = technical,
+  // orange = customer booking) and wires each slot to show its own details
+  // right below — the comment on a technical slot, or the full booking info
+  // on a customer one — without leaving this modal.
+  function renderOverviewDaySlots(dateISO){
+    overviewDayHeading.textContent = formatDateHeading(dateISO);
+    overviewSlotDetail.style.display = 'none';
+    overviewSlotDetail.innerHTML = '';
+
+    const byTime = {};
+    allBookings
+      .filter(b => b.dateISO === dateISO && b.status === 'active')
+      .forEach(b => { byTime[b.time] = b; });
+
+    overviewSlotGrid.innerHTML = SLOTS.map(time => {
+      const b = byTime[time];
+      const cls = b ? (b.type === 'technical' ? 'slot-technical' : 'slot-customer') : 'slot-open';
+      return `<button type="button" class="slot-btn overview-slot ${cls}" data-time="${escapeHtml(time)}">${escapeHtml(time)}</button>`;
+    }).join('');
+
+    overviewSlotGrid.querySelectorAll('.overview-slot').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overviewSlotGrid.querySelectorAll('.overview-slot').forEach(b2 => b2.classList.remove('picked'));
+        btn.classList.add('picked');
+        const time = btn.dataset.time;
+        const b = byTime[time];
+        overviewSlotDetail.style.display = 'block';
+
+        if (!b){
+          overviewSlotDetail.innerHTML = `<b>${escapeHtml(time)}</b> — слот свободен, брони нет.`;
+          return;
+        }
+
+        const openInListBtn = `<div style="margin-top:10px;"><button type="button" class="btn-secondary" id="overviewOpenDetailBtn" style="width:auto; padding:8px 14px; font-size:12.5px;">Открыть карточку брони →</button></div>`;
+
+        if (b.type === 'technical'){
+          overviewSlotDetail.innerHTML =
+            `<b>${escapeHtml(time)} · Техническая бронь</b><br>` +
+            `Комментарий: ${b.comment ? escapeHtml(b.comment) : '—'}` +
+            openInListBtn;
+        } else {
+          overviewSlotDetail.innerHTML =
+            `<b>${escapeHtml(time)} · ${escapeHtml(b.name || 'Клиент')}</b><br>` +
+            `Телефон: ${escapeHtml(b.phone || '—')}<br>` +
+            `Игроков: ${escapeHtml(b.players || '—')}<br>` +
+            `Цена: ${b.price ? escapeHtml(b.price) + ' Br' : '—'}<br>` +
+            `Комментарий: ${b.comment ? escapeHtml(b.comment) : '—'}` +
+            openInListBtn;
+        }
+
+        const openBtn = document.getElementById('overviewOpenDetailBtn');
+        if (openBtn){
+          openBtn.addEventListener('click', () => {
+            overviewOverlay.classList.remove('show');
+            openDetail(b);
+          });
+        }
+      });
+    });
+
+    overviewDayPanel.style.display = 'block';
+  }
+
+  function openOverviewModal(){
+    const t = parseISO(todayISO());
+    overviewViewYear = t.getFullYear();
+    overviewViewMonth = t.getMonth();
+    overviewSelectedDateISO = null;
+    overviewDayPanel.style.display = 'none';
+    renderOverviewCalendar();
+    overviewOverlay.classList.add('show');
+  }
+  document.getElementById('calendarBtn').addEventListener('click', openOverviewModal);
+  document.querySelectorAll('[data-close="overview"]').forEach(b => b.addEventListener('click', () => overviewOverlay.classList.remove('show')));
+  overviewOverlay.addEventListener('click', e => { if (e.target === overviewOverlay) overviewOverlay.classList.remove('show'); });
+
+  // Best-effort: populates the "Кто отыграл" autocomplete with names of
+  // actors already registered in the shift schedule (see api/admin/shifts.js).
+  // Never blocks anything if it fails — it's just a typing shortcut.
+  async function loadKnownActorNames(){
+    try{
+      const res = await fetch(`/api/admin/shifts?from=${todayISO()}&days=1`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const names = Object.values(out.actors || {}).map(a => a.displayName).filter(Boolean);
+      document.getElementById('knownActorNamesList').innerHTML =
+        [...new Set(names)].map(n => `<option value="${escapeHtml(n)}">`).join('');
+    } catch(err){ /* best-effort only */ }
+  }
+
+  // ---------- cash register ("Касса") ----------
+  const financeOverlay = document.getElementById('financeOverlay');
+  const financeBalance = document.getElementById('financeBalance');
+  const financeBalanceSub = document.getElementById('financeBalanceSub');
+  const financeList = document.getElementById('financeList');
+  const financeMsg = document.getElementById('financeMsg');
+  let financeKind = 'expense';
+
+  document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      financeKind = btn.dataset.kind;
+      document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  function renderFinanceState(state){
+    financeBalance.textContent = `${Math.round(state.balance)} Br`;
+    financeBalanceSub.textContent =
+      `С ${formatDateHeading(state.sinceDateISO)}: +${Math.round(state.cashIn)} наличными от броней, −${Math.round(state.cashOut)} расходов и выплат`;
+    document.getElementById('financeOpeningDate').value = state.sinceDateISO || '';
+    document.getElementById('financeOpeningBalance').value = state.openingBalance || 0;
+
+    const list = state.recentCashouts || [];
+    if (!list.length){
+      financeList.innerHTML = '<div class="empty-note">Записей пока нет.</div>';
+      return;
+    }
+    financeList.innerHTML = list.map(c => `
+      <div class="finance-row" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}">
+        <div class="fr-date">${escapeHtml(c.dateISO)}</div>
+        <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${c.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'}</div>
+        <div class="fr-label">${escapeHtml(c.label)}</div>
+        <div class="fr-amount">−${Math.round(c.amount)} Br</div>
+        <button type="button" class="fr-del" title="Удалить">✕</button>
+      </div>
+    `).join('');
+    financeList.querySelectorAll('.fr-del').forEach(btn => {
+      btn.addEventListener('click', () => deleteCashout(btn.closest('.finance-row')));
+    });
+  }
+
+  async function loadFinance(){
+    financeList.innerHTML = '<div class="load-note">Загрузка…</div>';
+    financeMsg.textContent = '';
+    financeMsg.className = 'modal-msg';
+    try{
+      const res = await fetch('/api/admin/finance', { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        financeList.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить кассу.')}</div>`;
+        return;
+      }
+      renderFinanceState(out);
+    } catch(err){
+      financeList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
+
+  function openFinanceModal(){
+    document.getElementById('financeCashoutDate').value = todayISO();
+    document.getElementById('financeCashoutLabel').value = '';
+    document.getElementById('financeCashoutAmount').value = '';
+    financeOverlay.classList.add('show');
+    loadFinance();
+  }
+  document.getElementById('financeBtn').addEventListener('click', openFinanceModal);
+  document.querySelectorAll('[data-close="finance"]').forEach(b => b.addEventListener('click', () => financeOverlay.classList.remove('show')));
+  financeOverlay.addEventListener('click', e => { if (e.target === financeOverlay) financeOverlay.classList.remove('show'); });
+
+  document.getElementById('financeOpeningSave').addEventListener('click', async () => {
+    const sinceDateISO = document.getElementById('financeOpeningDate').value;
+    const balance = document.getElementById('financeOpeningBalance').value;
+    if (!sinceDateISO){
+      financeMsg.textContent = 'Укажите дату.'; financeMsg.className = 'modal-msg err'; return;
+    }
+    try{
+      const res = await fetch('/api/admin/finance', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'setOpening', balance, sinceDateISO })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ financeMsg.textContent = out.error || 'Не удалось сохранить.'; financeMsg.className = 'modal-msg err'; return; }
+      financeMsg.textContent = 'Точка отсчёта сохранена.'; financeMsg.className = 'modal-msg ok';
+      renderFinanceState(out);
+    } catch(err){
+      financeMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; financeMsg.className = 'modal-msg err';
+    }
+  });
+
+  document.getElementById('financeCashoutAdd').addEventListener('click', async () => {
+    const dateISO = document.getElementById('financeCashoutDate').value;
+    const label = document.getElementById('financeCashoutLabel').value.trim();
+    const amount = document.getElementById('financeCashoutAmount').value;
+    if (!dateISO || !label || !(toNum(amount) > 0)){
+      financeMsg.textContent = 'Укажите дату, описание и сумму больше нуля.'; financeMsg.className = 'modal-msg err'; return;
+    }
+    try{
+      const res = await fetch('/api/admin/finance', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'addCashout', dateISO, kind: financeKind, label, amount })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ financeMsg.textContent = out.error || 'Не удалось сохранить.'; financeMsg.className = 'modal-msg err'; return; }
+      document.getElementById('financeCashoutLabel').value = '';
+      document.getElementById('financeCashoutAmount').value = '';
+      financeMsg.textContent = ''; financeMsg.className = 'modal-msg';
+      renderFinanceState(out);
+    } catch(err){
+      financeMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; financeMsg.className = 'modal-msg err';
+    }
+  });
+
+  async function deleteCashout(row){
+    if (!row) return;
+    const dateISO = row.dataset.date;
+    const id = row.dataset.id;
+    try{
+      const res = await fetch('/api/admin/finance', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'deleteCashout', dateISO, id })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ financeMsg.textContent = out.error || 'Не удалось удалить.'; financeMsg.className = 'modal-msg err'; return; }
+      renderFinanceState(out);
+    } catch(err){
+      financeMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; financeMsg.className = 'modal-msg err';
+    }
+  }
+
+  // ---------- boot ----------
+  const savedPassword = localStorage.getItem('adminPassword');
+  if (savedPassword){
+    adminPassword = savedPassword;
+    showPanel();
+  }
+})();
+</script>
+</body>
+</html>

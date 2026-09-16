@@ -37,6 +37,20 @@
 //       players/comment (real booking data) and does NOT re-schedule the
 //       automatic QStash job — use "Сверка сейчас" in Смены и напоминания
 //       afterwards to actually resend it.
+//   { action:'manualCloseout', dateISO, time, played, price, players, confirmedBy }
+//       РУЧНАЯ СВЕРКА (staff.html) — с 16.09.2026 сверка через Telegram-бота
+//       отключена (см. BOT_CLOSEOUT_ENABLED в api/_closeout.js); вместо неё
+//       сотрудник сам отмечает в панели, состоялась ли игра (played), и
+//       вписывает актуальные цену/число игроков. Первый раз, когда для этой
+//       брони проводится сверка, ИСХОДНЫЕ price/players замораживаются в
+//       manualCloseout.priceBefore/playersBefore, чтобы позже показать
+//       стрелку "было → стало" — даже если сверку потом ещё раз поправят.
+//       Если played=false, price/players не трогаются (нечего сверять).
+//       См. setManualCloseout() в api/_closeout.js.
+//   { action:'cancelManualCloseout', dateISO, time }
+//       Отменяет ручную сверку: возвращает price/players к значениям ДО
+//       сверки (если они менялись) и убирает manualCloseout с брони, чтобы
+//       сотрудник мог провести её заново. См. cancelManualCloseout().
 //   { action:'blockDay', dateISO, comment }
 //       Blocks every slot on a date that isn't already taken by a customer
 //       (fills in "technical" bookings for the gaps). Existing customer
@@ -75,7 +89,7 @@
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
-import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields } from '../_closeout.js';
+import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime } from '../_time.js';
 
@@ -454,6 +468,39 @@ export default async function handler(req, res) {
       } = existing;
       await kv('hset', hashKey, cleanTime, JSON.stringify(rest));
 
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'manualCloseout') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const cleanTime = isValidTime(body.time) ? body.time.trim() : '';
+      if (!cleanDateISO || !cleanTime) {
+        return res.status(400).json({ error: 'Укажите дату и время брони.' });
+      }
+      const played = body.played !== false;
+      const price = typeof body.price === 'string' || typeof body.price === 'number' ? String(body.price).trim() : '';
+      const players = typeof body.players === 'string' || typeof body.players === 'number' ? String(body.players).trim() : '';
+      const confirmedBy = typeof body.confirmedBy === 'string' ? body.confirmedBy.trim().slice(0, 80) : '';
+
+      const result = await setManualCloseout(cleanDateISO, cleanTime, { played, price, players, confirmedBy });
+      if (!result.ok) {
+        const status = result.reason === 'no-booking' ? 404 : 400;
+        return res.status(status).json({ error: result.message });
+      }
+      return res.status(200).json({ ok: true, booking: result.booking });
+    }
+
+    if (action === 'cancelManualCloseout') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const cleanTime = isValidTime(body.time) ? body.time.trim() : '';
+      if (!cleanDateISO || !cleanTime) {
+        return res.status(400).json({ error: 'Укажите дату и время брони.' });
+      }
+      const result = await cancelManualCloseout(cleanDateISO, cleanTime);
+      if (!result.ok) {
+        const status = result.reason === 'no-booking' ? 404 : 400;
+        return res.status(status).json({ error: result.message });
+      }
       return res.status(200).json({ ok: true });
     }
 

@@ -100,6 +100,33 @@ import { kv } from './_kv.js';
 import { businessDateTime } from './_time.js';
 import { getShiftsForDate, getActorsMap, resolveActorUsernamesForSlot, resolveActorUsernamesForSlotSync } from './_reminders.js';
 
+// ── РУЧНАЯ СВЕРКА (16.09.2026) ───────────────────────────────────────────
+// По просьбе владельца сверка через Telegram-бота (карточка "🎬 Сверка
+// игры" с кнопками "✅ Верно"/"✏️ Исправить") полностью отключена. Актёры
+// по-прежнему получают обычное напоминание за 1.5ч до игры — это отдельная,
+// не связанная с закрытием игры система (api/_reminders.js), она не
+// тронута. Вместо ответа актёра в боте сотрудник теперь сам отмечает
+// результат игры в новой упрощённой панели (staff.html) — см.
+// setManualCloseout()/cancelManualCloseout() ниже, и action:'manualCloseout'
+// в api/admin/bookings.js.
+//
+// Один флаг гасит обе стороны бот-сверки разом, ничего не удаляя:
+//   - scheduleGameCloseout() ниже возвращает {} сразу — новые сверки
+//     больше не планируются ни для одной новой/перенесённой брони.
+//   - runCloseoutForBooking() ниже отказывается ОТПРАВЛЯТЬ что-либо — это
+//     же глушит "Сверка сейчас"/QStash-джобы, ранее поставленные до этого
+//     изменения (runCloseoutForSlot и telegram-closeout.js оба идут через
+//     эту функцию), не давая им внезапно ожить и написать актёру.
+// cancelGameCloseout() (отмена уже запланированной джобы) НЕ гасится —
+// это просто уборка, она безопасна и всё ещё нужна при отмене/переносе
+// старых броней. Чтобы вернуть сверку через бота — поставьте true.
+//
+// Переопределяется переменной окружения ИСКЛЮЧИТЕЛЬНО для тестов (чтобы не
+// выбрасывать регрессионные тесты старого бот-механизма — вдруг он ещё
+// понадобится): в проде эта переменная нигде не задаётся, поэтому там
+// сверка через бота всегда выключена.
+const BOT_CLOSEOUT_ENABLED = process.env.BOT_CLOSEOUT_ENABLED_FOR_TESTS === '1';
+
 const CLOSEOUT_LEAD_MINUTES = 60; // ровно 1 час ПОСЛЕ начала игры (бронь в 13:30 → сверка в 14:30)
 const PENDING_REPLY_TTL_SECONDS = 60 * 60 * 6; // long enough for an actor to reply the same evening
 const QSTASH_MAX_DELAY_SECONDS = 7 * 24 * 60 * 60;
@@ -163,6 +190,7 @@ async function tg(method, payload) {
 // booking, and safe to call repeatedly (the daily sweep does): a performer
 // who already has a successfully scheduled closeout is left untouched.
 export async function scheduleGameCloseout(record) {
+  if (!BOT_CLOSEOUT_ENABLED) return {};
   if (!record || record.type !== 'customer' || !record.dateISO || !record.time) return {};
   if (record.status === 'cancelled' || record.status === 'rescheduled') return {};
 
@@ -263,6 +291,81 @@ export function stripCloseoutFields(record) {
   return rest;
 }
 
+// ── РУЧНАЯ СВЕРКА ────────────────────────────────────────────────────────
+// Заменяет бот-подтверждение (см. флаг BOT_CLOSEOUT_ENABLED выше): сотрудник
+// в staff.html сам отмечает, состоялась ли игра, и правит цену/число
+// игроков прямо там. `played:false` значит "игра не состоялась" — price/
+// players в этом случае не трогаем (сверять нечего), просто фиксируем факт.
+//
+// Важно про priceBefore/playersBefore: они замораживаются ОДИН РАЗ, при
+// самой первой успешной сверке этой брони, и дальше не переписываются —
+// даже если сверку потом ещё раз открыть и поправить цену снова. Иначе
+// вторая правка "съела" бы разницу первой, и стрелка "было → стало" в
+// списке показывала бы уже не настоящую исходную цену, а то, что сверка
+// сама же туда недавно записала.
+export async function setManualCloseout(dateISO, time, { played, price, players, confirmedBy } = {}) {
+  const hashKey = `bookings:${dateISO}`;
+  const raw = await kv('hget', hashKey, time);
+  if (!raw) return { ok: false, reason: 'no-booking', message: 'Эта бронь больше не существует.' };
+  let record;
+  try { record = JSON.parse(raw); } catch { return { ok: false, reason: 'bad-record', message: 'Повреждённая запись брони.' }; }
+  if (!record || record.type !== 'customer') {
+    return { ok: false, reason: 'not-customer', message: 'Это не клиентская бронь.' };
+  }
+  if (record.status === 'cancelled' || record.status === 'rescheduled') {
+    return { ok: false, reason: 'not-applicable', message: 'Бронь отменена или перенесена — сверка не нужна.' };
+  }
+
+  const wasPlayed = played !== false;
+  const already = record.manualCloseout && record.manualCloseout.done ? record.manualCloseout : null;
+  const nextPrice = wasPlayed && price !== '' && price != null ? String(price) : record.price;
+  const nextPlayers = wasPlayed && players !== '' && players != null ? String(players) : record.players;
+
+  const manualCloseout = {
+    done: true,
+    played: wasPlayed,
+    confirmedAt: new Date().toISOString(),
+    confirmedBy: confirmedBy || (already ? already.confirmedBy : '') || '',
+  };
+  if (already && Object.prototype.hasOwnProperty.call(already, 'priceBefore')) {
+    manualCloseout.priceBefore = already.priceBefore;
+  } else if (wasPlayed && nextPrice !== record.price) {
+    manualCloseout.priceBefore = record.price;
+  }
+  if (already && Object.prototype.hasOwnProperty.call(already, 'playersBefore')) {
+    manualCloseout.playersBefore = already.playersBefore;
+  } else if (wasPlayed && nextPlayers !== record.players) {
+    manualCloseout.playersBefore = record.players;
+  }
+
+  const updated = { ...record, price: nextPrice, players: nextPlayers, manualCloseout };
+  await kv('hset', hashKey, time, JSON.stringify(updated));
+  return { ok: true, reason: 'saved', message: 'Сверка сохранена.', booking: { ...updated, dateISO, time } };
+}
+
+// Undoes a manual sverka: restores whatever price/players were BEFORE it
+// (if the sverka actually changed them — a booking whose sverka never
+// touched price/players has nothing to restore) and drops the
+// manualCloseout marker, so staff can redo it from scratch.
+export async function cancelManualCloseout(dateISO, time) {
+  const hashKey = `bookings:${dateISO}`;
+  const raw = await kv('hget', hashKey, time);
+  if (!raw) return { ok: false, reason: 'no-booking', message: 'Эта бронь больше не существует.' };
+  let record;
+  try { record = JSON.parse(raw); } catch { return { ok: false, reason: 'bad-record', message: 'Повреждённая запись брони.' }; }
+  if (!record.manualCloseout || !record.manualCloseout.done) {
+    return { ok: false, reason: 'nothing-to-cancel', message: 'По этой брони сверка ещё не проводилась.' };
+  }
+
+  const { manualCloseout, ...rest } = record;
+  const restored = { ...rest };
+  if (Object.prototype.hasOwnProperty.call(manualCloseout, 'priceBefore')) restored.price = manualCloseout.priceBefore;
+  if (Object.prototype.hasOwnProperty.call(manualCloseout, 'playersBefore')) restored.players = manualCloseout.playersBefore;
+
+  await kv('hset', hashKey, time, JSON.stringify(restored));
+  return { ok: true, reason: 'cancelled', message: 'Сверка отменена — можно провести заново.' };
+}
+
 // The actual "send ONE performer their sverka for ONE booking" logic —
 // the single-booking equivalent of what used to be a whole-shift batch.
 // Shared by: api/telegram-closeout.js (the automatic QStash job, firing
@@ -273,6 +376,13 @@ export function stripCloseoutFields(record) {
 // a small result object describing what happened instead of silently
 // returning — so a failure is never invisible.
 export async function runCloseoutForBooking(dateISO, time, actorUsername, ctx = {}) {
+  if (!BOT_CLOSEOUT_ENABLED) {
+    return {
+      ok: false,
+      reason: 'disabled',
+      message: 'Сверка через Telegram-бота отключена — теперь она проводится вручную в новой панели администратора (staff.html).',
+    };
+  }
   const hashKey = `bookings:${dateISO}`;
   const raw = await kv('hget', hashKey, time);
   if (!raw) return { ok: false, reason: 'no-booking', message: 'Эта бронь больше не существует.' };
