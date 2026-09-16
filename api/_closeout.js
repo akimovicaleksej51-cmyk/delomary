@@ -303,7 +303,7 @@ export function stripCloseoutFields(record) {
 // вторая правка "съела" бы разницу первой, и стрелка "было → стало" в
 // списке показывала бы уже не настоящую исходную цену, а то, что сверка
 // сама же туда недавно записала.
-export async function setManualCloseout(dateISO, time, { played, price, players, confirmedBy } = {}) {
+export async function setManualCloseout(dateISO, time, { played, price, players, discountNote, payCash, payCard, payErip, confirmedBy } = {}) {
   const hashKey = `bookings:${dateISO}`;
   const raw = await kv('hget', hashKey, time);
   if (!raw) return { ok: false, reason: 'no-booking', message: 'Эта бронь больше не существует.' };
@@ -320,6 +320,16 @@ export async function setManualCloseout(dateISO, time, { played, price, players,
   const already = record.manualCloseout && record.manualCloseout.done ? record.manualCloseout : null;
   const nextPrice = wasPlayed && price !== '' && price != null ? String(price) : record.price;
   const nextPlayers = wasPlayed && players !== '' && players != null ? String(players) : record.players;
+  // Скидка и способ оплаты (16.09.2026): в отличие от price/players выше,
+  // эти поля НЕ получают before/after-стрелку в общем списке — сотрудник
+  // просто перезаписывает их во время сверки, как в обычном редактировании
+  // брони. '' — валидное значение (например, снять скидку или обнулить
+  // неактуальный способ оплаты), поэтому здесь проверяем именно "!= null",
+  // а не "не пусто".
+  const nextDiscountNote = wasPlayed && discountNote != null ? String(discountNote) : record.discountNote;
+  const nextPayCash = wasPlayed && payCash != null ? String(payCash) : record.payCash;
+  const nextPayCard = wasPlayed && payCard != null ? String(payCard) : record.payCard;
+  const nextPayErip = wasPlayed && payErip != null ? String(payErip) : record.payErip;
 
   const manualCloseout = {
     done: true,
@@ -338,7 +348,16 @@ export async function setManualCloseout(dateISO, time, { played, price, players,
     manualCloseout.playersBefore = record.players;
   }
 
-  const updated = { ...record, price: nextPrice, players: nextPlayers, manualCloseout };
+  const updated = {
+    ...record,
+    price: nextPrice,
+    players: nextPlayers,
+    discountNote: nextDiscountNote,
+    payCash: nextPayCash,
+    payCard: nextPayCard,
+    payErip: nextPayErip,
+    manualCloseout,
+  };
   await kv('hset', hashKey, time, JSON.stringify(updated));
   return { ok: true, reason: 'saved', message: 'Сверка сохранена.', booking: { ...updated, dateISO, time } };
 }

@@ -1904,7 +1904,7 @@
 
   function setBookingType(type){
     bookingType = type;
-    document.querySelectorAll('.type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+    document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
     if (type === 'customer'){
       customerFields.style.display = 'block';
       techTitle.textContent = 'Новая бронь клиента';
@@ -1920,7 +1920,7 @@
       techComment.placeholder = 'Например: уборка, съёмки, ремонт';
     }
   }
-  document.querySelectorAll('.type-toggle-btn').forEach(btn => {
+  document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => setBookingType(btn.dataset.type));
   });
 

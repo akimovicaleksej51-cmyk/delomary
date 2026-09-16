@@ -477,8 +477,17 @@
           </div>
         </div>
         <div id="sverkaPlayedFields">
-          <div class="detail-field"><label>Игроков</label><input id="sverkaPlayers" inputmode="numeric"></div>
+          <div class="detail-field"><label>Игроков</label><select id="sverkaPlayers"></select></div>
           <div class="detail-field"><label>Цена, Br</label><input id="sverkaPrice" inputmode="numeric"></div>
+          <div class="detail-field"><label>Скидка / номер сертификата</label><input id="sverkaDiscount" placeholder="Например: скидка 10% или серт. №123"></div>
+          <div class="detail-field">
+            <label>Как оплатили</label>
+            <div class="type-toggle" id="sverkaPayToggle">
+              <button type="button" class="type-toggle-btn active" data-pay="cash">Нал</button>
+              <button type="button" class="type-toggle-btn" data-pay="card">Карта</button>
+              <button type="button" class="type-toggle-btn" data-pay="erip">ЕРИП</button>
+            </div>
+          </div>
         </div>
         <div class="modal-actions">
           <button class="btn" id="saveSverkaBtn">Сохранить сверку</button>
@@ -1362,9 +1371,23 @@
 
   // -- ручная сверка --
   let sverkaPlayed = true; // true='Да', false='Нет' — see #sverkaPlayedToggle
+  let sverkaPayMethod = 'cash'; // 'cash'|'card'|'erip' — see #sverkaPayToggle
   const sverkaForm = document.getElementById('sverkaForm');
   const sverkaPlayedFields = document.getElementById('sverkaPlayedFields');
   const sverkaMsg = document.getElementById('sverkaMsg');
+  const sverkaPlayersSelect = document.getElementById('sverkaPlayers');
+
+  // Игроков на сверке выбирают из готовых вариантов (1–2, 3, 4, 5, 6) —
+  // не тарифная сетка "+ Новая бронь" (там ещё и цену считает), а просто
+  // короткий список для быстрой отметки факта.
+  const SVERKA_PLAYERS_OPTIONS = ['1–2', '3', '4', '5', '6'];
+  sverkaPlayersSelect.innerHTML = SVERKA_PLAYERS_OPTIONS.map(v => `<option value="${v}">${v}</option>`).join('');
+  function sverkaPlayersValueFor(players){
+    const n = parseInt(String(players == null ? '' : players).replace(/\D+/g, ''), 10);
+    if (!Number.isFinite(n) || n <= 2) return '1–2';
+    if (n >= 6) return '6';
+    return String(n);
+  }
 
   function setSverkaPlayed(played){
     sverkaPlayed = played;
@@ -1377,12 +1400,27 @@
     btn.addEventListener('click', () => setSverkaPlayed(btn.dataset.played === 'yes'));
   });
 
+  function setSverkaPayMethod(method){
+    sverkaPayMethod = method;
+    document.querySelectorAll('#sverkaPayToggle .type-toggle-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.pay === method);
+    });
+  }
+  document.querySelectorAll('#sverkaPayToggle .type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => setSverkaPayMethod(btn.dataset.pay));
+  });
+
   document.getElementById('openSverkaBtn').addEventListener('click', () => {
     if (!activeBooking) return;
     const mc = activeBooking.manualCloseout;
     setSverkaPlayed(!mc || mc.played !== false);
-    document.getElementById('sverkaPlayers').value = activeBooking.players || '';
+    sverkaPlayersSelect.value = sverkaPlayersValueFor(activeBooking.players);
     document.getElementById('sverkaPrice').value = activeBooking.price || '';
+    document.getElementById('sverkaDiscount').value = activeBooking.discountNote || '';
+    const initialPayMethod = toNum(activeBooking.payCard) > 0 ? 'card'
+      : toNum(activeBooking.payErip) > 0 ? 'erip'
+      : 'cash';
+    setSverkaPayMethod(initialPayMethod);
     sverkaMsg.textContent = '';
     sverkaForm.style.display = 'block';
     document.getElementById('detailActiveActions').style.display = 'none';
@@ -1394,13 +1432,18 @@
 
   document.getElementById('saveSverkaBtn').addEventListener('click', async () => {
     if (!activeBooking) return;
+    const priceVal = document.getElementById('sverkaPrice').value;
     const payload = {
       action: 'manualCloseout',
       dateISO: activeBooking.dateISO,
       time: activeBooking.time,
       played: sverkaPlayed,
-      price: document.getElementById('sverkaPrice').value,
-      players: document.getElementById('sverkaPlayers').value,
+      price: priceVal,
+      players: sverkaPlayersSelect.value,
+      discountNote: document.getElementById('sverkaDiscount').value,
+      payCash: sverkaPayMethod === 'cash' ? priceVal : '',
+      payCard: sverkaPayMethod === 'card' ? priceVal : '',
+      payErip: sverkaPayMethod === 'erip' ? priceVal : '',
       confirmedBy: localStorage.getItem('lastHandledByAdmin') || '',
     };
     const btn = document.getElementById('saveSverkaBtn');
@@ -1720,7 +1763,7 @@
 
   function setBookingType(type){
     bookingType = type;
-    document.querySelectorAll('.type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+    document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
     if (type === 'customer'){
       customerFields.style.display = 'block';
       techTitle.textContent = 'Новая бронь клиента';
@@ -1736,7 +1779,7 @@
       techComment.placeholder = 'Например: уборка, съёмки, ремонт';
     }
   }
-  document.querySelectorAll('.type-toggle-btn').forEach(btn => {
+  document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => setBookingType(btn.dataset.type));
   });
 

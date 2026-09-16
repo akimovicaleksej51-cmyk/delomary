@@ -37,20 +37,28 @@
 //       players/comment (real booking data) and does NOT re-schedule the
 //       automatic QStash job — use "Сверка сейчас" in Смены и напоминания
 //       afterwards to actually resend it.
-//   { action:'manualCloseout', dateISO, time, played, price, players, confirmedBy }
+//   { action:'manualCloseout', dateISO, time, played, price, players,
+//     discountNote, payCash, payCard, payErip, confirmedBy }
 //       РУЧНАЯ СВЕРКА (staff.html) — с 16.09.2026 сверка через Telegram-бота
 //       отключена (см. BOT_CLOSEOUT_ENABLED в api/_closeout.js); вместо неё
 //       сотрудник сам отмечает в панели, состоялась ли игра (played), и
-//       вписывает актуальные цену/число игроков. Первый раз, когда для этой
-//       брони проводится сверка, ИСХОДНЫЕ price/players замораживаются в
-//       manualCloseout.priceBefore/playersBefore, чтобы позже показать
-//       стрелку "было → стало" — даже если сверку потом ещё раз поправят.
-//       Если played=false, price/players не трогаются (нечего сверять).
+//       вписывает актуальные цену/число игроков, скидку и способ оплаты.
+//       Первый раз, когда для этой брони проводится сверка, ИСХОДНЫЕ
+//       price/players замораживаются в manualCloseout.priceBefore/
+//       playersBefore, чтобы позже показать стрелку "было → стало" — даже
+//       если сверку потом ещё раз поправят. discountNote/payCash/payCard/
+//       payErip такой стрелки не получают — они просто перезаписываются,
+//       как в обычном редактировании брони (и НЕ откатываются кнопкой
+//       «Сбросить сверку» — только price/players).
+//       Если played=false, ни одно из этих полей не трогается (нечего
+//       сверять).
 //       См. setManualCloseout() в api/_closeout.js.
 //   { action:'cancelManualCloseout', dateISO, time }
 //       Отменяет ручную сверку: возвращает price/players к значениям ДО
 //       сверки (если они менялись) и убирает manualCloseout с брони, чтобы
-//       сотрудник мог провести её заново. См. cancelManualCloseout().
+//       сотрудник мог провести её заново. Скидку и способ оплаты, введённые
+//       во время сверки, не трогает — см. setManualCloseout() выше.
+//       См. cancelManualCloseout().
 //   { action:'blockDay', dateISO, comment }
 //       Blocks every slot on a date that isn't already taken by a customer
 //       (fills in "technical" bookings for the gaps). Existing customer
@@ -481,8 +489,12 @@ export default async function handler(req, res) {
       const price = typeof body.price === 'string' || typeof body.price === 'number' ? String(body.price).trim() : '';
       const players = typeof body.players === 'string' || typeof body.players === 'number' ? String(body.players).trim() : '';
       const confirmedBy = typeof body.confirmedBy === 'string' ? body.confirmedBy.trim().slice(0, 80) : '';
+      const discountNote = typeof body.discountNote === 'string' ? body.discountNote.trim().slice(0, 200) : undefined;
+      const payCash = typeof body.payCash === 'string' || typeof body.payCash === 'number' ? String(body.payCash).trim() : undefined;
+      const payCard = typeof body.payCard === 'string' || typeof body.payCard === 'number' ? String(body.payCard).trim() : undefined;
+      const payErip = typeof body.payErip === 'string' || typeof body.payErip === 'number' ? String(body.payErip).trim() : undefined;
 
-      const result = await setManualCloseout(cleanDateISO, cleanTime, { played, price, players, confirmedBy });
+      const result = await setManualCloseout(cleanDateISO, cleanTime, { played, price, players, discountNote, payCash, payCard, payErip, confirmedBy });
       if (!result.ok) {
         const status = result.reason === 'no-booking' ? 404 : 400;
         return res.status(status).json({ error: result.message });
