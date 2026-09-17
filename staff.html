@@ -228,6 +228,14 @@
   .slot-btn:hover{border-color:var(--ochre);}
   .slot-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
   .slot-btn.taken{opacity:.35; cursor:not-allowed; text-decoration:line-through; pointer-events:none;}
+  /* Слот занят технической бронью — в отличие от .taken (клиент), этот
+     остаётся кликабельным: нажатие предлагает отменить бронь и освободить
+     слот (по просьбе владельца, 17.09.2026). */
+  .slot-btn.taken-tech{
+    opacity:.85; cursor:pointer; text-decoration:line-through;
+    border-color:#3987e5; color:#8fb8ef; background:var(--black-3);
+  }
+  .slot-btn.taken-tech:hover{ border-color:#e2574c; color:#e2574c; }
 
   .day-status{
     background:var(--black-3); border:1px solid #2a2a2a; border-radius:10px;
@@ -755,6 +763,7 @@
   let allBookings = [];
   let activeBooking = null; // the booking currently open in the detail modal
   let pendingConfirmAction = 'cancel'; // which action the shared confirm dialog (below) performs on "Да"
+  let pendingTechCancelTarget = null; // {dateISO, time, id} — only set when pendingConfirmAction is 'cancelTechFromTechModal'
   let searchQuery = '';
   let filterDateISO = ''; // '' = show every date; otherwise show only this one day
 
@@ -1601,6 +1610,30 @@
   confirmOverlay.addEventListener('click', e => { if (e.target === confirmOverlay) confirmOverlay.classList.remove('show'); });
 
   document.getElementById('confirmYes').addEventListener('click', async () => {
+    if (pendingConfirmAction === 'cancelTechFromTechModal') {
+      const target = pendingTechCancelTarget;
+      confirmOverlay.classList.remove('show');
+      pendingTechCancelTarget = null;
+      if (!target) return;
+      techMsg.textContent = 'Отменяю…'; techMsg.className = 'modal-msg';
+      try {
+        const res = await fetch('/api/admin/bookings', {
+          method:'POST', headers: authHeaders(),
+          body: JSON.stringify({ action:'cancel', dateISO: target.dateISO, time: target.time })
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok){
+          techMsg.textContent = out.error || 'Не удалось отменить бронь.'; techMsg.className = 'modal-msg err';
+          return;
+        }
+        await loadBookings();
+        renderTechSlots();
+        techMsg.textContent = 'Слот освобождён.'; techMsg.className = 'modal-msg ok';
+      } catch(err){
+        techMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; techMsg.className = 'modal-msg err';
+      }
+      return;
+    }
     if (!activeBooking) return;
     const action = pendingConfirmAction;
     const bookingId = activeBooking.id;
@@ -1722,13 +1755,26 @@
 
   function renderTechSlots(){
     const dateISO = techSelectedDateISO;
-    const taken = dateISO ? takenTimesFor(dateISO, null) : [];
+    // Смотрим не только "занято/свободно", но и КЕМ занято: техническую
+    // бронь можно отменить прямо отсюда одним кликом (см. ниже), а бронь
+    // клиента — по-прежнему нет, для неё нужна полная карточка (там есть
+    // имя, телефон и т.д.), которую не место открывать поверх этого окна.
+    const byTime = {};
+    if (dateISO){
+      allBookings
+        .filter(b => b.dateISO === dateISO && b.status === 'active')
+        .forEach(b => { byTime[b.time] = b; });
+    }
     techSlots.innerHTML = SLOTS.map(s => {
-      const isTaken = taken.includes(s);
+      const rec = byTime[s];
       const isActive = s === techSelectedTime;
-      return `<button type="button" class="slot-btn ${isTaken ? 'taken':''} ${isActive ? 'active':''}" data-time="${s}">${s}</button>`;
+      let cls = '';
+      if (rec) cls = rec.type === 'technical' ? 'taken-tech' : 'taken';
+      const title = rec && rec.type === 'technical' ? ' title="Нажмите, чтобы отменить эту техническую бронь"' : '';
+      return `<button type="button" class="slot-btn ${cls} ${isActive ? 'active':''}" data-time="${s}"${title}>${s}</button>`;
     }).join('');
-    techSlots.querySelectorAll('.slot-btn:not(.taken)').forEach(btn => {
+
+    techSlots.querySelectorAll('.slot-btn:not(.taken):not(.taken-tech)').forEach(btn => {
       btn.addEventListener('click', () => {
         techSelectedTime = btn.dataset.time;
         if (bookingType === 'technical'){
@@ -1743,6 +1789,24 @@
         }
         renderTechSlots();
         buildTechPlayersOptions();
+      });
+    });
+
+    // Слот, уже занятый технической бронью, — кликабелен: спрашиваем
+    // подтверждение и отменяем бронь, освобождая слот, не выходя из этого
+    // окна (раньше такие слоты были просто недоступны — единственным
+    // способом снять техническую бронь было идти в общий список или в
+    // карточку брони; по просьбе владельца, 17.09.2026).
+    techSlots.querySelectorAll('.slot-btn.taken-tech').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const time = btn.dataset.time;
+        const rec = byTime[time];
+        if (!rec) return;
+        pendingConfirmAction = 'cancelTechFromTechModal';
+        pendingTechCancelTarget = { dateISO, time, id: rec.id };
+        document.getElementById('confirmTitle').textContent = 'Отменить техническую бронь?';
+        document.getElementById('confirmText').textContent = `${formatDateHeading(dateISO)} в ${time}`;
+        confirmOverlay.classList.add('show');
       });
     });
   }
