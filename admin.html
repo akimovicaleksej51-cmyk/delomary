@@ -188,6 +188,10 @@
     display:flex; align-items:center; gap:8px;
   }
   .day-heading .weekend-tag{color:var(--danger-bright);}
+  /* Уже прошедший день — тихая серая плашка рядом с датой, чтобы сразу
+     было видно, что это не сегодня и не предстоящий день, а история
+     (по просьбе владельца, 17.09.2026). */
+  .day-heading .past-tag{color:var(--muted); font-weight:700;}
   .booking-row{
     position:relative; display:flex; align-items:center; gap:14px; background:var(--black-2);
     border:1px solid #262626; border-radius:12px; padding:13px 16px; margin-bottom:8px;
@@ -1430,7 +1434,7 @@
 
       return `
         <div class="day-group">
-          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : ''}</div>
+          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : ''}${dateISO < today ? ' <span class="past-tag">· уже проведены</span>' : ''}</div>
           ${rows}
         </div>`;
     }).join('');
