@@ -1338,7 +1338,18 @@
     filtered.forEach(b => {
       (byDate[b.dateISO] = byDate[b.dateISO] || []).push(b);
     });
-    const dates = Object.keys(byDate).sort();
+    // Порядок дней: сегодня — первым, дальше предстоящие дни по возрастанию
+    // даты, и только в самом низу — уже прошедшие дни, ближайшим прошедшим
+    // днём наверху этой группы (по просьбе владельца, 17.09.2026). Раньше
+    // сортировка была чисто по возрастанию даты, из-за чего прошедшие дни
+    // оказывались ВЫШЕ сегодняшних и предстоящих.
+    const today = todayISO();
+    const dayRank = (d) => d === today ? 0 : (d > today ? 1 : 2);
+    const dates = Object.keys(byDate).sort((a, b) => {
+      const ra = dayRank(a), rb = dayRank(b);
+      if (ra !== rb) return ra - rb;
+      return ra === 2 ? b.localeCompare(a) : a.localeCompare(b);
+    });
 
     listContainer.innerHTML = dates.map(dateISO => {
       const weekend = isWeekendISO(dateISO);
