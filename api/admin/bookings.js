@@ -22,6 +22,13 @@
 //       kept in a separate history hash (see below) instead of being lost.
 //   { action:'edit', dateISO, time, name, phone, players, price, comment }
 //       Updates a booking's details in place (same date/time).
+//   { action:'setCallStatus', dateISO, time, callStatus }
+//       Отмечает, прозвонили ли клиента для подтверждения брони.
+//       callStatus — одно из 'called' (прозвонили), 'no_answer' (не
+//       подняли) или '' (сброс — считается, что ещё не прозвонили).
+//       Ничего больше в брони не меняет. Отсутствие поля callStatus у
+//       брони равносильно '' — так все брони, созданные до этой функции,
+//       по умолчанию считаются непрозвоненными без отдельной миграции.
 //   { action:'reschedule', fromDateISO, fromTime, toDateISO, toTime }
 //       Moves a booking to a different date/time (fails with 409 if the
 //       new slot is already taken). The vacated slot isn't just deleted —
@@ -632,6 +639,34 @@ export default async function handler(req, res) {
         updated = { ...stripReminderFields(updated), ...reminderPatch };
       }
 
+      await kv('hset', hashKey, cleanTime, JSON.stringify(updated));
+      return res.status(200).json({ ok: true, booking: updated });
+    }
+
+    if (action === 'setCallStatus') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const cleanTime = isValidTime(body.time) ? body.time.trim() : '';
+      const ALLOWED_CALL_STATUSES = ['called', 'no_answer', ''];
+      if (!cleanDateISO || !cleanTime) {
+        return res.status(400).json({ error: 'Укажите дату и время брони.' });
+      }
+      if (!ALLOWED_CALL_STATUSES.includes(body.callStatus)) {
+        return res.status(400).json({ error: 'Некорректный статус звонка.' });
+      }
+
+      const hashKey = `bookings:${cleanDateISO}`;
+      const existingRaw = await kv('hget', hashKey, cleanTime);
+      if (!existingRaw) {
+        return res.status(404).json({ error: 'Бронь не найдена — возможно, её уже отменили.' });
+      }
+
+      let existing;
+      try { existing = JSON.parse(existingRaw); } catch { existing = null; }
+      if (!existing) {
+        return res.status(404).json({ error: 'Бронь не найдена.' });
+      }
+
+      const updated = { ...existing, callStatus: body.callStatus };
       await kv('hset', hashKey, cleanTime, JSON.stringify(updated));
       return res.status(200).json({ ok: true, booking: updated });
     }

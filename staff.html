@@ -175,6 +175,28 @@
   .row-sverka-badge.not-played{
     color:var(--danger-bright); background:#1a1011; border-color:rgba(255,107,111,.45);
   }
+  /* Прозвон клиента — такая же тихая плашка-уголок, но слева, чтобы не
+     спорить со сверкой справа. По умолчанию (нет поля callStatus или оно
+     пустое) бронь показывает "Не прозвонили" — специально заметным
+     жёлтым цветом. Кликабельна — открывает выбор статуса, не открывая
+     всю карточку брони (по просьбе владельца, 17.09.2026). */
+  .row-call-badge{
+    position:absolute; top:-7px; left:12px; font-size:10px; font-weight:800;
+    text-transform:uppercase; letter-spacing:.03em; cursor:pointer;
+    padding:2px 8px; border-radius:999px; line-height:1.4; white-space:nowrap;
+    color:var(--ochre-bright); background:#1a1508; border:1px solid rgba(245,197,24,.5);
+  }
+  .row-call-badge:hover{filter:brightness(1.15);}
+  .row-call-badge.called{
+    color:#5fe08a; background:#101a12; border-color:rgba(95,224,138,.45);
+  }
+  .row-call-badge.no-answer{
+    color:var(--danger-bright); background:#1a1011; border-color:rgba(255,107,111,.45);
+  }
+  .btn-call-yes{background:#5fe08a; color:#0a1a0d;}
+  .btn-call-yes:hover{background:#7fe8a3;}
+  .btn-call-no{background:var(--danger-bright); color:#1a1011;}
+  .btn-call-no:hover{background:#ff8589;}
   .row-price-old{color:var(--muted); font-weight:600; text-decoration:line-through; margin-right:2px;}
   .row-time{
     font-family:var(--display); font-weight:400; font-size:17px; min-width:58px; color:var(--paper);
@@ -654,6 +676,22 @@
   </div>
 </div>
 
+<!-- Прозвон клиента: выбор статуса звонка прямо из общего списка броней,
+     без открытия полной карточки (по просьбе владельца, 17.09.2026). -->
+<div class="modal-overlay" id="callStatusOverlay">
+  <div class="modal-box" style="max-width:380px;">
+    <h2 style="font-size:17px;">Отметить звонок</h2>
+    <p style="color:var(--muted); font-size:14px; margin:0 0 14px;" id="callStatusText"></p>
+    <div class="modal-actions" style="flex-direction:column; gap:8px;">
+      <button class="btn btn-call-yes" id="callStatusCalledBtn">✓ Прозвонили</button>
+      <button class="btn btn-call-no" id="callStatusNoAnswerBtn">✕ Не подняли</button>
+      <button class="btn-secondary" id="callStatusResetBtn">Сбросить (не прозвонили)</button>
+      <button class="btn-secondary" id="callStatusCancelBtn" data-close="callStatus">Отмена</button>
+    </div>
+    <div class="modal-msg" id="callStatusMsg"></div>
+  </div>
+</div>
+
 <!-- New booking modal (real customer booking or technical block) -->
 <div class="modal-overlay" id="techOverlay">
   <div class="modal-box">
@@ -1091,10 +1129,22 @@
           const sverkaBadge = sverka
             ? `<span class="row-sverka-badge${sverkaNotPlayed ? ' not-played' : ''}"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverkaNotPlayed ? '✕ Игра не состоялась' : '✓ Сверено'}</span>`
             : '';
+          // Прозвон клиента — показываем на КАЖДОЙ активной клиентской брони
+          // (не только на уже прозвоненных), чтобы сразу было видно, кому
+          // ещё нужно позвонить: нет поля callStatus — считаем, что не
+          // прозвонили (по просьбе владельца, 17.09.2026).
+          const callBadge = (!isTech && !isHistory)
+            ? (b.callStatus === 'called'
+                ? '<span class="row-call-badge called" data-call-badge="1">✓ Прозвонили</span>'
+                : b.callStatus === 'no_answer'
+                  ? '<span class="row-call-badge no-answer" data-call-badge="1">✕ Не подняли</span>'
+                  : '<span class="row-call-badge" data-call-badge="1">☎ Не прозвонили</span>')
+            : '';
           const badge = typeBadge(b);
           return `
             <div class="booking-row${isHistory ? ' is-history' : ''}" data-id="${escapeHtml(b.id)}">
               ${sverkaBadge}
+              ${callBadge}
               <div class="row-time">${escapeHtml(b.time)}</div>
               <div class="row-type ${badge.cls}">${badge.label}</div>
               <div class="row-main">
@@ -1116,6 +1166,18 @@
       row.addEventListener('click', () => {
         const booking = allBookings.find(b => b.id === row.dataset.id);
         if (booking) openDetail(booking);
+      });
+    });
+
+    // Плашка прозвона кликается отдельно от всей строки (открывает выбор
+    // статуса звонка, а не полную карточку брони) — стопаем всплытие,
+    // иначе сработает и клик по строке выше.
+    listContainer.querySelectorAll('[data-call-badge]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const row = el.closest('.booking-row');
+        const booking = row && allBookings.find(b => b.id === row.dataset.id);
+        if (booking) openCallStatusModal(booking);
       });
     });
   }
@@ -1695,6 +1757,46 @@
       }
     }
   });
+
+  // ---------- прозвон клиента (call status) ----------
+  const callStatusOverlay = document.getElementById('callStatusOverlay');
+  const callStatusText = document.getElementById('callStatusText');
+  const callStatusMsg = document.getElementById('callStatusMsg');
+  let callStatusTarget = null; // {dateISO, time} — бронь, для которой сейчас открыт выбор
+
+  function openCallStatusModal(booking){
+    callStatusTarget = { dateISO: booking.dateISO, time: booking.time };
+    callStatusText.textContent = `${formatDateHeading(booking.dateISO)} в ${booking.time}${booking.name ? ' — ' + booking.name : ''}`;
+    callStatusMsg.textContent = ''; callStatusMsg.className = 'modal-msg';
+    callStatusOverlay.classList.add('show');
+  }
+
+  async function submitCallStatus(callStatus){
+    if (!callStatusTarget) return;
+    callStatusMsg.textContent = 'Сохраняю…'; callStatusMsg.className = 'modal-msg';
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'setCallStatus', dateISO: callStatusTarget.dateISO, time: callStatusTarget.time, callStatus })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        callStatusMsg.textContent = out.error || 'Не удалось сохранить статус звонка.'; callStatusMsg.className = 'modal-msg err';
+        return;
+      }
+      await loadBookings();
+      renderList();
+      callStatusOverlay.classList.remove('show');
+    } catch(err){
+      callStatusMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; callStatusMsg.className = 'modal-msg err';
+    }
+  }
+
+  document.getElementById('callStatusCalledBtn').addEventListener('click', () => submitCallStatus('called'));
+  document.getElementById('callStatusNoAnswerBtn').addEventListener('click', () => submitCallStatus('no_answer'));
+  document.getElementById('callStatusResetBtn').addEventListener('click', () => submitCallStatus(''));
+  document.querySelectorAll('[data-close="callStatus"]').forEach(b => b.addEventListener('click', () => callStatusOverlay.classList.remove('show')));
+  callStatusOverlay.addEventListener('click', e => { if (e.target === callStatusOverlay) callStatusOverlay.classList.remove('show'); });
 
   // ---------- technical booking modal ----------
   const techOverlay = document.getElementById('techOverlay');
