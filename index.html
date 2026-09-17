@@ -1699,26 +1699,24 @@
     calMonthLabel.textContent = monthNamesNom[viewMonth] + ' ' + viewYear;
 
     const firstOfMonth = new Date(viewYear, viewMonth, 1);
-    const leadEmpty = mondayIdx(firstOfMonth);
+    const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+    // Прошедшие дни не показываем вовсе — но не пустыми ячейками на их
+    // месте (раньше это оставляло большой пустой пробел в начале месяца),
+    // а просто не начинаем сетку с 1-го числа: если открыт текущий месяц
+    // и часть его уже прошла, сетка начинается сразу с сегодняшнего дня
+    // (по просьбе владельца, 17.09.2026).
+    const firstVisible = firstOfMonth < today ? today : firstOfMonth;
+    const startDnum = (firstVisible.getFullYear() === viewYear && firstVisible.getMonth() === viewMonth) ? firstVisible.getDate() : 1;
+
+    const leadEmpty = mondayIdx(firstVisible);
     for(let i=0;i<leadEmpty;i++){
       const filler = document.createElement('div');
       filler.className = 'day empty';
       dayRow.appendChild(filler);
     }
 
-    const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
-    for(let dnum=1; dnum<=daysInMonth; dnum++){
+    for(let dnum=startDnum; dnum<=daysInMonth; dnum++){
       const d = new Date(viewYear, viewMonth, dnum);
-      // Дни, которые уже прошли, теперь вообще не показываем в сетке (по
-      // просьбе владельца) — раньше они просто были тусклой недоступной
-      // кнопкой с числом, теперь на их месте пустая ячейка, как перед
-      // началом месяца.
-      if(d < today){
-        const pastFiller = document.createElement('div');
-        pastFiller.className = 'day empty';
-        dayRow.appendChild(pastFiller);
-        continue;
-      }
       const weekend = isWeekend(d);
       const bookable = inRange(d);
       const bookedForDay = bookedSlots[isoDate(d)] || [];

@@ -1772,6 +1772,7 @@
       customerFields.style.display = 'block';
       techCommentField.style.display = '';
       techTitle.textContent = 'Новая бронь клиента';
+      techSubmitBtn.style.display = '';
       techSubmitBtn.textContent = 'Создать бронь';
       techCommentLabel.textContent = 'Комментарий (необязательно)';
       techComment.placeholder = 'Например: пожелания, повод визита';
@@ -1784,7 +1785,11 @@
       techCommentField.style.display = 'none';
       techComment.value = '';
       techTitle.textContent = 'Техническая бронь';
-      techSubmitBtn.textContent = 'Заблокировать слот';
+      // Кнопка "Заблокировать слот" тоже больше не нужна — один клик по
+      // свободному слоту уже создаёт бронь сам по себе (см. renderTechSlots()),
+      // отдельное подтверждение только сбивало с толку (по просьбе
+      // владельца, 17.09.2026).
+      techSubmitBtn.style.display = 'none';
     }
   }
   document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(btn => {
