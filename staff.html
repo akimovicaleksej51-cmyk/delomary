@@ -658,7 +658,7 @@
       <div class="detail-field"><label>Цена (можно исправить вручную)</label><input id="techPrice" inputmode="numeric" placeholder="Рассчитается автоматически"></div>
     </div>
 
-    <div class="detail-field">
+    <div class="detail-field" id="techCommentField">
       <label id="techCommentLabel">Комментарий (необязательно)</label>
       <textarea id="techComment" rows="3" maxlength="500" placeholder="Например: уборка, съёмки, ремонт"></textarea>
     </div>
@@ -1645,6 +1645,7 @@
   const techSlots = document.getElementById('techSlots');
   const techComment = document.getElementById('techComment');
   const techCommentLabel = document.getElementById('techCommentLabel');
+  const techCommentField = document.getElementById('techCommentField');
   const techMsg = document.getElementById('techMsg');
   const techTitle = document.getElementById('techTitle');
   const techSubmitBtn = document.getElementById('techSubmitBtn');
@@ -1730,6 +1731,16 @@
     techSlots.querySelectorAll('.slot-btn:not(.taken)').forEach(btn => {
       btn.addEventListener('click', () => {
         techSelectedTime = btn.dataset.time;
+        if (bookingType === 'technical'){
+          // Технической брони не нужен отдельный шаг подтверждения — один
+          // клик по свободному слоту сразу закрывает его на техничку, без
+          // комментария (по просьбе владельца, 17.09.2026).
+          renderTechSlots();
+          techSlots.querySelectorAll('.slot-btn').forEach(b => { b.disabled = true; });
+          techMsg.textContent = 'Закрываю слот…'; techMsg.className = 'modal-msg';
+          submitTechBooking();
+          return;
+        }
         renderTechSlots();
         buildTechPlayersOptions();
       });
@@ -1759,6 +1770,7 @@
     document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
     if (type === 'customer'){
       customerFields.style.display = 'block';
+      techCommentField.style.display = '';
       techTitle.textContent = 'Новая бронь клиента';
       techSubmitBtn.textContent = 'Создать бронь';
       techCommentLabel.textContent = 'Комментарий (необязательно)';
@@ -1766,10 +1778,13 @@
       buildTechPlayersOptions();
     } else {
       customerFields.style.display = 'none';
+      // Технической брони комментарий больше не нужен — слот закрывается
+      // одним кликом (см. renderTechSlots()), поле убрано целиком, по
+      // просьбе владельца (17.09.2026).
+      techCommentField.style.display = 'none';
+      techComment.value = '';
       techTitle.textContent = 'Техническая бронь';
       techSubmitBtn.textContent = 'Заблокировать слот';
-      techCommentLabel.textContent = 'Комментарий (необязательно)';
-      techComment.placeholder = 'Например: уборка, съёмки, ремонт';
     }
   }
   document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(btn => {
@@ -1799,12 +1814,19 @@
   document.querySelectorAll('[data-close="tech"]').forEach(b => b.addEventListener('click', () => techOverlay.classList.remove('show')));
   techOverlay.addEventListener('click', e => { if (e.target === techOverlay) techOverlay.classList.remove('show'); });
 
-  document.getElementById('techSubmitBtn').addEventListener('click', async () => {
+  // Общая отправка и для обычной кнопки "Создать бронь"/"Заблокировать
+  // слот", и для одного клика по свободному слоту у технической брони
+  // (см. renderTechSlots()) — раньше это был только обработчик клика по
+  // кнопке, теперь вынесено в функцию, чтобы вызывать из обоих мест.
+  async function submitTechBooking(){
     if (!techSelectedDateISO || !techSelectedTime){
       techMsg.textContent = 'Выберите дату и время.'; techMsg.className = 'modal-msg err'; return;
     }
 
-    const payload = { action:'create', type: bookingType, dateISO: techSelectedDateISO, time: techSelectedTime, comment: techComment.value };
+    const payload = {
+      action:'create', type: bookingType, dateISO: techSelectedDateISO, time: techSelectedTime,
+      comment: bookingType === 'technical' ? '' : techComment.value,
+    };
 
     if (bookingType === 'customer'){
       const name = techName.value.trim();
@@ -1825,13 +1847,20 @@
         body: JSON.stringify(payload)
       });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok){ techMsg.textContent = out.error || 'Не удалось создать бронь.'; techMsg.className = 'modal-msg err'; return; }
+      if (!res.ok){
+        techMsg.textContent = out.error || 'Не удалось создать бронь.'; techMsg.className = 'modal-msg err';
+        await loadBookings();
+        renderTechSlots();
+        return;
+      }
       await loadBookings();
       techOverlay.classList.remove('show');
     } catch(err){
       techMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; techMsg.className = 'modal-msg err';
+      renderTechSlots();
     }
-  });
+  }
+  document.getElementById('techSubmitBtn').addEventListener('click', submitTechBooking);
 
   attachPhoneMask(document.getElementById('editPhone'));
   attachPhoneMask(document.getElementById('techPhone'));

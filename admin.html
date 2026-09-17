@@ -168,6 +168,11 @@
     background:var(--black-3); color:var(--paper); font-size:13.5px; font-family:var(--sans);
   }
   .list-toolbar input[type="date"]:focus{outline:none; border-color:var(--ochre);}
+  #reportDayPicker{
+    color-scheme:dark; padding:9px 12px; border-radius:9px; border:1px solid #333;
+    background:var(--black-3); color:var(--paper); font-size:13.5px; font-family:var(--sans);
+  }
+  #reportDayPicker:focus{outline:none; border-color:var(--ochre);}
   .day-filter-clear{
     background:none; border:1px solid #333; color:var(--muted); border-radius:9px;
     width:34px; height:36px; font-size:15px; flex-shrink:0; display:none;
@@ -762,7 +767,7 @@
       <div class="detail-field"><label>Цена (можно исправить вручную)</label><input id="techPrice" inputmode="numeric" placeholder="Рассчитается автоматически"></div>
     </div>
 
-    <div class="detail-field">
+    <div class="detail-field" id="techCommentField">
       <label id="techCommentLabel">Комментарий (необязательно)</label>
       <textarea id="techComment" rows="3" maxlength="500" placeholder="Например: уборка, съёмки, ремонт"></textarea>
     </div>
@@ -2029,6 +2034,7 @@
   const techSlots = document.getElementById('techSlots');
   const techComment = document.getElementById('techComment');
   const techCommentLabel = document.getElementById('techCommentLabel');
+  const techCommentField = document.getElementById('techCommentField');
   const techMsg = document.getElementById('techMsg');
   const techTitle = document.getElementById('techTitle');
   const techSubmitBtn = document.getElementById('techSubmitBtn');
@@ -2114,6 +2120,16 @@
     techSlots.querySelectorAll('.slot-btn:not(.taken)').forEach(btn => {
       btn.addEventListener('click', () => {
         techSelectedTime = btn.dataset.time;
+        if (bookingType === 'technical'){
+          // Технической брони не нужен отдельный шаг подтверждения — один
+          // клик по свободному слоту сразу закрывает его на техничку, без
+          // комментария (по просьбе владельца, 17.09.2026).
+          renderTechSlots();
+          techSlots.querySelectorAll('.slot-btn').forEach(b => { b.disabled = true; });
+          techMsg.textContent = 'Закрываю слот…'; techMsg.className = 'modal-msg';
+          submitTechBooking();
+          return;
+        }
         renderTechSlots();
         buildTechPlayersOptions();
       });
@@ -2143,6 +2159,7 @@
     document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
     if (type === 'customer'){
       customerFields.style.display = 'block';
+      techCommentField.style.display = '';
       techTitle.textContent = 'Новая бронь клиента';
       techSubmitBtn.textContent = 'Создать бронь';
       techCommentLabel.textContent = 'Комментарий (необязательно)';
@@ -2150,10 +2167,13 @@
       buildTechPlayersOptions();
     } else {
       customerFields.style.display = 'none';
+      // Технической брони комментарий больше не нужен — слот закрывается
+      // одним кликом (см. renderTechSlots()), поле убрано целиком, по
+      // просьбе владельца (17.09.2026).
+      techCommentField.style.display = 'none';
+      techComment.value = '';
       techTitle.textContent = 'Техническая бронь';
       techSubmitBtn.textContent = 'Заблокировать слот';
-      techCommentLabel.textContent = 'Комментарий (необязательно)';
-      techComment.placeholder = 'Например: уборка, съёмки, ремонт';
     }
   }
   document.querySelectorAll('#bookingTypeToggle .type-toggle-btn').forEach(btn => {
@@ -2183,12 +2203,19 @@
   document.querySelectorAll('[data-close="tech"]').forEach(b => b.addEventListener('click', () => techOverlay.classList.remove('show')));
   techOverlay.addEventListener('click', e => { if (e.target === techOverlay) techOverlay.classList.remove('show'); });
 
-  document.getElementById('techSubmitBtn').addEventListener('click', async () => {
+  // Общая отправка и для обычной кнопки "Создать бронь"/"Заблокировать
+  // слот", и для одного клика по свободному слоту у технической брони
+  // (см. renderTechSlots()) — раньше это был только обработчик клика по
+  // кнопке, теперь вынесено в функцию, чтобы вызывать из обоих мест.
+  async function submitTechBooking(){
     if (!techSelectedDateISO || !techSelectedTime){
       techMsg.textContent = 'Выберите дату и время.'; techMsg.className = 'modal-msg err'; return;
     }
 
-    const payload = { action:'create', type: bookingType, dateISO: techSelectedDateISO, time: techSelectedTime, comment: techComment.value };
+    const payload = {
+      action:'create', type: bookingType, dateISO: techSelectedDateISO, time: techSelectedTime,
+      comment: bookingType === 'technical' ? '' : techComment.value,
+    };
 
     if (bookingType === 'customer'){
       const name = techName.value.trim();
@@ -2209,13 +2236,20 @@
         body: JSON.stringify(payload)
       });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok){ techMsg.textContent = out.error || 'Не удалось создать бронь.'; techMsg.className = 'modal-msg err'; return; }
+      if (!res.ok){
+        techMsg.textContent = out.error || 'Не удалось создать бронь.'; techMsg.className = 'modal-msg err';
+        await loadBookings(); // на случай если слот уже заняли параллельно — обновить занятость
+        renderTechSlots();
+        return;
+      }
       await loadBookings();
       techOverlay.classList.remove('show');
     } catch(err){
       techMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; techMsg.className = 'modal-msg err';
+      renderTechSlots();
     }
-  });
+  }
+  document.getElementById('techSubmitBtn').addEventListener('click', submitTechBooking);
 
   attachPhoneMask(document.getElementById('editPhone'));
   attachPhoneMask(document.getElementById('techPhone'));
@@ -2700,6 +2734,13 @@
   const today0 = new Date();
   let reportViewYear = today0.getFullYear();
   let reportViewMonth = today0.getMonth(); // 0-indexed
+  // Какой день внутри загруженного месяца сейчас показан крупными
+  // плитками (было жёстко "сегодня" — теперь можно выбрать любой день,
+  // по просьбе владельца, 17.09.2026). Пересчитывается в loadReport() при
+  // каждой смене месяца; reportLastData хранит уже загруженный ответ
+  // сервера, чтобы смена дня внутри того же месяца не дёргала API заново.
+  let reportSelectedDayISO = null;
+  let reportLastData = null;
 
   function openFinanceReportModal(){
     financeReportOverlay.classList.add('show');
@@ -2719,6 +2760,7 @@
   });
 
   function renderReport(data){
+    reportLastData = data;
     const days = data.days || [];
     const totalBookings = days.reduce((s,d) => s + d.bookings, 0);
     const totalCash = days.reduce((s,d) => s + d.cash, 0);
@@ -2726,8 +2768,20 @@
     const totalErip = days.reduce((s,d) => s + d.erip, 0);
     const totalOut = days.reduce((s,d) => s + d.expenses + d.payroll, 0);
 
-    const today = todayISO();
-    const todayRow = days.find(d => d.dateISO === today);
+    // Раньше эта верхняя плитка всегда показывала "сегодня" и всё — чтобы
+    // посмотреть другой день, приходилось разворачивать таблицу "по дням"
+    // ниже и искать его глазами среди только непустых строк. Теперь это
+    // выбираемый день (по умолчанию — сегодня, если он входит в
+    // просматриваемый месяц, иначе последний день месяца) с обычным
+    // date-picker'ом, и он показывает данные даже для дня без единой
+    // брони (в days[] есть строка на каждый день месяца, а не только на
+    // непустые — см. api/admin/report.js).
+    if (!reportSelectedDayISO || !days.some(d => d.dateISO === reportSelectedDayISO)){
+      const today = todayISO();
+      reportSelectedDayISO = days.some(d => d.dateISO === today) ? today : (data.to || (days[days.length - 1] && days[days.length - 1].dateISO) || today);
+    }
+    const selectedRow = days.find(d => d.dateISO === reportSelectedDayISO) ||
+      { dateISO: reportSelectedDayISO, bookings: 0, cash: 0, card: 0, erip: 0 };
 
     const channelRows = Object.entries(data.channels || {}).sort((a,b) => b[1].count - a[1].count)
       .map(([name, v]) => `<tr><td>${escapeHtml(name)}</td><td>${v.count}</td><td>${Math.round(v.total)} Br</td></tr>`).join('');
@@ -2751,18 +2805,22 @@
           <td>${Math.round(d.netChange)}</td>
         </tr>`).join('');
 
-    const todayBlock = todayRow ? `
-      <div class="stats-chart-head"><span class="stats-chart-title">Сегодня, ${escapeHtml(formatDateHeading(today))}</span></div>
-      <div class="stats-kpis" style="grid-template-columns:repeat(4,1fr); margin-bottom:22px;">
-        <div class="stat-tile"><div class="stat-label">Броней</div><div class="stat-value">${todayRow.bookings}</div></div>
-        <div class="stat-tile"><div class="stat-label">Нал</div><div class="stat-value">${Math.round(todayRow.cash)}</div></div>
-        <div class="stat-tile"><div class="stat-label">Безнал</div><div class="stat-value">${Math.round(todayRow.card)}</div></div>
-        <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(todayRow.erip)}</div></div>
+    const dayBlock = `
+      <div class="stats-chart-head">
+        <span class="stats-chart-title">${escapeHtml(formatDateHeading(reportSelectedDayISO))}</span>
+        <input type="date" id="reportDayPicker" value="${reportSelectedDayISO}" min="${escapeHtml(data.from || '')}" max="${escapeHtml(data.to || '')}">
       </div>
-    ` : '';
+      <div class="stats-kpis" style="grid-template-columns:repeat(4,1fr); margin-bottom:14px;">
+        <div class="stat-tile"><div class="stat-label">Броней</div><div class="stat-value">${selectedRow.bookings}</div></div>
+        <div class="stat-tile"><div class="stat-label">Нал</div><div class="stat-value">${Math.round(selectedRow.cash)}</div></div>
+        <div class="stat-tile"><div class="stat-label">Безнал</div><div class="stat-value">${Math.round(selectedRow.card)}</div></div>
+        <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(selectedRow.erip)}</div></div>
+      </div>
+      <div style="margin-bottom:22px;"><button type="button" class="stats-toggle-table" id="reportOpenDayInListBtn">Все брони за этот день →</button></div>
+    `;
 
     document.getElementById('reportContent').innerHTML = `
-      ${todayBlock}
+      ${dayBlock}
       <div class="stats-chart-head"><span class="stats-chart-title">Итого за месяц</span></div>
       <div class="stats-kpis">
         <div class="stat-tile"><div class="stat-label">Всего броней</div><div class="stat-value">${totalBookings}</div></div>
@@ -2799,6 +2857,28 @@
       const showing = !daysWrap.hidden;
       daysWrap.hidden = showing;
       toggleBtn.textContent = showing ? 'Показать по дням' : 'Скрыть по дням';
+    });
+
+    // Смена дня в date-picker'е выше — месяц уже загружен целиком
+    // (data.days содержит каждый день месяца), так что просто
+    // перерисовываем блок из уже полученных данных, без нового запроса.
+    document.getElementById('reportDayPicker').addEventListener('change', (e) => {
+      const v = e.target.value;
+      if (!v) return;
+      reportSelectedDayISO = v;
+      renderReport(reportLastData);
+    });
+
+    // "Все брони за этот день" — закрывает Бухгалтерию и открывает тот же
+    // день в основном списке (там уже есть комментарий, источник, скидка,
+    // разбивка оплаты по каждой брони — дублировать это здесь незачем).
+    document.getElementById('reportOpenDayInListBtn').addEventListener('click', () => {
+      filterDateISO = reportSelectedDayISO;
+      syncDayFilterUI();
+      renderList();
+      financeReportOverlay.classList.remove('show');
+      const listEl = document.getElementById('listContainer');
+      if (listEl) listEl.scrollIntoView({ behavior:'smooth', block:'start' });
     });
   }
 

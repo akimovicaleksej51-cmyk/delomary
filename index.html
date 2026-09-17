@@ -243,10 +243,10 @@
     display:inline-flex; align-items:center; gap:10px;
     font-family:var(--sans); font-weight:700; font-size:12.5px; letter-spacing:.08em; text-transform:uppercase;
     color:var(--black); background:var(--ochre-bright);
-    padding:7px 16px; margin-bottom:22px; border-radius:999px;
+    padding:7px 18px 11px; margin-bottom:22px; border-radius:3px;
+    position:relative; overflow:hidden; transform:rotate(-2deg);
   }
-  .case-tag::before{content:"●"; font-size:9px; animation:blink 2.4s infinite;}
-  @keyframes blink{0%,100%{opacity:1;}50%{opacity:.15;}}
+  .case-tag span{position:relative; z-index:1;}
   .hero h1{
     font-family:var(--display-heading); font-weight:400; text-transform:uppercase;
     font-size:clamp(48px, 8.5vw, 98px);
@@ -681,7 +681,7 @@
     /* --- hero --- */
     .hero{min-height:auto;}
     .hero > .wrap{padding-top:108px; padding-bottom:44px;}
-    .case-tag{font-size:11px; padding:6px 13px; margin-bottom:18px;}
+    .case-tag{font-size:11px; padding:6px 14px 9px; margin-bottom:18px;}
     .hero h1{font-size:clamp(36px,11vw,48px); max-width:100%;}
     .hero-mark{font-size:clamp(22px,7vw,28px); padding:2px 16px 7px; margin-top:10px;}
     .hero-lede{font-size:15px; margin:22px 0 28px; max-width:100%;}
@@ -1003,6 +1003,27 @@
       radial-gradient(ellipse 60% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.18) 100%);
     mix-blend-mode:multiply;
   }
+  /* «Клиника Дредвуд» получает ту же потрёпанную наклейку, что и «Скажи
+     им, что я здесь»: прямоугольник, лёгкий поворот, та же грязная
+     текстура. Фон — тот же приглушённый ochre-bright, что и был. */
+  .case-tag::before{
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.15' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:120px 120px, 200px 200px;
+    mix-blend-mode:multiply; opacity:.7;
+  }
+  .case-tag::after{
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(ellipse 55% 60% at 6% 10%, rgba(0,0,0,.5), transparent 62%),
+      radial-gradient(ellipse 50% 55% at 95% 90%, rgba(0,0,0,.45), transparent 60%),
+      radial-gradient(ellipse 40% 45% at 90% 12%, rgba(0,0,0,.32), transparent 65%),
+      radial-gradient(ellipse 35% 40% at 10% 88%, rgba(0,0,0,.3), transparent 65%),
+      radial-gradient(ellipse 60% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.18) 100%);
+    mix-blend-mode:multiply;
+  }
 </style>
 
 <!--
@@ -1079,7 +1100,7 @@
     </video>
   </div>
   <div class="wrap">
-    <div class="case-tag">клиника «дредвуд» · 1960-е</div>
+    <div class="case-tag"><span>клиника «дредвуд» · 1960-е</span></div>
     <h1 data-text="Дело Мэри">Дело Мэри</h1>
     <div class="hero-mark">Скажи им, что я здесь</div>
     <p class="hero-lede">Страшный квест-перформанс с живым актёром от Loony Games на Октябрьской в Минске. Вы — молодые врачи-практиканты психиатрической клиники «Дредвуд». За час предстоит понять, кто здесь действительно болен — пациентка Мэри или система, которая её удерживает.</p>
@@ -1688,6 +1709,16 @@
     const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
     for(let dnum=1; dnum<=daysInMonth; dnum++){
       const d = new Date(viewYear, viewMonth, dnum);
+      // Дни, которые уже прошли, теперь вообще не показываем в сетке (по
+      // просьбе владельца) — раньше они просто были тусклой недоступной
+      // кнопкой с числом, теперь на их месте пустая ячейка, как перед
+      // началом месяца.
+      if(d < today){
+        const pastFiller = document.createElement('div');
+        pastFiller.className = 'day empty';
+        dayRow.appendChild(pastFiller);
+        continue;
+      }
       const weekend = isWeekend(d);
       const bookable = inRange(d);
       const bookedForDay = bookedSlots[isoDate(d)] || [];
