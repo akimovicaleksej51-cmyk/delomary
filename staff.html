@@ -9,9 +9,32 @@
 
 <!-- Упрощённая панель для сотрудников на месте: брони + касса + календарь +
      ручная сверка. Тот же пароль, что и в полной админке (admin.html) —
-     см. /api/admin/login — но отдельная страница с меньшим набором кнопок.
-     PWA-манифест сюда сознательно не подключаем (он рассчитан на
-     admin.html) — при желании добавим отдельный в следующий раз. -->
+     см. /api/admin/login — но отдельная страница с меньшим набором кнопок. -->
+
+<!-- Позволяет добавить панель сотрудника на главный экран телефона как
+     отдельный значок (без публикации в App Store/Google Play) —
+     открывается в своём окне, без адресной строки браузера, как обычное
+     приложение. Отдельные манифест/service worker от admin.html (со своим
+     названием "Персонал"), чтобы на телефоне сотрудника значок не путался
+     с админкой владельца, если вдруг оба установлены на одном устройстве. -->
+<link rel="manifest" href="/staff-manifest.json">
+<meta name="theme-color" content="#0C0C0C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Персонал">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+
+<script>
+  // Регистрирует сервис-воркер только для того, чтобы Android/Chrome
+  // предложил «Установить приложение» — сам он ничего не кэширует и не
+  // перехватывает, все данные всегда идут напрямую с сервера.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/staff-sw.js', { scope: '/staff.html' }).catch(() => {});
+    });
+  }
+</script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -400,7 +423,7 @@
 
 <div id="loginScreen">
   <div class="login-card">
-    <h1>Админка</h1>
+    <h1>Персонал</h1>
     <p>Дело Мэри — вход по паролю</p>
     <div class="pw-field">
       <input type="password" id="loginPassword" placeholder="Пароль" autocomplete="current-password">
