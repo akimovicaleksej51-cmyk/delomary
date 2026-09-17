@@ -210,6 +210,7 @@ export async function scheduleReminder(record) {
           dateISO: record.dateISO,
           time: record.time,
           players: record.players || '',
+          animator: !!record.animator,
         }),
       });
       const qsData = await qsRes.json().catch(() => ({}));

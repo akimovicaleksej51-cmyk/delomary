@@ -45,7 +45,7 @@ export default async function handler(req, res) {
   }
   body = body || {};
 
-  const { chatId, dateISO, time, players } = body;
+  const { chatId, dateISO, time, players, animator } = body;
   if (!chatId || !time) {
     return res.status(400).json({ error: 'Missing chatId/time' });
   }
@@ -61,6 +61,7 @@ export default async function handler(req, res) {
     '⏰ Напоминание: через 1.5 часа у вас игра.',
     dateLabel ? `📅 ${dateLabel}, ${time}` : `🕒 Время: ${time}`,
     players ? `👥 Игроков: ${players}` : null,
+    animator ? '🎭 Заказан аниматор (+30 Br)' : null,
   ].filter(Boolean);
 
   try {

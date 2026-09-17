@@ -501,9 +501,9 @@
       <div class="detail-field"><label>Цена</label><div class="value" id="dvPrice"></div></div>
       <div class="detail-field"><label>Комментарий</label><div class="value" id="dvComment"></div></div>
       <div class="detail-field" id="dvChannelRow"><label>Источник брони</label><div class="value" id="dvChannel"></div></div>
+      <div class="detail-field" id="dvAnimatorRow" style="display:none;"><label>Аниматор</label><div class="value" id="dvAnimator">🎭 Заказан (+30 Br)</div></div>
       <div class="detail-field" id="dvDiscountRow"><label>Скидка / сертификат</label><div class="value" id="dvDiscount"></div></div>
       <div class="detail-field" id="dvWorkedRow"><label>Кто отыграл</label><div class="value" id="dvWorked"></div></div>
-      <div class="detail-field" id="dvHandledRow"><label>Оформил</label><div class="value" id="dvHandled"></div></div>
       <div class="detail-field" id="dvReminderRow"><label>Напоминание актёру</label><div class="value" id="dvReminder"></div></div>
       <div class="detail-field" id="dvSverkaRow" style="display:none;"><label>Сверка</label><div class="value" id="dvSverka"></div></div>
 
@@ -532,6 +532,7 @@
             <div class="pay-split-total">Итого: <b id="sverkaPayTotal">0</b> Br</div>
           </div>
         </div>
+        <div class="detail-field"><label>Ваше имя</label><input id="sverkaConfirmedBy" placeholder="Кто проводит сверку"></div>
         <div class="modal-actions">
           <button class="btn" id="saveSverkaBtn">Сохранить сверку</button>
           <button class="btn-secondary" id="cancelSverkaFormBtn">Отмена</button>
@@ -570,7 +571,6 @@
           <div class="pay-split-item" style="flex:1;"><span>Актриса</span><input id="editWorkedActress" list="knownActorNamesList" placeholder="Имя"></div>
         </div>
       </div>
-      <div class="detail-field"><label>Кто из админов оформил</label><input id="editHandledByAdmin" placeholder="Ваше имя"></div>
       <div class="detail-field"><label>Комментарий</label><textarea id="editComment" rows="3"></textarea></div>
       <div class="modal-actions">
         <button class="btn" id="saveEditBtn">Сохранить</button>
@@ -1026,8 +1026,10 @@
           if (!isTech){
             if (b.phone) subParts.push(b.phone);
             if (b.source === 'admin') subParts.push('внесено вручную');
-            // Комментарий к брони теперь виден прямо в общем списке, а не
-            // только в карточке — так сотрудник видит его не открывая бронь.
+            // Источник брони и комментарий видны прямо в общем списке — не
+            // нужно открывать бронь, чтобы их прочитать.
+            if (b.channel) subParts.push(`Источник: ${b.channel}`);
+            if (b.animator) subParts.push('🎭 Аниматор (+30)');
             if (b.comment) subParts.push(b.comment);
           } else if (b.comment){
             subParts.push(b.comment);
@@ -1045,9 +1047,10 @@
           const sverka = (!isTech && !isHistory) ? formatManualSverka(b) : null;
           let priceLabel = '';
           if (!isTech && b.price && !isHistory){
+            const breakdown = formatPriceBreakdown(b);
             priceLabel = (sverka && sverka.priceChanged)
-              ? `<span class="row-price-old">${escapeHtml(String(b.manualCloseout.priceBefore))}</span> → ${escapeHtml(b.price)} Br`
-              : `${escapeHtml(b.price)} Br`;
+              ? `<span class="row-price-old">${escapeHtml(String(b.manualCloseout.priceBefore))}</span> → ${escapeHtml(breakdown)}`
+              : escapeHtml(breakdown);
           }
           // Зелёная плашка в уголке — единственный признак того, что сверка
           // по этой брони проведена (played:false — «игра не состоялась» —
@@ -1190,17 +1193,18 @@
     document.getElementById('dvComment').textContent = booking.comment || '—';
 
     const dvChannelRow = document.getElementById('dvChannelRow');
+    const dvAnimatorRow = document.getElementById('dvAnimatorRow');
     const dvDiscountRow = document.getElementById('dvDiscountRow');
     const dvWorkedRow = document.getElementById('dvWorkedRow');
-    const dvHandledRow = document.getElementById('dvHandledRow');
     if (isTech) {
       dvChannelRow.style.display = 'none';
+      dvAnimatorRow.style.display = 'none';
       dvDiscountRow.style.display = 'none';
       dvWorkedRow.style.display = 'none';
-      dvHandledRow.style.display = 'none';
     } else {
       dvChannelRow.style.display = '';
       document.getElementById('dvChannel').textContent = booking.channel || '—';
+      dvAnimatorRow.style.display = booking.animator ? '' : 'none';
       dvDiscountRow.style.display = '';
       document.getElementById('dvDiscount').textContent = booking.discountNote || '—';
       dvWorkedRow.style.display = '';
@@ -1208,8 +1212,6 @@
       if (booking.workedActor) workedParts.push(`Актёр: ${booking.workedActor}`);
       if (booking.workedActress) workedParts.push(`Актриса: ${booking.workedActress}`);
       document.getElementById('dvWorked').textContent = workedParts.length ? workedParts.join(' · ') : '—';
-      dvHandledRow.style.display = '';
-      document.getElementById('dvHandled').textContent = booking.handledByAdmin || '—';
     }
 
     const dvReminderRow = document.getElementById('dvReminderRow');
@@ -1321,14 +1323,12 @@
     document.getElementById('editChannel').value = activeBooking.channel || '';
     document.getElementById('editWorkedActor').value = activeBooking.workedActor || '';
     document.getElementById('editWorkedActress').value = activeBooking.workedActress || '';
-    document.getElementById('editHandledByAdmin').value = activeBooking.handledByAdmin || localStorage.getItem('lastHandledByAdmin') || '';
     document.getElementById('editComment').value = activeBooking.comment || '';
   });
   document.getElementById('cancelEditBtn').addEventListener('click', resetDetailViews);
 
   document.getElementById('saveEditBtn').addEventListener('click', async () => {
     if (!activeBooking) return;
-    const handledByAdmin = document.getElementById('editHandledByAdmin').value;
     const payload = {
       action:'edit',
       dateISO: activeBooking.dateISO,
@@ -1343,14 +1343,12 @@
       channel: document.getElementById('editChannel').value,
       workedActor: document.getElementById('editWorkedActor').value,
       workedActress: document.getElementById('editWorkedActress').value,
-      handledByAdmin,
       comment: document.getElementById('editComment').value,
     };
     try{
       const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось сохранить.'; detailMsg.className = 'modal-msg err'; return; }
-      if (handledByAdmin.trim()) localStorage.setItem('lastHandledByAdmin', handledByAdmin.trim());
       await loadBookings();
       closeDetail();
     } catch(err){
@@ -1413,6 +1411,7 @@
     document.getElementById('sverkaPayCard').value = activeBooking.payCard || '';
     document.getElementById('sverkaPayErip').value = activeBooking.payErip || '';
     updateSverkaPayTotal();
+    document.getElementById('sverkaConfirmedBy').value = localStorage.getItem('sverkaStaffName') || '';
     sverkaMsg.textContent = '';
     sverkaForm.style.display = 'block';
     document.getElementById('detailActiveActions').style.display = 'none';
@@ -1425,6 +1424,7 @@
   document.getElementById('saveSverkaBtn').addEventListener('click', async () => {
     if (!activeBooking) return;
     const priceVal = document.getElementById('sverkaPrice').value;
+    const confirmedBy = document.getElementById('sverkaConfirmedBy').value;
     const payload = {
       action: 'manualCloseout',
       dateISO: activeBooking.dateISO,
@@ -1436,7 +1436,7 @@
       payCash: document.getElementById('sverkaPayCash').value,
       payCard: document.getElementById('sverkaPayCard').value,
       payErip: document.getElementById('sverkaPayErip').value,
-      confirmedBy: localStorage.getItem('lastHandledByAdmin') || '',
+      confirmedBy,
     };
     const btn = document.getElementById('saveSverkaBtn');
     btn.disabled = true;
@@ -1448,6 +1448,7 @@
         sverkaMsg.className = 'modal-msg err';
         return;
       }
+      if (confirmedBy.trim()) localStorage.setItem('sverkaStaffName', confirmedBy.trim());
       await loadBookings();
       const fresh = allBookings.find(b => b.id === activeBooking.id);
       if (fresh) openDetail(fresh); else closeDetail();

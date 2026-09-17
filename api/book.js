@@ -43,7 +43,7 @@ export default async function handler(req, res) {
   }
   body = body || {};
 
-  const { name, phone, players, date, dateISO, time, price, website, comment } = body;
+  const { name, phone, players, date, dateISO, time, price, website, comment, animator } = body;
 
   // Honeypot: real visitors never fill a field hidden with CSS. If it's
   // filled, silently pretend success so bots don't learn anything.
@@ -59,6 +59,7 @@ export default async function handler(req, res) {
   const cleanDateLabel = typeof date === 'string' ? date.trim().slice(0, 60) : '';
   const cleanPlayers = players != null ? String(players).slice(0, 40) : '';
   const cleanPrice = price != null ? String(price).slice(0, 20) : '';
+  const cleanAnimator = animator === true || animator === 'true';
 
   if (!cleanName || !cleanPhone) {
     return res.status(400).json({ error: 'Укажите имя и телефон.' });
@@ -101,6 +102,7 @@ export default async function handler(req, res) {
     workedActress: '',
     handledByAdmin: '',
     comment: cleanComment,
+    animator: cleanAnimator, // customer requested the "Аниматор" add-on (+30 Br) at booking time
     dateISO: cleanDateISO,
     dateLabel: cleanDateLabel,
     time: cleanTime,
@@ -131,6 +133,7 @@ export default async function handler(req, res) {
     cleanDateLabel ? `📅 Дата: ${escapeMd(cleanDateLabel)}` : null,
     cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
     cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
+    cleanAnimator ? `🎭 Аниматор: да (+30 Br)` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
   ].filter(Boolean).join('\n');
 
@@ -160,7 +163,7 @@ export default async function handler(req, res) {
       await kv('expire', hashKey, SLOT_TTL_SECONDS);
       // Best-effort: if a shift schedule assigns a performer to this slot,
       // this schedules their private 1.5h-before reminder AND their sverka
-      // (game closeout) message, timed 80 minutes after THIS game's own
+      // (game closeout) message, timed 60 minutes (1 hour) after THIS game's own
       // start time — see api/_reminders.js and api/_closeout.js. Neither
       // ever blocks or fails the booking itself.
       const [reminderPatch, closeoutPatch] = await Promise.all([

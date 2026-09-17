@@ -184,11 +184,23 @@
   }
   .day-heading .weekend-tag{color:var(--danger-bright);}
   .booking-row{
-    display:flex; align-items:center; gap:14px; background:var(--black-2);
+    position:relative; display:flex; align-items:center; gap:14px; background:var(--black-2);
     border:1px solid #262626; border-radius:12px; padding:13px 16px; margin-bottom:8px;
     cursor:pointer; transition:border-color .15s, background .15s;
   }
   .booking-row:hover{border-color:#3d3d3d; background:#141414;}
+  /* Ручная сверка проведена — тихая плашка в уголке карточки (зелёная —
+     сверено, красная — игра не состоялась), как в staff.html. */
+  .row-sverka-badge{
+    position:absolute; top:-7px; right:12px; font-size:10px; font-weight:800;
+    text-transform:uppercase; letter-spacing:.03em; color:#5fe08a;
+    background:#101a12; border:1px solid rgba(95,224,138,.45);
+    padding:2px 8px; border-radius:999px; line-height:1.4; white-space:nowrap;
+  }
+  .row-sverka-badge.not-played{
+    color:var(--danger-bright); background:#1a1011; border-color:rgba(255,107,111,.45);
+  }
+  .row-price-old{color:var(--muted); font-weight:600; text-decoration:line-through; margin-right:2px;}
   .row-time{
     font-family:var(--display); font-weight:400; font-size:17px; min-width:58px; color:var(--paper);
   }
@@ -273,6 +285,11 @@
 
   /* ---------- Stats dashboard ---------- */
   .stats-kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px;}
+  /* Итоги нал/безнал/ЕРИП за выбранный день, над списком броней. Использует
+     ту же плитку .stat-tile, что и "Бухгалтерия" — просто в другом месте. */
+  .day-summary-bar{margin-bottom:16px;}
+  .day-summary-bar .stats-kpis{margin-bottom:0;}
+  @media (max-width:680px){ .day-summary-bar .stats-kpis{grid-template-columns:repeat(2,1fr);} }
   .stat-tile{background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px; padding:14px 12px;}
   .stat-tile .stat-label{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); margin-bottom:6px;}
   .stat-tile .stat-value{font-family:var(--display); font-weight:400; font-size:26px; color:var(--paper); line-height:1;}
@@ -535,6 +552,9 @@
       <button class="btn-secondary" id="todayToggleBtn">Сегодня</button>
       <button class="btn-secondary" id="exportCsvBtn">Экспорт CSV</button>
     </div>
+    <!-- Итоги нал/безнал/ЕРИП за выбранный день — видно сразу, без похода
+         в «Бухгалтерию» (появляется только когда выбран конкретный день). -->
+    <div id="daySummaryBar" class="day-summary-bar" style="display:none;"></div>
     <div id="listContainer"><div class="load-note">Загрузка…</div></div>
   </div>
 </div>
@@ -583,18 +603,54 @@
       <div class="detail-field"><label>Цена</label><div class="value" id="dvPrice"></div></div>
       <div class="detail-field"><label>Комментарий</label><div class="value" id="dvComment"></div></div>
       <div class="detail-field" id="dvChannelRow"><label>Источник брони</label><div class="value" id="dvChannel"></div></div>
+      <div class="detail-field" id="dvAnimatorRow" style="display:none;"><label>Аниматор</label><div class="value" id="dvAnimator">🎭 Заказан (+30 Br)</div></div>
       <div class="detail-field" id="dvDiscountRow"><label>Скидка / сертификат</label><div class="value" id="dvDiscount"></div></div>
       <div class="detail-field" id="dvWorkedRow"><label>Кто отыграл</label><div class="value" id="dvWorked"></div></div>
-      <div class="detail-field" id="dvHandledRow"><label>Оформил</label><div class="value" id="dvHandled"></div></div>
       <div class="detail-field" id="dvReminderRow"><label>Напоминание актёру</label><div class="value" id="dvReminder"></div></div>
-      <div class="detail-field" id="dvCloseoutRow"><label>Сверка от актёра</label><div class="value" id="dvCloseout"></div></div>
+      <div class="detail-field" id="dvSverkaRow" style="display:none;"><label>Сверка</label><div class="value" id="dvSverka"></div></div>
+
+      <!-- Ручная сверка (вместо бота, см. api/_closeout.js): отметить, была
+           ли игра, поправить цену/число игроков/скидку/оплату. Раньше здесь
+           был статус "Сверка от актёра" — бот-механизм отключён 16.09.2026,
+           и вся сверка теперь проводится вручную здесь же (или в
+           staff.html — данные общие, эта же запись). -->
+      <div id="sverkaForm" style="display:none; margin-top:6px;">
+        <div class="detail-field">
+          <label>Игра состоялась?</label>
+          <div class="type-toggle" id="sverkaPlayedToggle">
+            <button type="button" class="type-toggle-btn active" data-played="yes">Да</button>
+            <button type="button" class="type-toggle-btn" data-played="no">Нет</button>
+          </div>
+        </div>
+        <div id="sverkaPlayedFields">
+          <div class="detail-field"><label>Игроков</label><select id="sverkaPlayers"></select></div>
+          <div class="detail-field"><label>Цена, Br</label><input id="sverkaPrice" inputmode="numeric"></div>
+          <div class="detail-field"><label>Скидка / номер сертификата</label><input id="sverkaDiscount" placeholder="Например: скидка 10% или серт. №123"></div>
+          <div class="detail-field">
+            <label>Как оплатили (можно частями)</label>
+            <div class="pay-split">
+              <div class="pay-split-item"><span>Нал</span><input id="sverkaPayCash" inputmode="numeric" placeholder="0"></div>
+              <div class="pay-split-item"><span>Безнал</span><input id="sverkaPayCard" inputmode="numeric" placeholder="0"></div>
+              <div class="pay-split-item"><span>ЕРИП</span><input id="sverkaPayErip" inputmode="numeric" placeholder="0"></div>
+            </div>
+            <div class="pay-split-total">Итого: <b id="sverkaPayTotal">0</b> Br</div>
+          </div>
+        </div>
+        <div class="detail-field"><label>Ваше имя</label><input id="sverkaConfirmedBy" placeholder="Кто проводит сверку"></div>
+        <div class="modal-actions">
+          <button class="btn" id="saveSverkaBtn">Сохранить сверку</button>
+          <button class="btn-secondary" id="cancelSverkaFormBtn">Отмена</button>
+        </div>
+      </div>
+
       <div class="modal-actions" id="detailActiveActions">
         <button class="btn-secondary" id="rescheduleBtn">Перенести</button>
         <button class="btn-secondary" id="editBtn">Редактировать</button>
-        <button class="btn-secondary" id="cancelCloseoutBtn" style="display:none; border-color:var(--danger-bright); color:var(--danger-bright);" title="Сбросить результат уже полученной сверки (оплату и кто отыграл), чтобы актёр мог пройти её заново через бота">Отменить сверку</button>
+        <button class="btn-secondary" id="openSverkaBtn">Провести сверку</button>
+        <button class="btn-secondary" id="resetSverkaBtn" style="display:none; border-color:var(--danger-bright); color:var(--danger-bright);" title="Отменить сверку и вернуть цену/число игроков к значению до неё">Сбросить сверку</button>
         <button class="btn-danger" id="cancelBookingBtn">Отменить</button>
       </div>
-      <div class="modal-msg" id="cancelCloseoutMsg"></div>
+      <div class="modal-msg" id="sverkaMsg"></div>
     </div>
 
     <div id="editView" style="display:none;">
@@ -619,7 +675,6 @@
           <div class="pay-split-item" style="flex:1;"><span>Актриса</span><input id="editWorkedActress" list="knownActorNamesList" placeholder="Имя"></div>
         </div>
       </div>
-      <div class="detail-field"><label>Кто из админов оформил</label><input id="editHandledByAdmin" placeholder="Ваше имя"></div>
       <div class="detail-field"><label>Комментарий</label><textarea id="editComment" rows="3"></textarea></div>
       <div class="modal-actions">
         <button class="btn" id="saveEditBtn">Сохранить</button>
@@ -947,6 +1002,22 @@
     if (toNum(b.payErip) > 0) parts.push(`ЕРИП ${b.payErip}`);
     return parts.length ? `${b.price} Br (${parts.join(' + ')})` : `${b.price} Br`;
   }
+  // Ручная сверка (setManualCloseout/cancelManualCloseout в api/_closeout.js,
+  // общая с staff.html — одна и та же запись брони). Возвращает null, если
+  // сверки ещё не было, иначе — объект с готовой подписью и флагами
+  // "цена/игроки менялись" (нужны renderList(), чтобы показать стрелку
+  // "было → стало").
+  function formatManualSverka(b){
+    const mc = b.manualCloseout;
+    if (!mc || !mc.done) return null;
+    const priceChanged = Object.prototype.hasOwnProperty.call(mc, 'priceBefore');
+    const playersChanged = Object.prototype.hasOwnProperty.call(mc, 'playersBefore');
+    const parts = [mc.played === false ? 'Игра не состоялась' : 'Игра состоялась'];
+    if (mc.played !== false && priceChanged) parts.push(`цена: ${mc.priceBefore} → ${b.price} Br`);
+    if (mc.played !== false && playersChanged) parts.push(`игроков: ${mc.playersBefore} → ${b.players}`);
+    if (mc.confirmedBy) parts.push(`отметил(а): ${mc.confirmedBy}`);
+    return { label: parts.join(' · '), priceChanged, playersChanged };
+  }
   // A booking's own per-game sverka is scheduled independently for EACH
   // performer covering it (see scheduleGameCloseout() in api/_closeout.js)
   // — a two-person booking (actor + actress) gets two separate jobs, each
@@ -1160,8 +1231,41 @@
     document.getElementById('tabCountRescheduled').textContent = getFilteredBookings('rescheduled').length;
   }
 
+  // Итоги нал/безнал/ЕРИП за конкретный выбранный день — считаем по ВСЕМ
+  // клиентским броням этого дня (любой статус), точно так же, как это
+  // делает /api/admin/report.js для "Бухгалтерии" (там тоже суммируются
+  // и активные, и архивные записи) — чтобы цифры тут и там не расходились.
+  // Появляется только когда выбран конкретный день (иначе непонятно, за
+  // какой день считать) — не заменяет "Бухгалтерию" (та — за месяц), а
+  // дополняет её мгновенным видом на один день прямо над списком.
+  function renderDaySummary(){
+    const bar = document.getElementById('daySummaryBar');
+    if (!filterDateISO){
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      return;
+    }
+    const dayBookings = allBookings.filter(b => b.dateISO === filterDateISO && b.type === 'customer');
+    const totals = dayBookings.reduce((acc, b) => {
+      acc.cash += toNum(b.payCash);
+      acc.card += toNum(b.payCard);
+      acc.erip += toNum(b.payErip);
+      return acc;
+    }, { cash: 0, card: 0, erip: 0 });
+    bar.style.display = '';
+    bar.innerHTML = `
+      <div class="stats-chart-head"><span class="stats-chart-title">Итоги за ${escapeHtml(formatDateHeading(filterDateISO))}</span></div>
+      <div class="stats-kpis">
+        <div class="stat-tile"><div class="stat-label">Броней</div><div class="stat-value">${dayBookings.length}</div></div>
+        <div class="stat-tile"><div class="stat-label">Нал</div><div class="stat-value">${Math.round(totals.cash)}</div></div>
+        <div class="stat-tile"><div class="stat-label">Безнал</div><div class="stat-value">${Math.round(totals.card)}</div></div>
+        <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(totals.erip)}</div></div>
+      </div>`;
+  }
+
   function renderList(){
     updateTabCounts();
+    renderDaySummary();
 
     if (!allBookings.length){
       listContainer.innerHTML = '<div class="empty-note">Броней пока нет.</div>';
@@ -1192,6 +1296,12 @@
           if (!isTech){
             if (b.phone) subParts.push(b.phone);
             if (b.source === 'admin') subParts.push('внесено вручную');
+            // Источник брони и комментарий теперь видны прямо в общем
+            // списке (16.09.2026, по просьбе владельца) — не нужно
+            // открывать бронь, чтобы их прочитать.
+            if (b.channel) subParts.push(`Источник: ${b.channel}`);
+            if (b.animator) subParts.push('🎭 Аниматор (+30)');
+            if (b.comment) subParts.push(b.comment);
           } else if (b.comment){
             subParts.push(b.comment);
           }
@@ -1202,10 +1312,31 @@
             subParts.push(`перенесена с ${formatDateHeading(b.rescheduledFrom.dateISO)}, ${b.rescheduledFrom.time}`);
           }
           const sub = subParts.filter(Boolean).join(' · ');
-          const priceLabel = (!isTech && b.price && !isHistory) ? `${escapeHtml(b.price)} Br` : '';
+          // Ручная сверка: если цена поменялась при сверке, показываем
+          // "было → стало" вместо просто текущей цены (b.price уже содержит
+          // НОВУЮ цену — старая берётся из manualCloseout.priceBefore). Сумма
+          // всегда показывается с разбивкой нал/безнал/ЕРИП — чтобы было
+          // видно "сколько и чем заплатили", не открывая бронь.
+          const sverka = (!isTech && !isHistory) ? formatManualSverka(b) : null;
+          let priceLabel = '';
+          if (!isTech && b.price && !isHistory){
+            const breakdown = formatPriceBreakdown(b);
+            priceLabel = (sverka && sverka.priceChanged)
+              ? `<span class="row-price-old">${escapeHtml(String(b.manualCloseout.priceBefore))}</span> → ${escapeHtml(breakdown)}`
+              : escapeHtml(breakdown);
+          }
+          // Зелёная/красная плашка в уголке — единственный признак того, что
+          // сверка по этой брони проведена (played:false — «игра не
+          // состоялась» — тоже считается проведённой сверкой, просто с
+          // другим текстом и красным цветом).
+          const sverkaNotPlayed = Boolean(sverka && sverka.label && sverka.label.startsWith('Игра не состоялась'));
+          const sverkaBadge = sverka
+            ? `<span class="row-sverka-badge${sverkaNotPlayed ? ' not-played' : ''}"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverkaNotPlayed ? '✕ Игра не состоялась' : '✓ Сверено'}</span>`
+            : '';
           const badge = typeBadge(b);
           return `
             <div class="booking-row${isHistory ? ' is-history' : ''}" data-id="${escapeHtml(b.id)}">
+              ${sverkaBadge}
               <div class="row-time">${escapeHtml(b.time)}</div>
               <div class="row-type ${badge.cls}">${badge.label}</div>
               <div class="row-main">
@@ -1324,13 +1455,14 @@
       alert('Нет броней для экспорта — измените фильтр поиска или дату.');
       return;
     }
-    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Сверка актёра','Комментарий','Как создано','Перенос'];
+    const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Сверка','Комментарий','Как создано','Перенос'];
     const lines = [header.join(';')];
     rows.forEach(b => {
       const isTech = b.type === 'technical';
       const moveNote = b.status === 'rescheduled' && b.rescheduledTo
         ? `на ${b.rescheduledTo.dateISO} ${b.rescheduledTo.time}`
         : (b.status === 'active' && b.rescheduledFrom ? `с ${b.rescheduledFrom.dateISO} ${b.rescheduledFrom.time}` : '');
+      const sverkaForCsv = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : (!isTech ? (formatCloseoutStatus(b) || '') : '');
       lines.push([
         b.dateISO || '',
         b.time || '',
@@ -1347,8 +1479,7 @@
         isTech ? '' : (b.discountNote || ''),
         isTech ? '' : (b.workedActor || ''),
         isTech ? '' : (b.workedActress || ''),
-        isTech ? '' : (b.handledByAdmin || ''),
-        isTech ? '' : (b.closeoutStatus === 'edited' ? 'Исправлено' : b.closeoutStatus === 'confirmed' ? 'Подтверждено' : b.closeoutStatus === 'awaiting' ? 'Ожидает' : b.closeoutStatus === 'actor-not-registered' ? 'Не отправлено — актёр не подключил бота' : b.closeoutStatus === 'send-failed' ? 'Не удалось отправить' : ''),
+        sverkaForCsv,
         b.comment || '',
         b.source === 'admin' ? 'вручную' : (b.source || ''),
         moveNote
@@ -1413,17 +1544,18 @@
     document.getElementById('dvComment').textContent = booking.comment || '—';
 
     const dvChannelRow = document.getElementById('dvChannelRow');
+    const dvAnimatorRow = document.getElementById('dvAnimatorRow');
     const dvDiscountRow = document.getElementById('dvDiscountRow');
     const dvWorkedRow = document.getElementById('dvWorkedRow');
-    const dvHandledRow = document.getElementById('dvHandledRow');
     if (isTech) {
       dvChannelRow.style.display = 'none';
+      dvAnimatorRow.style.display = 'none';
       dvDiscountRow.style.display = 'none';
       dvWorkedRow.style.display = 'none';
-      dvHandledRow.style.display = 'none';
     } else {
       dvChannelRow.style.display = '';
       document.getElementById('dvChannel').textContent = booking.channel || '—';
+      dvAnimatorRow.style.display = booking.animator ? '' : 'none';
       dvDiscountRow.style.display = '';
       document.getElementById('dvDiscount').textContent = booking.discountNote || '—';
       dvWorkedRow.style.display = '';
@@ -1431,8 +1563,6 @@
       if (booking.workedActor) workedParts.push(`Актёр: ${booking.workedActor}`);
       if (booking.workedActress) workedParts.push(`Актриса: ${booking.workedActress}`);
       document.getElementById('dvWorked').textContent = workedParts.length ? workedParts.join(' · ') : '—';
-      dvHandledRow.style.display = '';
-      document.getElementById('dvHandled').textContent = booking.handledByAdmin || '—';
     }
 
     const dvReminderRow = document.getElementById('dvReminderRow');
@@ -1468,36 +1598,44 @@
       }
     }
 
-    const dvCloseoutRow = document.getElementById('dvCloseoutRow');
-    const cancelCloseoutBtn = document.getElementById('cancelCloseoutBtn');
-    document.getElementById('cancelCloseoutMsg').textContent = '';
+    const dvSverkaRow = document.getElementById('dvSverkaRow');
+    const openSverkaBtn = document.getElementById('openSverkaBtn');
+    const resetSverkaBtn = document.getElementById('resetSverkaBtn');
+    document.getElementById('sverkaMsg').textContent = '';
     if (isTech) {
-      dvCloseoutRow.style.display = 'none';
-      cancelCloseoutBtn.style.display = 'none';
+      dvSverkaRow.style.display = 'none';
+      openSverkaBtn.style.display = 'none';
+      resetSverkaBtn.style.display = 'none';
     } else {
-      const closeoutText = formatCloseoutStatus(booking);
-      const hasReminders = Array.isArray(booking.reminders) && booking.reminders.length > 0;
-      const hasCloseouts = Array.isArray(booking.closeouts) && booking.closeouts.length > 0;
-      if (closeoutText) {
-        dvCloseoutRow.style.display = '';
-        document.getElementById('dvCloseout').textContent = closeoutText;
-      } else if (!isHistory && hasReminders && !hasCloseouts) {
-        // A performer is assigned and gets a reminder, but no sverka was
-        // ever scheduled for them — normally this can't happen (both are
-        // scheduled together), so seeing it means either this booking
-        // predates the sverka feature, or something genuinely slipped
-        // through. Surface it instead of silently hiding the row, so it
-        // doesn't quietly repeat the "sverka never arrived" problem.
-        dvCloseoutRow.style.display = '';
-        document.getElementById('dvCloseout').textContent = '⚠️ Сверка не запланирована для этой брони. Нажмите «Сверка сейчас» на вкладке «Смены и напоминания» для этой смены, чтобы отправить её вручную.';
+      const sverka = formatManualSverka(booking);
+      if (sverka) {
+        dvSverkaRow.style.display = '';
+        const notPlayed = sverka.label && sverka.label.startsWith('Игра не состоялась');
+        const markHtml = notPlayed
+          ? `<span style="color:var(--danger-bright); font-weight:700;">✕ Игра не состоялась</span>`
+          : `<span style="color:#5fe08a; font-weight:700;">✓ Сверено</span>`;
+        document.getElementById('dvSverka').innerHTML = `${markHtml} — ${escapeHtml(sverka.label)}`;
       } else {
-        dvCloseoutRow.style.display = 'none';
+        // A booking from BEFORE the manual-sverka switch (16.09.2026) may
+        // still carry old bot-era closeout data — nothing actionable now
+        // (the bot mechanism is off), but worth showing rather than
+        // silently dropping the record's history.
+        const legacyText = formatCloseoutStatus(booking);
+        if (legacyText) {
+          dvSverkaRow.style.display = '';
+          document.getElementById('dvSverka').textContent = `${legacyText} (старая сверка через бота, до 16.09.2026)`;
+        } else {
+          dvSverkaRow.style.display = 'none';
+        }
       }
-      // "Отменить сверку" only makes sense once sverka is actually DONE
-      // (актёр подтвердил/исправил) — before that, «Сверка сейчас» in
-      // Смены и напоминания already covers resending.
-      const closeoutDone = !isHistory && (booking.closeoutStatus === 'confirmed' || booking.closeoutStatus === 'edited');
-      cancelCloseoutBtn.style.display = closeoutDone ? '' : 'none';
+      if (isHistory) {
+        openSverkaBtn.style.display = 'none';
+        resetSverkaBtn.style.display = 'none';
+      } else {
+        openSverkaBtn.textContent = sverka ? 'Изменить сверку' : 'Провести сверку';
+        openSverkaBtn.style.display = '';
+        resetSverkaBtn.style.display = sverka ? '' : 'none';
+      }
     }
 
     // Cancelled/rescheduled entries are history, not live bookings — nothing
@@ -1545,14 +1683,12 @@
     document.getElementById('editChannel').value = activeBooking.channel || '';
     document.getElementById('editWorkedActor').value = activeBooking.workedActor || '';
     document.getElementById('editWorkedActress').value = activeBooking.workedActress || '';
-    document.getElementById('editHandledByAdmin').value = activeBooking.handledByAdmin || localStorage.getItem('lastHandledByAdmin') || '';
     document.getElementById('editComment').value = activeBooking.comment || '';
   });
   document.getElementById('cancelEditBtn').addEventListener('click', resetDetailViews);
 
   document.getElementById('saveEditBtn').addEventListener('click', async () => {
     if (!activeBooking) return;
-    const handledByAdmin = document.getElementById('editHandledByAdmin').value;
     const payload = {
       action:'edit',
       dateISO: activeBooking.dateISO,
@@ -1567,14 +1703,12 @@
       channel: document.getElementById('editChannel').value,
       workedActor: document.getElementById('editWorkedActor').value,
       workedActress: document.getElementById('editWorkedActress').value,
-      handledByAdmin,
       comment: document.getElementById('editComment').value,
     };
     try{
       const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){ detailMsg.textContent = out.error || 'Не удалось сохранить.'; detailMsg.className = 'modal-msg err'; return; }
-      if (handledByAdmin.trim()) localStorage.setItem('lastHandledByAdmin', handledByAdmin.trim());
       await loadBookings();
       closeDetail();
     } catch(err){
@@ -1700,6 +1834,108 @@
     }
   });
 
+  // -- ручная сверка (та же логика и HTML, что в staff.html; данные общие) --
+  let sverkaPlayed = true; // true='Да', false='Нет' — see #sverkaPlayedToggle
+  const sverkaForm = document.getElementById('sverkaForm');
+  const sverkaPlayedFields = document.getElementById('sverkaPlayedFields');
+  const sverkaMsg = document.getElementById('sverkaMsg');
+  const sverkaPlayersSelect = document.getElementById('sverkaPlayers');
+
+  // Игроков на сверке выбирают из готовых вариантов (1–2, 3, 4, 5, 6) —
+  // короткий список для быстрой отметки факта, не тарифная сетка "+ Новая
+  // бронь" (та ещё и цену считает).
+  const SVERKA_PLAYERS_OPTIONS = ['1–2', '3', '4', '5', '6'];
+  sverkaPlayersSelect.innerHTML = SVERKA_PLAYERS_OPTIONS.map(v => `<option value="${v}">${v}</option>`).join('');
+  function sverkaPlayersValueFor(players){
+    const n = parseInt(String(players == null ? '' : players).replace(/\D+/g, ''), 10);
+    if (!Number.isFinite(n) || n <= 2) return '1–2';
+    if (n >= 6) return '6';
+    return String(n);
+  }
+
+  function setSverkaPlayed(played){
+    sverkaPlayed = played;
+    document.querySelectorAll('#sverkaPlayedToggle .type-toggle-btn').forEach(b => {
+      b.classList.toggle('active', (b.dataset.played === 'yes') === played);
+    });
+    sverkaPlayedFields.style.display = played ? '' : 'none';
+  }
+  document.querySelectorAll('#sverkaPlayedToggle .type-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => setSverkaPlayed(btn.dataset.played === 'yes'));
+  });
+
+  // Способ оплаты во время сверки — можно частями (Нал + Безнал + ЕРИП),
+  // как и в обычном редактировании брони (editPayCash/editPayCard/editPayErip).
+  function updateSverkaPayTotal(){
+    const cash = toNum(document.getElementById('sverkaPayCash').value);
+    const card = toNum(document.getElementById('sverkaPayCard').value);
+    const erip = toNum(document.getElementById('sverkaPayErip').value);
+    document.getElementById('sverkaPayTotal').textContent = String(cash + card + erip);
+  }
+  ['sverkaPayCash', 'sverkaPayCard', 'sverkaPayErip'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateSverkaPayTotal);
+  });
+
+  document.getElementById('openSverkaBtn').addEventListener('click', () => {
+    if (!activeBooking) return;
+    const mc = activeBooking.manualCloseout;
+    setSverkaPlayed(!mc || mc.played !== false);
+    sverkaPlayersSelect.value = sverkaPlayersValueFor(activeBooking.players);
+    document.getElementById('sverkaPrice').value = activeBooking.price || '';
+    document.getElementById('sverkaDiscount').value = activeBooking.discountNote || '';
+    const hasBreakdown = activeBooking.payCash || activeBooking.payCard || activeBooking.payErip;
+    document.getElementById('sverkaPayCash').value = hasBreakdown ? (activeBooking.payCash || '') : (activeBooking.price || '');
+    document.getElementById('sverkaPayCard').value = activeBooking.payCard || '';
+    document.getElementById('sverkaPayErip').value = activeBooking.payErip || '';
+    updateSverkaPayTotal();
+    document.getElementById('sverkaConfirmedBy').value = localStorage.getItem('sverkaStaffName') || '';
+    sverkaMsg.textContent = '';
+    sverkaForm.style.display = 'block';
+    document.getElementById('detailActiveActions').style.display = 'none';
+  });
+  document.getElementById('cancelSverkaFormBtn').addEventListener('click', () => {
+    sverkaForm.style.display = 'none';
+    document.getElementById('detailActiveActions').style.display = 'flex';
+  });
+
+  document.getElementById('saveSverkaBtn').addEventListener('click', async () => {
+    if (!activeBooking) return;
+    const confirmedBy = document.getElementById('sverkaConfirmedBy').value;
+    const payload = {
+      action: 'manualCloseout',
+      dateISO: activeBooking.dateISO,
+      time: activeBooking.time,
+      played: sverkaPlayed,
+      price: document.getElementById('sverkaPrice').value,
+      players: sverkaPlayersSelect.value,
+      discountNote: document.getElementById('sverkaDiscount').value,
+      payCash: document.getElementById('sverkaPayCash').value,
+      payCard: document.getElementById('sverkaPayCard').value,
+      payErip: document.getElementById('sverkaPayErip').value,
+      confirmedBy,
+    };
+    const btn = document.getElementById('saveSverkaBtn');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        sverkaMsg.textContent = out.error || 'Не удалось сохранить сверку.';
+        sverkaMsg.className = 'modal-msg err';
+        return;
+      }
+      if (confirmedBy.trim()) localStorage.setItem('sverkaStaffName', confirmedBy.trim());
+      await loadBookings();
+      const fresh = allBookings.find(b => b.id === activeBooking.id);
+      if (fresh) openDetail(fresh); else closeDetail();
+    } catch(err){
+      sverkaMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      sverkaMsg.className = 'modal-msg err';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // -- cancel booking / cancel a completed sverka (shared confirm dialog) --
   const confirmOverlay = document.getElementById('confirmOverlay');
   document.getElementById('cancelBookingBtn').addEventListener('click', () => {
@@ -1710,12 +1946,12 @@
       `${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}${activeBooking.name ? ' — ' + activeBooking.name : ''}`;
     confirmOverlay.classList.add('show');
   });
-  document.getElementById('cancelCloseoutBtn').addEventListener('click', () => {
+  document.getElementById('resetSverkaBtn').addEventListener('click', () => {
     if (!activeBooking) return;
-    pendingConfirmAction = 'cancelCloseout';
-    document.getElementById('confirmTitle').textContent = 'Отменить сверку?';
+    pendingConfirmAction = 'cancelManualCloseout';
+    document.getElementById('confirmTitle').textContent = 'Сбросить сверку?';
     document.getElementById('confirmText').textContent =
-      `Оплата и «кто отыграл» по этой игре (${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}) будут сброшены, чтобы актёр мог заново пройти сверку через бота. Сама бронь и её цена не изменятся.`;
+      `Цена и число игроков по этой брони (${formatDateHeading(activeBooking.dateISO)} в ${activeBooking.time}) вернутся к значению до сверки, а отметку «сверено» можно будет поставить заново.`;
     confirmOverlay.classList.add('show');
   });
   document.getElementById('confirmNo').addEventListener('click', () => confirmOverlay.classList.remove('show'));
@@ -1760,17 +1996,17 @@
       const out = await res.json().catch(() => ({}));
       confirmOverlay.classList.remove('show');
       if (!res.ok){
-        const msg = out.error || (action === 'cancelCloseout' ? 'Не удалось отменить сверку.' : 'Не удалось отменить бронь.');
-        if (action === 'cancelCloseout') {
-          document.getElementById('cancelCloseoutMsg').textContent = msg;
-          document.getElementById('cancelCloseoutMsg').className = 'modal-msg err';
+        const msg = out.error || (action === 'cancelManualCloseout' ? 'Не удалось сбросить сверку.' : 'Не удалось отменить бронь.');
+        if (action === 'cancelManualCloseout') {
+          document.getElementById('sverkaMsg').textContent = msg;
+          document.getElementById('sverkaMsg').className = 'modal-msg err';
         } else {
           detailMsg.textContent = msg; detailMsg.className = 'modal-msg err';
         }
         return;
       }
       await loadBookings();
-      if (action === 'cancelCloseout') {
+      if (action === 'cancelManualCloseout') {
         const fresh = allBookings.find(b => b.id === bookingId);
         if (fresh) openDetail(fresh); else closeDetail();
       } else {
@@ -1779,9 +2015,9 @@
     } catch(err){
       confirmOverlay.classList.remove('show');
       const msg = 'Ошибка сети. Попробуйте ещё раз.';
-      if (action === 'cancelCloseout') {
-        document.getElementById('cancelCloseoutMsg').textContent = msg;
-        document.getElementById('cancelCloseoutMsg').className = 'modal-msg err';
+      if (action === 'cancelManualCloseout') {
+        document.getElementById('sverkaMsg').textContent = msg;
+        document.getElementById('sverkaMsg').className = 'modal-msg err';
       } else {
         detailMsg.textContent = msg; detailMsg.className = 'modal-msg err';
       }
@@ -2221,16 +2457,53 @@
 
     overviewSlotGrid.querySelectorAll('.overview-slot').forEach(btn => {
       btn.addEventListener('click', () => {
-        overviewSlotGrid.querySelectorAll('.overview-slot').forEach(b2 => b2.classList.remove('picked'));
-        btn.classList.add('picked');
         const time = btn.dataset.time;
         const b = byTime[time];
-        overviewSlotDetail.style.display = 'block';
 
+        // Свободный слот — закрываем на техничку ОДНИМ кликом, без формы и
+        // без комментария (по просьбе владельца — раньше для этого нужно
+        // было открывать "+ Новая бронь", выбирать дату/время заново и
+        // печатать необязательный комментарий). Если передумали — слот
+        // так же открывается и отменяется как обычная техническая бронь.
         if (!b){
-          overviewSlotDetail.innerHTML = `<b>${escapeHtml(time)}</b> — слот свободен, брони нет.`;
+          overviewSlotGrid.querySelectorAll('.overview-slot').forEach(b2 => b2.classList.remove('picked'));
+          btn.classList.add('picked');
+          overviewSlotDetail.style.display = 'block';
+          overviewSlotDetail.innerHTML = `<b>${escapeHtml(time)}</b> — закрываю слот…`;
+          btn.disabled = true;
+          fetch('/api/admin/bookings', {
+            method:'POST', headers: authHeaders(),
+            body: JSON.stringify({ action:'create', type:'technical', dateISO, time, comment:'' }),
+          })
+            .then(res => res.json().catch(() => ({})).then(out => ({ ok: res.ok, out })))
+            .then(async ({ ok, out }) => {
+              if (!ok){
+                overviewSlotDetail.innerHTML = `<b>${escapeHtml(time)}</b> — ${escapeHtml(out.error || 'не удалось закрыть слот.')}`;
+                btn.disabled = false;
+                return;
+              }
+              await loadBookings();
+              renderOverviewDaySlots(dateISO);
+              // renderOverviewDaySlots() just rebuilt the whole grid from
+              // scratch and — same as opening the day fresh — hid the detail
+              // panel again, which would make it look like nothing happened.
+              // Click the slot we just closed (now rendered as technical) so
+              // its confirmation shows immediately, exactly as if the admin
+              // had clicked an already-existing technical slot.
+              const freshBtn = Array.from(overviewSlotGrid.querySelectorAll('.overview-slot'))
+                .find(b2 => b2.dataset.time === time);
+              if (freshBtn) freshBtn.click();
+            })
+            .catch(() => {
+              overviewSlotDetail.innerHTML = `<b>${escapeHtml(time)}</b> — ошибка сети, попробуйте ещё раз.`;
+              btn.disabled = false;
+            });
           return;
         }
+
+        overviewSlotGrid.querySelectorAll('.overview-slot').forEach(b2 => b2.classList.remove('picked'));
+        btn.classList.add('picked');
+        overviewSlotDetail.style.display = 'block';
 
         const openInListBtn = `<div style="margin-top:10px;"><button type="button" class="btn-secondary" id="overviewOpenDetailBtn" style="width:auto; padding:8px 14px; font-size:12.5px;">Открыть карточку брони →</button></div>`;
 
@@ -2639,10 +2912,11 @@
         msg.textContent = 'За этот период нет ни одной брони.';
         return;
       }
-      const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Оформил','Сверка актёра','Комментарий'];
+      const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Сверка','Комментарий'];
       const lines = [header.join(';')];
       rows.forEach(b => {
         const isTech = b.type === 'technical';
+        const sverkaForCsv = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : (!isTech ? (formatCloseoutStatus(b) || '') : '');
         lines.push([
           b.dateISO || '', b.time || '',
           isTech ? 'Техническая' : 'Клиент',
@@ -2658,8 +2932,7 @@
           isTech ? '' : (b.discountNote || ''),
           isTech ? '' : (b.workedActor || ''),
           isTech ? '' : (b.workedActress || ''),
-          isTech ? '' : (b.handledByAdmin || ''),
-          isTech ? '' : (b.closeoutStatus === 'edited' ? 'Исправлено' : b.closeoutStatus === 'confirmed' ? 'Подтверждено' : b.closeoutStatus === 'awaiting' ? 'Ожидает' : b.closeoutStatus === 'actor-not-registered' ? 'Не отправлено — актёр не подключил бота' : b.closeoutStatus === 'send-failed' ? 'Не удалось отправить' : ''),
+          sverkaForCsv,
           b.comment || '',
         ].map(csvEscape).join(';'));
       });

@@ -429,6 +429,16 @@
   .players-select:focus{outline:none; border-color:var(--ochre-bright);}
   .players-select option{background:var(--black-2); color:var(--paper);}
 
+  .animator-toggle{
+    display:flex; align-items:center; gap:12px; margin-top:14px; padding:14px 18px;
+    background:var(--black-2); border:1.5px solid var(--line); border-radius:14px;
+    cursor:pointer; transition:border-color .2s;
+  }
+  .animator-toggle:has(input:checked){border-color:var(--ochre-bright);}
+  .animator-toggle input{width:19px; height:19px; accent-color:var(--ochre-bright); cursor:pointer; flex-shrink:0;}
+  .animator-toggle-text{font-family:var(--sans); font-size:14.5px; font-weight:600; color:var(--paper);}
+  .animator-toggle-text b{color:var(--ochre-bright); font-weight:800;}
+
   .cal-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;}
   .cal-month{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:17px; letter-spacing:.02em; color:var(--paper);}
   .cal-nav{
@@ -479,12 +489,21 @@
   }
   .slot.slot-taken .slot-time{text-decoration:line-through; text-decoration-color:rgba(245,239,228,0.4);}
   .slot.slot-taken .slot-price{color:var(--muted);}
+  /* Slot nobody booked, but under an hour left before it starts — online
+     booking is closed for it (see refreshSlotAvailability()), but unlike
+     .slot-taken it stays CLICKABLE: tapping it shows a note that booking is
+     still possible by phone, with the number attached, instead of silently
+     doing nothing. */
+  .slot.slot-closed-soon{opacity:.5;}
+  .slot.slot-closed-soon .slot-time{text-decoration:line-through; text-decoration-color:rgba(245,239,228,0.4);}
+  .slot.slot-closed-soon .slot-price{color:var(--muted);}
   .slot-note{
     display:none; margin-top:12px; padding:12px 16px; border-radius:12px;
     background:rgba(224,106,106,0.08); border:1px solid #e06a6a; color:#e06a6a;
     font-family:var(--sans); font-weight:600; font-size:13px;
   }
   .slot-note.show{display:block; animation:slidein .3s ease;}
+  .slot-note a{color:inherit; text-decoration:underline;}
   .day.full{opacity:.35; cursor:not-allowed; pointer-events:none;}
 
   .price-panel{
@@ -1216,6 +1235,10 @@
         <div class="contact-fields">
           <select id="playersSelect" class="players-select"></select>
         </div>
+        <label class="animator-toggle" id="animatorToggle">
+          <input type="checkbox" id="animatorCheck">
+          <span class="animator-toggle-text">Аниматор к празднику <b>+30 <span class="byn-icon"></span></b></span>
+        </label>
         <textarea id="bookComment" class="comment-field" placeholder="Комментарий (необязательно): пожелания, повод визита, особые обстоятельства" maxlength="500" rows="3"></textarea>
       </div>
 
@@ -1550,6 +1573,7 @@
     selectedSlotIsLate = false;
     document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
     slotNote.classList.remove('show');
+    animatorCheck.checked = false;
     const confirmMsg = document.getElementById('confirmMsg');
     confirmMsg.classList.remove('show', 'err');
     bookingModalOverlay.classList.add('show');
@@ -1607,15 +1631,21 @@
   });
 
   const priceOut = document.getElementById('priceOut');
+  const animatorCheck = document.getElementById('animatorCheck');
+  const ANIMATOR_SURCHARGE = 30;
+  animatorCheck.addEventListener('change', updatePrice);
+
   function updatePrice(){
     if(selectedSlot == null) return;
     buildPlayersOptions();
     const t = tiersFor(selectedIsWeekend)[selectedTierIdx];
     const lateSurcharge = selectedSlotIsLate ? 20 : 0;
-    const finalPrice = t.price + lateSurcharge;
+    const animatorSurcharge = animatorCheck.checked ? ANIMATOR_SURCHARGE : 0;
+    const finalPrice = t.price + lateSurcharge + animatorSurcharge;
     priceOut.innerHTML = finalPrice + '<sup><span class="byn-icon"></span></sup>';
     const notes = [];
     if(lateSurcharge) notes.push('доплата за поздний сеанс 23:00');
+    if(animatorSurcharge) notes.push('аниматор +' + ANIMATOR_SURCHARGE + ' Br');
     document.getElementById('priceNote').textContent = t.label + (notes.length ? ' · ' + notes.join(' + ') : '');
     priceOut.classList.remove('bump'); void priceOut.offsetWidth; priceOut.classList.add('bump');
   }
@@ -1716,6 +1746,18 @@
     btn.innerHTML = '<span class="slot-time">'+s+'</span><span class="slot-price"></span>';
     btn.addEventListener('click', ()=>{
       if(btn.classList.contains('slot-taken')) return;
+      if(btn.classList.contains('slot-closed-soon')){
+        // Nobody booked it, but there's under an hour left — online booking
+        // for this exact slot is closed, but the owner can often still fit
+        // someone in by phone, so we point there instead of just blocking.
+        document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
+        selectedSlot = null;
+        selectedSlotIsLate = false;
+        updatePrice();
+        slotNote.innerHTML = 'Онлайн-бронь этого времени уже закрыта — до сеанса меньше часа. Ещё можно успеть по телефону: <a href="tel:+375447803000">+375 (44) 780-30-00</a>.';
+        slotNote.classList.add('show');
+        return;
+      }
       selectedSlot = s;
       selectedSlotIsLate = (i===lateIdx);
       document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
@@ -1737,16 +1779,40 @@
   }
   refreshSlotPrices();
 
+  // Minutes from now until a given "HH:MM" slot on `d` starts — negative
+  // once the slot has already begun. Compared against the visitor's own
+  // clock, same as the rest of this calendar (see `today` above) — good
+  // enough for a same-city quest room without pulling in server time here.
+  function minutesUntilSlot(d, timeStr){
+    const parts = String(timeStr).split(':');
+    const hh = Number(parts[0]), mm = Number(parts[1]);
+    if(Number.isNaN(hh) || Number.isNaN(mm)) return Infinity;
+    const slotAt = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0);
+    return (slotAt.getTime() - Date.now()) / 60000;
+  }
+  const CLOSE_SLOT_MINUTES_BEFORE = 60;
+
   function refreshSlotAvailability(){
     if(!selectedDate) return;
     const takenNow = bookedSlots[isoDate(selectedDate)] || [];
     let selectedGotTaken = false;
+    let selectedGotClosed = false;
     document.querySelectorAll('.slot').forEach(btn=>{
       const taken = takenNow.includes(btn.dataset.time);
+      // A slot nobody booked still closes to online booking once there's
+      // under an hour left before it starts (and naturally covers slots
+      // that have already started/passed, since that's an even bigger
+      // negative number of minutes left) — see .slot-closed-soon above.
+      const closingSoon = !taken && minutesUntilSlot(selectedDate, btn.dataset.time) < CLOSE_SLOT_MINUTES_BEFORE;
       btn.classList.toggle('slot-taken', taken);
+      btn.classList.toggle('slot-closed-soon', closingSoon);
       if(taken && btn.classList.contains('active')){
         btn.classList.remove('active');
         selectedGotTaken = true;
+      }
+      if(closingSoon && btn.classList.contains('active')){
+        btn.classList.remove('active');
+        selectedGotClosed = true;
       }
     });
     if(selectedGotTaken){
@@ -1754,6 +1820,12 @@
       selectedSlotIsLate = false;
       updatePrice();
       slotNote.textContent = 'Это время только что заняли — пожалуйста, выберите другое.';
+      slotNote.classList.add('show');
+    } else if(selectedGotClosed){
+      selectedSlot = null;
+      selectedSlotIsLate = false;
+      updatePrice();
+      slotNote.innerHTML = 'Онлайн-бронь этого времени уже закрыта — до сеанса меньше часа. Ещё можно успеть по телефону: <a href="tel:+375447803000">+375 (44) 780-30-00</a>.';
       slotNote.classList.add('show');
     }
   }
@@ -1821,7 +1893,10 @@
     }
 
     const t = tiersFor(selectedIsWeekend)[selectedTierIdx];
-    const surcharge = selectedSlotIsLate ? 20 : 0;
+    const lateSurcharge = selectedSlotIsLate ? 20 : 0;
+    const wantsAnimator = animatorCheck.checked;
+    const animatorSurcharge = wantsAnimator ? ANIMATOR_SURCHARGE : 0;
+    const totalPrice = t.price + lateSurcharge + animatorSurcharge;
     const timeText = selectedSlot;
 
     submitBtn.disabled = true;
@@ -1838,8 +1913,9 @@
           date: selectedDateLabel,
           dateISO: isoDate(selectedDate),
           time: timeText,
-          price: (t.price + surcharge),
+          price: totalPrice,
           comment,
+          animator: wantsAnimator,
           website: websiteField.value,
         }),
       });
@@ -1847,11 +1923,14 @@
       try { out = await res.json(); } catch {}
 
       if(res.ok && out.ok){
-        msg.innerHTML = 'Заявка принята: ' + t.people + ', сеанс на ' + timeText + ' (' + selectedDateLabel + '), к оплате ' + (t.price + surcharge) + ' <span class="byn-icon"></span>. Мы позвоним для подтверждения брони.';
+        msg.innerHTML = 'Заявка принята: ' + t.people + ', сеанс на ' + timeText + ' (' + selectedDateLabel + ')' +
+          (wantsAnimator ? ', с аниматором' : '') +
+          ', к оплате ' + totalPrice + ' <span class="byn-icon"></span>. Мы позвоним для подтверждения брони.';
         msg.classList.add('show');
         nameField.value = '';
         phoneField.value = '';
         commentField.value = '';
+        animatorCheck.checked = false;
       } else if(res.status === 409 || out.conflict){
         msg.textContent = out.error || 'Это время только что заняли — пожалуйста, выберите другое.';
         msg.classList.add('show', 'err');
