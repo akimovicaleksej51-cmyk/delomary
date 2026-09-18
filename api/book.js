@@ -18,6 +18,12 @@
 //   this project. Without them, bookings still work, they just aren't
 //   checked against each other and won't show up in the admin panel.
 //
+// Optional (SMS receipt to the customer — see api/_sms.js for full details
+// and the exact wording sent):
+//   ROCKETSMS_LOGIN, ROCKETSMS_PASSWORD, ROCKETSMS_SENDER — added
+//   18.09.2026. Without them, bookings still work exactly as before, the
+//   customer just doesn't get an SMS receipt of their request.
+//
 // Bookings are stored in KV as a Redis HASH per date — key "bookings:<ISO
 // date>", one field per booked time, whose value is a JSON string with the
 // full booking details (name, phone, players, price, comment...). This lets
@@ -28,6 +34,7 @@
 import { kv } from './_kv.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
+import { sendBookingConfirmationSms } from './_sms.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
 
@@ -175,6 +182,12 @@ export default async function handler(req, res) {
         await kv('hset', hashKey, cleanTime, JSON.stringify({ ...record, ...patch }));
       }
     }
+
+    // Best-effort SMS receipt to the customer — runs whether or not KV/the
+    // dedup check above is connected, since the booking request itself
+    // already succeeded (the owner was already notified via Telegram at
+    // this point). Never blocks or fails the booking; see api/_sms.js.
+    await sendBookingConfirmationSms(record);
 
     return res.status(200).json({ ok: true });
   } catch (err) {
