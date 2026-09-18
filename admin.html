@@ -1264,13 +1264,35 @@
     }
     const q = searchQuery.trim().toLowerCase();
     if (q){
+      // Телефон в базе может быть с "+375", с "80", без кода вовсе, со
+      // скобками/дефисами/пробелами (зависит от того, с сайта пришла бронь
+      // или её вручную завёл админ) — поэтому чистое совпадение подстроки
+      // (как было раньше) не находило бронь, если ввести телефон одними
+      // цифрами. Ищем и по тексту как есть, и отдельно по цифрам телефона,
+      // без учёта кода страны — тогда "445160284", "+375445160284" и
+      // "80445160284" находят одну и ту же бронь независимо от того, как
+      // именно записан номер.
+      const qDigits = normalizePhoneDigitsForSearch(q);
       list = list.filter(b => {
         const name = (b.name || '').toLowerCase();
         const phone = (b.phone || '').toLowerCase();
-        return name.includes(q) || phone.includes(q);
+        if (name.includes(q) || phone.includes(q)) return true;
+        if (qDigits && normalizePhoneDigitsForSearch(phone).includes(qDigits)) return true;
+        return false;
       });
     }
     return list;
+  }
+
+  // Оставляет только цифры и срезает код страны/выхода (375, 80 или
+  // ведущий 0), чтобы сравнивать номера по "голым" местным цифрам вне
+  // зависимости от того, в каком виде телефон был введён или сохранён.
+  function normalizePhoneDigitsForSearch(raw){
+    let digits = (raw || '').replace(/\D/g, '');
+    if (digits.startsWith('375')) digits = digits.slice(3);
+    else if (digits.startsWith('80')) digits = digits.slice(2);
+    else if (digits.startsWith('0')) digits = digits.slice(1);
+    return digits;
   }
 
   // Each tab is already one status, so the row badge goes back to plain
