@@ -3557,33 +3557,41 @@
   shiftsDaysList.addEventListener('focusin', (e) => {
     if (e.target.classList.contains('shift-slot-actor')) showActorSuggestFor(e.target);
   });
-  shiftsDaysList.addEventListener('focusout', (e) => {
-    if (!e.target.classList.contains('shift-slot-actor')) return;
-    // Delay so a tap/click on a suggestion item below still lands before the
-    // dropdown disappears — see the pointerdown handler's preventDefault
-    // too, which is the other half of keeping that tap from just closing
-    // the list before it registers.
-    setTimeout(() => { if (document.activeElement !== actorSuggestInput) hideActorSuggest(); }, 150);
-  });
-  // pointerdown (not click) fires before the input's blur/focusout, and
-  // unlike mousedown it also covers touch taps on a phone — preventDefault
-  // stops that blur from happening at all, so the value assignment below
-  // always lands on the right input.
-  actorSuggestEl.addEventListener('pointerdown', (e) => {
+
+  // 22.09.2026 (2): the previous version closed the list on the input's own
+  // `focusout` (with a short delay so a tap on a suggestion could land
+  // first). On a real iPhone that delay never helps — Safari blurs the
+  // focused input the instant you touch ANYWHERE else on the screen,
+  // including the suggestion list itself, before your tap is ever resolved
+  // into a click; `preventDefault()` on `pointerdown` (tried in the previous
+  // fix) does not stop that. So selecting a name can no longer depend on
+  // blur/focus timing at all: it happens on `touchstart`/`mousedown` on the
+  // list itself (both fire — and can be prevented — before the browser
+  // blurs the input), and the list is otherwise closed only by an explicit
+  // tap/click that lands outside both the input and the list, via a
+  // document-level listener, never by blur.
+  function selectActorSuggestion(e){
     const item = e.target.closest('.actor-suggest-item');
     if (!item || !actorSuggestInput) return;
     e.preventDefault();
     actorSuggestInput.value = item.dataset.username;
     hideActorSuggest();
-  });
-  // 22.09.2026: was `hideActorSuggest` on both events — on a phone, tapping
-  // the input to open it also opens the on-screen keyboard, which itself
-  // fires a `resize` (viewport shrinks) and usually a `scroll` (browser
-  // auto-scrolls the focused input into view) right away. Those two
-  // listeners were closing the list a moment after it opened, before the
-  // person could tap a suggestion — "при любом нажатии список сразу
-  // пропадает". Reposition instead of hiding: the list just follows the
-  // input to wherever the keyboard/scroll put it, and stays open.
+  }
+  actorSuggestEl.addEventListener('touchstart', selectActorSuggestion, { passive: false });
+  actorSuggestEl.addEventListener('mousedown', selectActorSuggestion);
+
+  function closeActorSuggestIfOutside(e){
+    if (!actorSuggestInput) return;
+    if (actorSuggestEl.contains(e.target) || e.target === actorSuggestInput) return;
+    hideActorSuggest();
+  }
+  document.addEventListener('touchstart', closeActorSuggestIfOutside, true);
+  document.addEventListener('mousedown', closeActorSuggestIfOutside, true);
+
+  // Tapping the input to open the list also opens the on-screen keyboard,
+  // which itself fires a `resize` (viewport shrinks) and usually a `scroll`
+  // (the browser auto-scrolls the focused input into view) right away —
+  // reposition the list to follow the input instead of hiding it.
   function repositionActorSuggest(){
     if (actorSuggestInput) showActorSuggestFor(actorSuggestInput);
   }
