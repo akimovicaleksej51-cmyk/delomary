@@ -5,25 +5,33 @@
 // deployment at 12 Serverless Functions total — see api/internal-jobs.js's
 // header comment for the full picture.
 //
-// Give ExtraReality exactly this URL for BOTH the "Расписание" and "Бронь"
-// fields in their settings panel — same URL, GET vs POST tells them apart:
-//   https://loonygames.by/api/extrareality
+// Give ExtraReality these URLs in their settings panel:
+//   Расписание (GET):        https://loonygames.by/api/extrareality
+//   Бронь (POST):             https://loonygames.by/api/extrareality
+//   Отмена брони (POST):      https://loonygames.by/api/extrareality?action=cancel
+// (Расписание and Бронь share one URL — GET vs POST tells them apart. The
+// cancel endpoint needs its own URL since it's also a POST to the same
+// file — the "?action=cancel" query string is how the single serverless
+// function tells a cancellation apart from a new booking, without using up
+// a second function slot — see the Vercel Hobby 12-function-limit note
+// above.)
 //
-// IMPORTANT CONTEXT — please read before relying on this: I could not find
-// an official, verified ExtraReality API document. What this file
-// implements is a best-effort match of: (1) the fields visible on your own
-// settings screenshot (site domain, a quest, a "секрет или md5-ключ", a
-// schedule URL, a booking URL — each with its own "Проверить" test
-// button), and (2) the general shape of "GET schedule + POST booking" that
-// essentially every quest-room aggregator (including Mir Kvestov) uses. It
-// has NOT been tested against ExtraReality's real servers. Please click the
-// "Проверить" button next to each URL in ExtraReality's panel once this
-// file is live, and send whatever response/error it shows — real signal
-// beats guessing twice.
+// 22.09.2026 update: found ExtraReality's real, official API docs
+// (https://github.com/riente/extrareality-api/blob/master/docs/APIv2.md),
+// which confirms the general shape guessed below was correct, and gives
+// two concrete new facts used in this update:
+//   - the schedule should cover "примерно на месяц вперёд" (about a month
+//     ahead) — extended further still, to 1.5 months, per the owner's
+//     request (see DAYS_AHEAD below).
+//   - the signature formula for the WHOLE API is md5($datetime . $secret)
+//     — this is now used below for the cancellation endpoint (see
+//     verifyExtraRealitySignature()). The booking endpoint's own signature
+//     is still deliberately not enforced (see the POST section further
+//     down) since no real booking has confirmed it end-to-end yet.
 //
 // ===========================================================================
 // GET — response shape (one entry per bookable time slot, for the next
-// ~2 weeks):
+// ~1.5 months):
 //   date          "YYYY-MM-DD"
 //   time          "HH:MM" (24-hour)
 //   is_free       false if taken (booked/blocked) or already in the past
@@ -68,16 +76,87 @@
 //
 // Reuses the same `bookings:<date>` Redis hash reservation mechanism as
 // every other channel, tagged channel: 'ExtraReality'.
+//
+// ===========================================================================
+// POST ?action=cancel — "Отмена брони", added 22.09.2026 per the official
+// docs (see link above). ExtraReality calls this when a customer (or their
+// own staff) cancels a booking made through them.
+//
+// Incoming fields, per their spec:
+//   datetime    "YYYY-MM-DD HH:MM:SS" of the game being cancelled
+//   phone       customer phone (not otherwise used here — datetime+uid is
+//               enough to identify the slot, phone is just extra context)
+//   quest_id    ExtraReality's quest id (not otherwise used here — this
+//               site only has the one quest/room)
+//   uid         ExtraReality's own booking id — the SAME value they sent
+//               with the original booking (stored as this site's
+//               externalRef, "extrareality:<uid>"), used below as a safety
+//               check so this endpoint can only ever cancel a booking that
+//               actually came from ExtraReality with a matching id, never
+//               some other channel's booking that happens to sit in the
+//               same slot.
+//   signature   md5(datetime + EXTRAREALITY_SECRET) — verified below, but
+//               (like Mir Kvestov's own signature) ONLY once
+//               EXTRAREALITY_SECRET is actually set as an env var; while
+//               ExtraReality's "секрет" field in their panel is left blank
+//               (as instructed when the booking endpoint was first set up),
+//               this check is skipped entirely and cancellation works
+//               either way.
+//
+// Uses the exact same cancel mechanics as the admin panel's own "Отменить"
+// button (api/admin/bookings.js, action:'cancel'): HDEL the slot, cancel any
+// scheduled reminder/closeout jobs, move the record into the `history:<date>`
+// hash tagged status:'cancelled', and notify the owner's Telegram — so an
+// ExtraReality cancellation looks and behaves identically to a manual one.
+//
+// ===========================================================================
+// GET ?action=reviews — "Получение отзывов" / "Получение рейтинга", also
+// added 22.09.2026. Unlike every other action in this file, THIS ONE calls
+// OUT to ExtraReality (they don't call us) — it's how the site's own
+// "Отзывы" section (index.html, #reviews) always shows fresh reviews
+// instead of three hand-picked quotes that go stale.
+//
+// Per their docs:
+//   GET https://extrareality.by/api2/reviews?quest_id=<id>  → array of
+//     {id, datetime, name, text, rating}
+//   GET https://extrareality.by/api2/rating?quest_id=<id>&json=1  →
+//     {questId, rating}
+// and explicitly: "рекомендуется отправлять его не чаще раза в 30 минут" —
+// so this endpoint never calls ExtraReality on every single page view.
+// Instead it caches the result in Redis and only re-fetches once the cache
+// is older than REVIEWS_MIN_REFRESH_SECONDS (30 minutes, matching their
+// own guidance exactly) — the first visitor after that window pays for a
+// live fetch, everyone else in between gets the cached copy. If the live
+// fetch ever fails, the last good cached copy is served instead of
+// breaking the section.
+//
+// Needs an EXTRAREALITY_QUEST_ID env var (the numeric quest id ExtraReality
+// assigned this room — NOT the "секрет"/md5 key, and not the URL slug
+// "delo-meri-skazhi-im-chto-ya-zdes"). Until that env var is set, this
+// action just returns an empty review list — index.html's own script
+// already keeps its 3 static fallback reviews on screen when that happens,
+// so nothing breaks; it starts pulling live reviews the moment the quest id
+// is added on Vercel, no further code changes needed.
 
+import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, businessDateTime } from './_time.js';
 import { SLOTS, tiersFor, isWeekendISO, startingPriceFor, LATE_SLOT_INDEX, LATE_SURCHARGE } from './_pricing.js';
-import { scheduleReminder } from './_reminders.js';
-import { scheduleGameCloseout } from './_closeout.js';
+import { scheduleReminder, cancelReminder } from './_reminders.js';
+import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 
-const DAYS_AHEAD = 14;
+const DAYS_AHEAD = 45; // was 14 (2 weeks) — extended to ~1.5 months, 22.09.2026
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
+const HISTORY_TTL_SECONDS = 60 * 60 * 24 * 95; // matches api/admin/bookings.js
+
+const REVIEWS_CACHE_KEY = 'extrareality:reviewsCache';
+const REVIEWS_MIN_REFRESH_SECONDS = 30 * 60; // ExtraReality's own guidance: "не чаще раза в 30 минут"
+const REVIEWS_CACHE_TTL_SECONDS = 60 * 60 * 24 * 2; // safety-net Redis expiry only — the 30-min check above is what actually paces the refresh
+
+function escapeMd(s) {
+  return String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+}
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -213,7 +292,6 @@ async function handleBook(req, res) {
   }
   const reserved = added === 1;
 
-  const escapeMd = (s) => String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
   const fields = [
     `👤 Имя: ${escapeMd(cleanName)}`,
     `📞 Телефон: ${cleanPhone}`,
@@ -261,6 +339,183 @@ async function handleBook(req, res) {
   }
 }
 
+function verifyExtraRealitySignature(rawDatetime, providedSignature) {
+  const secret = process.env.EXTRAREALITY_SECRET;
+  if (!secret) return true; // "секрет" field left blank in ExtraReality's panel — skip check, exactly like before
+  const provided = typeof providedSignature === 'string' ? providedSignature.trim().toLowerCase() : '';
+  if (!provided) return false; // a secret IS configured — a request with no signature at all can't be trusted
+  const expected = crypto.createHash('md5').update(`${rawDatetime}${secret}`, 'utf8').digest('hex');
+  return provided === expected;
+}
+
+async function handleCancel(req, res) {
+  const body = parseBody(req);
+
+  const rawDatetime = typeof body.datetime === 'string' ? body.datetime.trim() : '';
+  const cleanUid = body.uid != null ? String(body.uid).trim().slice(0, 100) : '';
+  const providedSignature = typeof body.signature === 'string' ? body.signature.trim() : '';
+
+  const { dateISO: cleanDateISO, time: cleanTime } = splitDateTime(rawDatetime);
+  if (!cleanDateISO || !cleanTime) {
+    return res.status(200).json({ success: false, message: 'Не удалось распознать дату и время брони (datetime).' });
+  }
+
+  if (!verifyExtraRealitySignature(rawDatetime, providedSignature)) {
+    console.error(
+      'ExtraReality cancel: signature check failed — cancellation refused. ' +
+      `datetime=${rawDatetime} uid=${cleanUid}`
+    );
+    return res.status(200).json({ success: false, message: 'Ошибка проверки подписи.' });
+  }
+
+  const hashKey = `bookings:${cleanDateISO}`;
+  const existingRaw = await kv('hget', hashKey, cleanTime);
+  if (!existingRaw) {
+    // Nothing there any more (already cancelled/moved on our side) — the
+    // slot ExtraReality wants cancelled is already free, so this counts as
+    // success rather than an error.
+    return res.status(200).json({ success: true });
+  }
+
+  let existing;
+  try { existing = JSON.parse(existingRaw); } catch { existing = null; }
+
+  // Safety check: only cancel a booking that's actually tagged as coming
+  // from ExtraReality, and — when both sides have a uid to compare — only
+  // if it's the SAME booking. This stops a cancel request from deleting an
+  // unrelated booking (a different channel, or a newer booking) that
+  // happens to now occupy the same date/time slot.
+  const expectedRef = cleanUid ? `extrareality:${cleanUid}` : '';
+  const refMismatch = expectedRef && existing && existing.externalRef && existing.externalRef !== expectedRef;
+  if (!existing || existing.channel !== 'ExtraReality' || refMismatch) {
+    console.error(
+      'ExtraReality cancel: slot does not match an ExtraReality booking with this uid — ignoring. ' +
+      `dateISO=${cleanDateISO} time=${cleanTime} uid=${cleanUid} ` +
+      `existingChannel=${existing && existing.channel} existingRef=${existing && existing.externalRef}`
+    );
+    return res.status(200).json({ success: false, message: 'Бронь с таким uid не найдена.' });
+  }
+
+  await kv('hdel', hashKey, cleanTime);
+  await Promise.all([cancelReminder(existing), cancelGameCloseout(existing)]);
+
+  const cancelledAt = new Date().toISOString();
+  const cancelled = { ...existing, status: 'cancelled', cancelledAt, cancelledVia: 'ExtraReality' };
+  const historyKey = `history:${cleanDateISO}`;
+  const historyField = `${cleanTime}@${Date.now()}`;
+  await kv('hset', historyKey, historyField, JSON.stringify(cancelled));
+  await kv('expire', historyKey, HISTORY_TTL_SECONDS);
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (token && chatId) {
+    const fields = [
+      existing.name ? `👤 Имя: ${escapeMd(existing.name)}` : null,
+      existing.phone ? `📞 Телефон: ${existing.phone}` : null,
+      `📅 Дата: ${escapeMd(cleanDateISO)}`,
+      `🕒 Время: ${escapeMd(cleanTime)}`,
+    ].filter(Boolean).join('\n');
+    const text = `❌ *Бронь отменена — ExtraReality*\n\n${fields}`;
+    try {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+      });
+    } catch (err) {
+      console.error('Failed to notify Telegram about ExtraReality cancellation:', err);
+      // Not fatal — the cancellation itself already succeeded above.
+    }
+  }
+
+  return res.status(200).json({ success: true });
+}
+
+async function fetchExtraRealityReviewsLive(questId) {
+  const [reviewsRes, ratingRes] = await Promise.all([
+    fetch(`https://extrareality.by/api2/reviews?quest_id=${encodeURIComponent(questId)}&quantity=6`),
+    fetch(`https://extrareality.by/api2/rating?quest_id=${encodeURIComponent(questId)}&json=1`),
+  ]);
+
+  // Reviews are the whole point of this call — if that request itself
+  // failed, treat the whole fetch as failed so the caller falls back to
+  // the last good cache instead of overwriting it with an empty list. The
+  // rating number is a nice-to-have alongside it: if just THAT one fails,
+  // still return the reviews, only with rating:null.
+  if (!reviewsRes.ok) {
+    throw new Error(`ExtraReality reviews endpoint returned HTTP ${reviewsRes.status}`);
+  }
+  const reviewsJson = await reviewsRes.json();
+  const ratingJson = ratingRes.ok ? await ratingRes.json() : null;
+
+  const reviews = Array.isArray(reviewsJson)
+    ? reviewsJson
+      .filter((r) => r && typeof r.text === 'string' && r.text.trim())
+      .map((r) => ({
+        id: r.id != null ? r.id : null,
+        datetime: typeof r.datetime === 'string' ? r.datetime : '',
+        name: typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 100) : 'Гость',
+        text: String(r.text).trim().slice(0, 600),
+        rating: r.rating != null && !Number.isNaN(Number(r.rating)) ? Number(r.rating) : null,
+      }))
+    : [];
+
+  const rating = ratingJson && ratingJson.rating != null && !Number.isNaN(Number(ratingJson.rating))
+    ? Number(ratingJson.rating)
+    : null;
+
+  return { reviews, rating, fetchedAt: new Date().toISOString() };
+}
+
+async function handleReviews(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+
+  let cached = null;
+  try {
+    const raw = await kv('get', REVIEWS_CACHE_KEY);
+    if (raw) cached = JSON.parse(raw);
+  } catch (err) {
+    console.error('Failed to read ExtraReality reviews cache:', err);
+  }
+
+  const cacheAgeSeconds = cached && cached.fetchedAt
+    ? (Date.now() - new Date(cached.fetchedAt).getTime()) / 1000
+    : Infinity;
+  const isFresh = cacheAgeSeconds < REVIEWS_MIN_REFRESH_SECONDS;
+
+  const questId = process.env.EXTRAREALITY_QUEST_ID;
+  if (!questId) {
+    // Not configured yet — serve whatever's cached (normally nothing) so
+    // index.html's own script just keeps its static fallback reviews.
+    return res.status(200).json({
+      success: true,
+      reviews: (cached && cached.reviews) || [],
+      rating: (cached && cached.rating) || null,
+      fetchedAt: (cached && cached.fetchedAt) || null,
+    });
+  }
+
+  if (isFresh) {
+    return res.status(200).json({ success: true, ...cached, cacheHit: true });
+  }
+
+  try {
+    const fresh = await fetchExtraRealityReviewsLive(questId);
+    await kv('set', REVIEWS_CACHE_KEY, JSON.stringify(fresh));
+    await kv('expire', REVIEWS_CACHE_KEY, REVIEWS_CACHE_TTL_SECONDS);
+    return res.status(200).json({ success: true, ...fresh, cacheHit: false });
+  } catch (err) {
+    console.error('Failed to fetch fresh ExtraReality reviews — falling back to cache:', err);
+    return res.status(200).json({
+      success: true,
+      reviews: (cached && cached.reviews) || [],
+      rating: (cached && cached.rating) || null,
+      fetchedAt: (cached && cached.fetchedAt) || null,
+      cacheHit: !!cached,
+    });
+  }
+}
+
 export default async function handler(req, res) {
   // CORS — added 22.09.2026. ExtraReality's own "Проверить" button next to
   // the "Расписание"/"Бронь" fields in their settings panel appears to call
@@ -285,8 +540,15 @@ export default async function handler(req, res) {
     // GET/POST through.
     return res.status(204).end();
   }
-  if (req.method === 'GET') return handleSchedule(req, res);
-  if (req.method === 'POST') return handleBook(req, res);
+  const action = (req.query && req.query.action) || '';
+  if (req.method === 'GET') {
+    if (action === 'reviews') return handleReviews(req, res);
+    return handleSchedule(req, res);
+  }
+  if (req.method === 'POST') {
+    if (action === 'cancel') return handleCancel(req, res);
+    return handleBook(req, res);
+  }
   res.setHeader('Allow', 'GET, POST, OPTIONS');
   return res.status(200).json({ success: false, message: 'Method not allowed' });
 }

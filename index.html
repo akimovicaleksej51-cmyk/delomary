@@ -1415,6 +1415,35 @@
     }
   })();
 
+  // Живые отзывы с ExtraReality — 22.09.2026. Подтягивает свежие отзывы с
+  // сервера (кэшируется там же не чаще раза в 30 минут, как просит сама
+  // ExtraReality) и подменяет три статичные карточки ниже свежими тремя.
+  // Если запрос не удался или свежих отзывов ещё нет (например,
+  // EXTRAREALITY_QUEST_ID ещё не задан на Vercel) — три карточки ниже
+  // остаются как есть, ничего не ломается.
+  (function(){
+    function escapeHtml(s){
+      return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    fetch('/api/extrareality?action=reviews')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data || !data.success || !Array.isArray(data.reviews) || !data.reviews.length) return;
+        const freshest = data.reviews.slice()
+          .sort((a, b) => String(b.datetime || '').localeCompare(String(a.datetime || '')))
+          .slice(0, 3);
+        const grid = document.querySelector('#reviews .reviews-grid');
+        if (!grid) return;
+        grid.innerHTML = freshest.map((r) => `
+          <div class="review">
+            <p>${escapeHtml(r.text)}</p>
+            <div class="who"><span>${escapeHtml(r.name || 'Гость')}</span><span>${r.rating != null ? Number(r.rating).toFixed(1) : '—'} / 10</span></div>
+          </div>
+        `).join('');
+      })
+      .catch(() => { /* тихо оставляем статичные отзывы ниже */ });
+  })();
+
   const navToggle = document.getElementById('navToggle');
   const mobileMenu = document.getElementById('mobileMenu');
   navToggle.addEventListener('click', () => {
