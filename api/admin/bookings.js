@@ -108,7 +108,18 @@ import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManua
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime } from '../_time.js';
 
-const WINDOW_DAYS_BACK = 3; // small buffer so very recent ACTIVE bookings stay visible
+// Was 3 (just enough buffer for very recent ACTIVE bookings) until
+// 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
+// active bookings whose date has already passed still need to be readable
+// well past 3 days, or they'd fall out of the query window and just
+// disappear from the panel entirely (looked exactly like the booking had
+// been deleted, even though the Redis record was still there — this is
+// what the owner reported as "active bookings vanish"). Matches
+// HISTORY_WINDOW_DAYS_BACK below so a conducted booking stays visible for
+// as long as a cancelled/rescheduled one does; SLOT_TTL_SECONDS (90 days)
+// is still the hard ceiling either way, since Redis actually deletes the
+// underlying record after that.
+const WINDOW_DAYS_BACK = 60;
 const WINDOW_DAYS_AHEAD = 65;
 const HISTORY_WINDOW_DAYS_BACK = 60; // cancelled/rescheduled entries are worth looking up further back
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;

@@ -206,10 +206,6 @@
     display:flex; align-items:center; gap:8px;
   }
   .day-heading .weekend-tag{color:var(--danger-bright);}
-  /* Уже прошедший день — тихая серая плашка рядом с датой, чтобы сразу
-     было видно, что это не сегодня и не предстоящий день, а история
-     (по просьбе владельца, 17.09.2026). */
-  .day-heading .past-tag{color:var(--muted); font-weight:700;}
   .booking-row{
     position:relative; display:flex; align-items:center; gap:14px; background:var(--black-2);
     border:1px solid #262626; border-radius:12px; padding:13px 16px; margin-bottom:8px;
@@ -529,6 +525,7 @@
     </div>
     <div class="list-tabs">
       <button type="button" class="list-tab active" data-tab="active">Активные <span class="tab-count" id="tabCountActive"></span></button>
+      <button type="button" class="list-tab" data-tab="conducted">Проведённые <span class="tab-count" id="tabCountConducted"></span></button>
       <button type="button" class="list-tab" data-tab="cancelled">Отменённые <span class="tab-count" id="tabCountCancelled"></span></button>
       <button type="button" class="list-tab" data-tab="rescheduled">Перенесённые <span class="tab-count" id="tabCountRescheduled"></span></button>
     </div>
@@ -1053,13 +1050,26 @@
       .map(b => b.time);
   }
 
-  let activeTab = 'active'; // 'active' | 'cancelled' | 'rescheduled' — which tab is showing
+  let activeTab = 'active'; // 'active' | 'conducted' | 'cancelled' | 'rescheduled' — which tab is showing
 
   const TAB_EMPTY_LABELS = {
     active: 'Активных броней',
+    conducted: 'Проведённых броней',
     cancelled: 'Отменённых броней',
     rescheduled: 'Перенесённых броней',
   };
+
+  // "Активные" и "Проведённые" — не два разных СТАТУСА в базе (обе брони
+  // там status:'active'), а один и тот же статус, разделённый по дате: ещё
+  // не наступившие/сегодняшние — в "Активные", всё, что раньше сегодня —
+  // в "Проведённые" (по просьбе владельца, 22.09.2026 — раньше все
+  // активные брони лежали в одной вкладке, и уже прошедшие визуально
+  // терялись среди предстоящих; плюс до этого API вообще переставал
+  // отдавать активные брони старше 3 дней, из-за чего казалось, что они
+  // просто удаляются — см. WINDOW_DAYS_BACK в api/admin/bookings.js).
+  function isConducted(b){
+    return b.status === 'active' && b.dateISO < todayISO();
+  }
 
   // Applies the current tab, the search box, and the day filter on top of
   // allBookings. `status` defaults to the active tab but can be overridden
@@ -1067,7 +1077,15 @@
   // Kept separate from renderList so CSV export can reuse exactly what's
   // currently on screen.
   function getFilteredBookings(status){
-    let list = allBookings.filter(b => b.status === (status || activeTab));
+    const tab = status || activeTab;
+    let list;
+    if (tab === 'conducted') {
+      list = allBookings.filter(b => isConducted(b));
+    } else if (tab === 'active') {
+      list = allBookings.filter(b => b.status === 'active' && !isConducted(b));
+    } else {
+      list = allBookings.filter(b => b.status === tab);
+    }
     if (filterDateISO){
       list = list.filter(b => b.dateISO === filterDateISO);
     }
@@ -1119,6 +1137,7 @@
 
   function updateTabCounts(){
     document.getElementById('tabCountActive').textContent = getFilteredBookings('active').length;
+    document.getElementById('tabCountConducted').textContent = getFilteredBookings('conducted').length;
     document.getElementById('tabCountCancelled').textContent = getFilteredBookings('cancelled').length;
     document.getElementById('tabCountRescheduled').textContent = getFilteredBookings('rescheduled').length;
   }
@@ -1229,7 +1248,7 @@
 
       return `
         <div class="day-group">
-          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : ''}${dateISO < today ? ' <span class="past-tag">· уже проведены</span>' : ''}</div>
+          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : ''}</div>
           ${rows}
         </div>`;
     }).join('');
