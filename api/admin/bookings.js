@@ -837,6 +837,72 @@ export default async function handler(req, res) {
       });
     }
 
+    if (action === 'resetAllData') {
+      // ЕДИНОРАЗОВАЯ полная очистка тестовых данных перед стартом работы с
+      // реальными бронями (по просьбе владельца, 22.09.2026). Стирает:
+      //   - bookings:*          — все текущие брони (клиентские и
+      //                           технические), на всех датах, не только в
+      //                           обычном окне windowDates() — ищет ключи
+      //                           через SCAN, чтобы не оставить "хвостов"
+      //                           за пределами обычного окна показа.
+      //   - history:*           — весь журнал отмен и переносов.
+      //   - cashouts:*          — все расходы/инкассации кассы.
+      //   - cashRegisterOpening — точка отсчёта кассы; после удаления
+      //                           баланс снова считается от 0, как будто
+      //                           кассу никогда не открывали.
+      // НЕ трогает: shifts:* (расписание смен актёров/актрис) и actors
+      // (привязка их Telegram-аккаунтов к боту) — это не "брони" и не
+      // "расчёты", а рабочая инфраструктура, которую стирать не просили.
+      // Кнопка есть только в admin.html (не в staff.html) — это решение
+      // владельца, не сотрудников.
+      //
+      // Требует точного подтверждения (body.confirm === 'ОЧИСТИТЬ'), чтобы
+      // случайный повторный вызов этого действия не мог снести уже реальные
+      // брони после того, как сайт заработает вживую — обычного "Да/Нет" в
+      // таком необратимом действии недостаточно.
+      if (body.confirm !== 'ОЧИСТИТЬ') {
+        return res.status(400).json({ error: 'Требуется подтверждение.' });
+      }
+
+      async function scanAllKeys(pattern) {
+        let cursor = '0';
+        const keys = [];
+        let guard = 0;
+        do {
+          const result = await kv('scan', cursor, 'match', pattern, 'count', 1000);
+          if (!Array.isArray(result)) break;
+          cursor = String(result[0]);
+          const found = Array.isArray(result[1]) ? result[1] : [];
+          keys.push(...found);
+          guard += 1;
+        } while (cursor !== '0' && guard < 1000); // guard: never loop forever on an unexpected SCAN reply
+        return keys;
+      }
+
+      const [bookingKeys, historyKeys, cashoutKeys] = await Promise.all([
+        scanAllKeys('bookings:*'),
+        scanAllKeys('history:*'),
+        scanAllKeys('cashouts:*'),
+      ]);
+
+      const allKeys = [...bookingKeys, ...historyKeys, ...cashoutKeys, 'cashRegisterOpening'];
+      // DEL in chunks rather than one giant command — normal data volumes
+      // here are small, but there's no reason to risk a single oversized
+      // request over it.
+      const CHUNK = 200;
+      for (let i = 0; i < allKeys.length; i += CHUNK) {
+        const chunk = allKeys.slice(i, i + CHUNK);
+        if (chunk.length) await kv('del', ...chunk);
+      }
+
+      return res.status(200).json({
+        ok: true,
+        deletedBookingKeys: bookingKeys.length,
+        deletedHistoryKeys: historyKeys.length,
+        deletedCashoutKeys: cashoutKeys.length,
+      });
+    }
+
     return res.status(400).json({ error: 'Неизвестное действие.' });
   }
 

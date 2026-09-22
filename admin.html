@@ -616,6 +616,7 @@
           <div class="more-menu-list" id="moreMenuList" role="menu">
             <button type="button" role="menuitem" id="statsBtn">📊 Статистика</button>
             <button type="button" role="menuitem" id="financeReportBtn">🧾 Бухгалтерия</button>
+            <button type="button" role="menuitem" id="resetDataBtn">🧹 Очистить тестовые данные</button>
           </div>
         </div>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
@@ -815,6 +816,32 @@
       <button class="btn-danger" id="confirmYes">Да, отменить</button>
       <button class="btn-secondary" id="confirmNo">Нет</button>
     </div>
+  </div>
+</div>
+
+<!-- Полная очистка тестовых данных перед стартом работы с реальными
+     бронями (по просьбе владельца, 22.09.2026). Удаляет ВСЕ брони, историю
+     отмен/переносов и кассу (баланс и расходы) — см. комментарий у action
+     'resetAllData' в api/admin/bookings.js для точного списка. Обычного
+     "Да/Нет" (см. confirmOverlay выше) для такого необратимого действия
+     мало — требуется набрать слово подтверждения целиком. -->
+<div class="modal-overlay" id="resetDataOverlay" style="z-index:60;">
+  <div class="modal-box" style="max-width:420px;">
+    <button class="modal-close-x" data-close="resetData">✕</button>
+    <h2 style="font-size:17px;">Очистить тестовые данные</h2>
+    <p style="color:var(--muted); font-size:14px; margin:0 0 10px;">
+      Будут удалены безвозвратно: все брони (активные и проведённые), вся
+      история отмен и переносов, и касса — баланс и все расходы/инкассации
+      (снова станет 0). Расписание смен актёров/актрис и их привязка к
+      Telegram-боту не тронутся.
+    </p>
+    <p style="color:var(--muted); font-size:13px; margin:0 0 6px;">Чтобы подтвердить, введите слово <b>ОЧИСТИТЬ</b>:</p>
+    <div class="detail-field"><input id="resetDataConfirmInput" placeholder="ОЧИСТИТЬ" autocomplete="off"></div>
+    <div class="modal-actions">
+      <button class="btn-danger" id="resetDataConfirmBtn" disabled>Очистить всё</button>
+      <button class="btn-secondary" data-close="resetData">Отмена</button>
+    </div>
+    <div class="modal-msg" id="resetDataMsg"></div>
   </div>
 </div>
 
@@ -3037,6 +3064,57 @@
   document.getElementById('financeReportBtn').addEventListener('click', () => { closeMoreMenu(); openFinanceReportModal(); });
   document.querySelectorAll('[data-close="financeReport"]').forEach(b => b.addEventListener('click', () => financeReportOverlay.classList.remove('show')));
   financeReportOverlay.addEventListener('click', e => { if (e.target === financeReportOverlay) financeReportOverlay.classList.remove('show'); });
+
+  // ---------- "Очистить тестовые данные" — единоразовая полная очистка
+  // перед стартом работы с реальными бронями (по просьбе владельца,
+  // 22.09.2026). Требует набрать слово "ОЧИСТИТЬ" целиком — кнопка
+  // подтверждения остаётся неактивной, пока текст не совпадёт ровно,
+  // обычного "Да/Нет" для необратимого действия мало. См. action
+  // 'resetAllData' в api/admin/bookings.js за списком того, что стирается.
+  const resetDataOverlay = document.getElementById('resetDataOverlay');
+  const resetDataConfirmInput = document.getElementById('resetDataConfirmInput');
+  const resetDataConfirmBtn = document.getElementById('resetDataConfirmBtn');
+  const resetDataMsg = document.getElementById('resetDataMsg');
+  function openResetDataModal(){
+    resetDataConfirmInput.value = '';
+    resetDataConfirmBtn.disabled = true;
+    resetDataMsg.textContent = '';
+    resetDataMsg.className = 'modal-msg';
+    resetDataOverlay.classList.add('show');
+    setTimeout(() => resetDataConfirmInput.focus(), 50);
+  }
+  document.getElementById('resetDataBtn').addEventListener('click', () => { closeMoreMenu(); openResetDataModal(); });
+  document.querySelectorAll('[data-close="resetData"]').forEach(b => b.addEventListener('click', () => resetDataOverlay.classList.remove('show')));
+  resetDataOverlay.addEventListener('click', e => { if (e.target === resetDataOverlay) resetDataOverlay.classList.remove('show'); });
+  resetDataConfirmInput.addEventListener('input', () => {
+    resetDataConfirmBtn.disabled = resetDataConfirmInput.value.trim() !== 'ОЧИСТИТЬ';
+  });
+  resetDataConfirmBtn.addEventListener('click', async () => {
+    if (resetDataConfirmInput.value.trim() !== 'ОЧИСТИТЬ') return;
+    resetDataConfirmBtn.disabled = true;
+    resetDataMsg.textContent = 'Удаляю…'; resetDataMsg.className = 'modal-msg';
+    try{
+      const res = await fetch('/api/admin/bookings', {
+        method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'resetAllData', confirm:'ОЧИСТИТЬ' })
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        resetDataMsg.textContent = out.error || 'Не удалось очистить данные.';
+        resetDataMsg.className = 'modal-msg err';
+        resetDataConfirmBtn.disabled = false;
+        return;
+      }
+      resetDataMsg.textContent = 'Готово — все брони, история и касса очищены.';
+      resetDataMsg.className = 'modal-msg ok';
+      resetDataConfirmInput.value = '';
+      await loadBookings();
+    } catch(err){
+      resetDataMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
+      resetDataMsg.className = 'modal-msg err';
+      resetDataConfirmBtn.disabled = false;
+    }
+  });
 
   document.getElementById('reportMonthPrev').addEventListener('click', () => {
     reportViewMonth--; if (reportViewMonth < 0){ reportViewMonth = 11; reportViewYear--; }
