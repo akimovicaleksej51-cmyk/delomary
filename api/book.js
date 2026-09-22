@@ -35,6 +35,7 @@ import { kv } from './_kv.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
+import { isSlotClosingSoon } from './_time.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
 
@@ -70,6 +71,19 @@ export default async function handler(req, res) {
 
   if (!cleanName || !cleanPhone) {
     return res.status(400).json({ error: 'Укажите имя и телефон.' });
+  }
+
+  // 22.09.2026: the front-end calendar (index.html) already greys out and
+  // blocks a slot once there's under an hour left before it starts — but
+  // that was ONLY a front-end check, so a direct POST here (or a visitor
+  // whose page had been open a while, past the hour boundary) could still
+  // slip through server-side. Mirrors the exact same rule now enforced on
+  // the Mir Kvestov/ExtraReality booking endpoints — see api/_time.js.
+  if (cleanDateISO && cleanTime && isSlotClosingSoon(cleanDateISO, cleanTime)) {
+    return res.status(409).json({
+      conflict: true,
+      error: 'Онлайн-бронь этого времени уже закрыта — до сеанса меньше часа. Позвоните нам: +375 (44) 780-30-00.',
+    });
   }
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -127,14 +141,16 @@ export default async function handler(req, res) {
     if (added === 1) reserved = true; // null means KV isn't connected — proceed unchecked
   }
 
-  const escapeMd = (s) => String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+  // 22.09.2026: no longer backslash-escaped, and the message below is sent
+  // as PLAIN TEXT (no parse_mode) — the old escaping was written for
+  // MarkdownV2, but this call actually used the LEGACY 'Markdown' mode,
+  // which has no backslash-escape mechanism at all, so a "\-" or "\("
+  // showed up as a literal backslash in real Telegram notifications (seen
+  // in a Мир Квестов one: "2026\-09\-28"). Plain text needs no escaping.
+  const escapeMd = (s) => String(s);
 
   const fields = [
     `👤 Имя: ${escapeMd(cleanName)}`,
-    // Phone is sent RAW (not escapeMd'd) so Telegram recognizes and
-    // auto-links it as a tappable/copyable phone number — a phone number
-    // never contains Markdown-special characters, so nothing needs escaping
-    // here, and escaping it (stray backslashes) breaks that auto-detection.
     `📞 Телефон: ${cleanPhone}`,
     cleanPlayers ? `👥 Игроков: ${escapeMd(cleanPlayers)}` : null,
     cleanDateLabel ? `📅 Дата: ${escapeMd(cleanDateLabel)}` : null,
@@ -144,7 +160,7 @@ export default async function handler(req, res) {
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
   ].filter(Boolean).join('\n');
 
-  const text = `🩺 *Новая заявка — Дело Мэри*\n\n${fields}`;
+  const text = `🩺 Новая заявка — Дело Мэри\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -152,8 +168,7 @@ export default async function handler(req, res) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text,
-        parse_mode: 'Markdown',
+        text, // plain text — see the escapeMd() comment above
       }),
     });
     const tgData = await tgRes.json();

@@ -53,3 +53,31 @@ export function businessDateTime(dateISO, hh, mm) {
   const [y, m, d] = String(dateISO).split('-').map(Number);
   return new Date(Date.UTC(y, (m || 1) - 1, d || 1, hh || 0, mm || 0) - BUSINESS_UTC_OFFSET_MS);
 }
+
+// 22.09.2026: the site's own booking calendar (index.html) has always
+// closed ONLINE booking for a slot once there's under an hour left before
+// it starts (CLOSE_SLOT_MINUTES_BEFORE there) — nobody-booked-yet slots
+// grey out and show a "call us instead" note. That rule only ever lived in
+// the front-end's own JS, though: the public APIs that hand out schedules
+// to aggregators (api/mirkvestov.js, api/extrareality.js) only ever
+// excluded slots that had ALREADY started, not ones merely closing soon —
+// so ExtraReality (and presumably Mir Kvestov) could still see a slot as
+// free and book it minutes before it started. This shared helper is now
+// used everywhere a slot's public availability is decided, so the same
+// hour-before rule applies uniformly — site, Mir Kvestov, ExtraReality —
+// and is also enforced on the BOOKING side (api/book.js,
+// api/mirkvestov.js, api/extrareality.js), not just the schedule listing,
+// so a stale/cached schedule on an aggregator's end can't sneak a booking
+// through either. Deliberately NOT applied to the admin panel's own
+// create/edit actions — staff still need to add a last-minute walk-in or
+// phone booking within the hour.
+export const CLOSE_SLOT_MINUTES_BEFORE = 60;
+
+export function isSlotClosingSoon(dateISO, timeStr, now = new Date()) {
+  const parts = String(timeStr).split(':');
+  const hh = Number(parts[0]);
+  const mm = Number(parts[1]);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return true; // unparsable time — fail safe (treat as closed)
+  const slotAt = businessDateTime(dateISO, hh, mm);
+  return (slotAt.getTime() - now.getTime()) / 60000 < CLOSE_SLOT_MINUTES_BEFORE;
+}

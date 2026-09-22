@@ -89,7 +89,7 @@
 
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
-import { businessToday, businessDateTime } from './_time.js';
+import { businessToday, isSlotClosingSoon } from './_time.js';
 import { SLOTS, startingPriceFor } from './_pricing.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
@@ -130,12 +130,15 @@ async function handleTimetable(req, res) {
   for (const dateISO of dates) {
     const taken = takenByDate[dateISO] || [];
     for (const time of SLOTS) {
-      const [hh, mm] = time.split(':').map(Number);
-      const alreadyPassed = businessDateTime(dateISO, hh, mm).getTime() <= now.getTime();
+      // 22.09.2026: was just "already started" — now matches the site's own
+      // hour-before cutoff (see isSlotClosingSoon in api/_time.js). The
+      // owner caught ExtraReality still offering a slot 4 minutes before it
+      // started; Mir Kvestov had the exact same gap here.
+      const closingSoon = isSlotClosingSoon(dateISO, time, now);
       out.push({
         date: dateISO,
         time,
-        is_free: !alreadyPassed && !taken.includes(time),
+        is_free: !closingSoon && !taken.includes(time),
         price: startingPriceFor(dateISO, time),
         our_slot_id: `${dateISO}_${time}`,
       });
@@ -201,6 +204,13 @@ async function handleOrder(req, res) {
     return res.status(200).json({ success: false, message: 'Не хватает обязательных полей (имя, телефон, дата, время).' });
   }
 
+  // 22.09.2026: matches the site's own hour-before cutoff (see
+  // api/_time.js) — closes this even if Mir Kvestov's cached timetable
+  // still thinks the slot is free.
+  if (isSlotClosingSoon(cleanDateISO, cleanTime)) {
+    return res.status(200).json({ success: false, message: 'Указанное время больше недоступно для онлайн-бронирования (до сеанса меньше часа).' });
+  }
+
   // A signature mismatch is logged inside verifySignature() but, as of
   // 22.09.2026, no longer rejects the booking — see the big comment above
   // verifySignature() for why. `signatureMismatch` just flags the record
@@ -247,7 +257,11 @@ async function handleOrder(req, res) {
   }
   const reserved = added === 1;
 
-  const escapeMd = (s) => String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+  // 22.09.2026: no longer backslash-escaped, and the message below is sent
+  // as PLAIN TEXT (no parse_mode) — see the comment on escapeMd() in
+  // api/extrareality.js for why the old escaping showed up as literal
+  // backslashes in real notifications (e.g. "2026\-09\-28", "\(md5\)").
+  const escapeMd = (s) => String(s);
   const fields = [
     `👤 Имя: ${escapeMd(cleanName)}`,
     `📞 Телефон: ${cleanPhone}`,
@@ -255,15 +269,15 @@ async function handleOrder(req, res) {
     cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
     cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
-    signatureMismatch ? `⚠️ Подпись \\(md5\\) не совпала — booking принят, но проверьте логи` : null,
+    signatureMismatch ? `⚠️ Подпись (md5) не совпала — booking принят, но проверьте логи` : null,
   ].filter(Boolean).join('\n');
-  const text = `🩺 *Новая бронь — Мир Квестов*\n\n${fields}`;
+  const text = `🩺 Новая бронь — Мир Квестов\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+      body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
     });
     const tgData = await tgRes.json();
 

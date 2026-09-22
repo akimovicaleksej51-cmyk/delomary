@@ -140,7 +140,7 @@
 
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
-import { businessToday, businessDateTime } from './_time.js';
+import { businessToday, isSlotClosingSoon } from './_time.js';
 import { SLOTS, tiersFor, isWeekendISO, startingPriceFor, LATE_SLOT_INDEX, LATE_SURCHARGE } from './_pricing.js';
 import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
@@ -154,8 +154,18 @@ const REVIEWS_CACHE_KEY = 'extrareality:reviewsCache';
 const REVIEWS_MIN_REFRESH_SECONDS = 30 * 60; // ExtraReality's own guidance: "не чаще раза в 30 минут"
 const REVIEWS_CACHE_TTL_SECONDS = 60 * 60 * 24 * 2; // safety-net Redis expiry only — the 30-min check above is what actually paces the refresh
 
+// 22.09.2026: used to backslash-escape MarkdownV2-reserved characters, but
+// every Telegram sendMessage call in this file uses parse_mode:'Markdown'
+// (the LEGACY mode), which has no backslash-escape mechanism at all — so a
+// "\-" or "\(" just showed up as a literal backslash in the message
+// (visible in a Мир Квестов notification: "2026\-09\-28"). Since these
+// messages are now sent as plain text (see the sendMessage calls below —
+// no parse_mode at all), no escaping is needed or possible: Telegram shows
+// the text exactly as given, so this is now just a passthrough. Kept as a
+// named function (instead of removing every call site) so the "this field
+// might contain someone else's text" intent stays visible at each call.
 function escapeMd(s) {
-  return String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+  return String(s);
 }
 
 function isoDate(d) {
@@ -198,12 +208,14 @@ async function handleSchedule(req, res) {
   for (const dateISO of dates) {
     const taken = takenByDate[dateISO] || [];
     for (const time of SLOTS) {
-      const [hh, mm] = time.split(':').map(Number);
-      const alreadyPassed = businessDateTime(dateISO, hh, mm).getTime() <= now.getTime();
+      // Was just "already started" — now matches the site's own hour-before
+      // cutoff (see isSlotClosingSoon in api/_time.js), so a slot ExtraReality
+      // couldn't book on our own site anyway isn't shown as free here either.
+      const closingSoon = isSlotClosingSoon(dateISO, time, now);
       out.push({
         date: dateISO,
         time,
-        is_free: !alreadyPassed && !taken.includes(time),
+        is_free: !closingSoon && !taken.includes(time),
         price: startingPriceFor(dateISO, time),
         extraPrices: extraPricesFor(dateISO, time),
         our_time_id: `${dateISO}_${time}`,
@@ -251,6 +263,14 @@ async function handleBook(req, res) {
 
   if (!cleanName || !cleanPhone || !cleanDateISO || !cleanTime) {
     return res.status(200).json({ success: false, message: 'Не хватает обязательных полей (имя, телефон, дата и время).' });
+  }
+
+  // Matches the site's own hour-before cutoff (see api/_time.js) — closes
+  // this even if ExtraReality's cached schedule still thinks the slot is
+  // free (e.g. they last fetched GET a while ago and the hour boundary has
+  // since passed).
+  if (isSlotClosingSoon(cleanDateISO, cleanTime)) {
+    return res.status(200).json({ success: false, message: 'Указанное время больше недоступно для онлайн-бронирования (до сеанса меньше часа).' });
   }
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -301,13 +321,13 @@ async function handleBook(req, res) {
     cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
   ].filter(Boolean).join('\n');
-  const text = `🩺 *Новая бронь — ExtraReality*\n\n${fields}`;
+  const text = `🩺 Новая бронь — ExtraReality\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+      body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
     });
     const tgData = await tgRes.json();
 
@@ -415,12 +435,12 @@ async function handleCancel(req, res) {
       `📅 Дата: ${escapeMd(cleanDateISO)}`,
       `🕒 Время: ${escapeMd(cleanTime)}`,
     ].filter(Boolean).join('\n');
-    const text = `❌ *Бронь отменена — ExtraReality*\n\n${fields}`;
+    const text = `❌ Бронь отменена — ExtraReality\n\n${fields}`;
     try {
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+        body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
       });
     } catch (err) {
       console.error('Failed to notify Telegram about ExtraReality cancellation:', err);

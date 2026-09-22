@@ -182,8 +182,16 @@ function formatDateLabel(iso) {
   return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${WEEKDAY_NAMES[d.getDay()]}`;
 }
 
+// 22.09.2026: no longer backslash-escapes anything, and sendTelegram()
+// below sends plain text (no parse_mode) — the old escaping was written
+// for MarkdownV2's reserved-character set, but every call here actually
+// used the LEGACY 'Markdown' mode, which has no backslash-escape mechanism
+// at all. The result: a stray literal backslash in real notifications
+// (e.g. a date rendered as "2026\-09\-28"). Plain text needs no escaping,
+// so this is now just a passthrough — kept as a named function so each
+// call site's "this might be someone else's text" intent stays visible.
 function escapeMd(s) {
-  return String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+  return String(s);
 }
 
 // Best-effort notification for a booking created from the admin panel. Unlike
@@ -200,7 +208,7 @@ async function sendTelegram(text, label) {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+      body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
     });
     const tgData = await tgRes.json().catch(() => ({}));
     if (!tgData.ok) {
@@ -227,14 +235,14 @@ async function notifyTelegram(record) {
       record.price ? `💰 Цена: ${escapeMd(record.price)} Br` : null,
       record.comment ? `💬 Комментарий: ${escapeMd(record.comment)}` : null,
     ].filter(Boolean).join('\n');
-    text = `🩺 *Новая бронь — из админки*\n\n${fields}`;
+    text = `🩺 Новая бронь — из админки\n\n${fields}`;
   } else {
     const fields = [
       dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
       record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
       record.comment ? `💬 Комментарий: ${escapeMd(record.comment)}` : null,
     ].filter(Boolean).join('\n');
-    text = `🔧 *Техническая бронь — из админки*\n\n${fields}`;
+    text = `🔧 Техническая бронь — из админки\n\n${fields}`;
   }
 
   await sendTelegram(text, 'admin create');
@@ -249,7 +257,7 @@ async function notifyTelegramCancel(record) {
     record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
   ].filter(Boolean).join('\n');
   const kind = record.type === 'customer' ? 'Бронь отменена' : 'Техническая бронь снята';
-  await sendTelegram(`❌ *${kind}*\n\n${fields}`, 'admin cancel');
+  await sendTelegram(`❌ ${kind}\n\n${fields}`, 'admin cancel');
 }
 
 async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO, toTime) {
@@ -262,12 +270,12 @@ async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO
     `📅 Стало: ${escapeMd(toLabel)} в ${escapeMd(toTime)}`,
   ].filter(Boolean).join('\n');
   const kind = record.type === 'customer' ? 'Бронь перенесена' : 'Техническая бронь перенесена';
-  await sendTelegram(`🔁 *${kind}*\n\n${fields}`, 'admin reschedule');
+  await sendTelegram(`🔁 ${kind}\n\n${fields}`, 'admin reschedule');
 }
 
 async function notifyTelegramDayAction(dateISO, kindLabel, count) {
   const dateLabelText = formatDateLabel(dateISO);
-  await sendTelegram(`🗓 *${escapeMd(kindLabel)}*\n\n📅 Дата: ${escapeMd(dateLabelText)}\nСлотов: ${count}`, 'admin day action');
+  await sendTelegram(`🗓 ${escapeMd(kindLabel)}\n\n📅 Дата: ${escapeMd(dateLabelText)}\nСлотов: ${count}`, 'admin day action');
 }
 
 export default async function handler(req, res) {

@@ -31,6 +31,47 @@ import { todayISO } from '../_time.js';
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 92;
 
+// 22.09.2026: two bugs found together via a real "Источники броней" screenshot
+// (Сайт 12, Мир Квестов 0, ExtraReality 1, Всего 14 — 12+0+1 ≠ 14, and a real
+// Мир Квестов booking that definitely existed wasn't showing under its tile
+// at all):
+//
+//  1. CASE MISMATCH — api/mirkvestov.js tags real bookings with
+//     channel:'Мир Квестов' (capital К), but admin.html's own tracked-source
+//     list and its manual "Источник брони" dropdown both used 'Мир квестов'
+//     (lowercase к). Grouping below was a plain object-key match on the raw
+//     channel string, so a real Мир Квестов booking silently landed in its
+//     OWN 'Мир Квестов' bucket, which the tracker never looked up — it stayed
+//     invisible in its own tile while still being counted in "Всего" (which
+//     sums every bucket regardless of name), which is exactly why the total
+//     didn't match the sum of the three visible tiles.
+//  2. Bookings the owner transferred BY HAND from Мир Квестов/ExtraReality
+//     before either real API integration existed have no `channel` set at
+//     all (defaulting to 'Sайт') — but the owner always wrote the real
+//     source into the booking's `comment` instead. Sniffed for below so
+//     those historical bookings finally count under the right tile too,
+//     instead of silently padding "Сайт".
+//
+// This normalizes BOTH the real API's capitalization and any hand-typed
+// variant to one canonical spelling, and only falls back to sniffing the
+// comment when no explicit non-default channel was set — an explicitly
+// chosen channel (Instagram, Телефон, Пинкертон, Сливки, Бартер, ...) is
+// never second-guessed by a comment.
+function canonicalChannel(record) {
+  const raw = typeof record.channel === 'string' ? record.channel.trim() : '';
+  const lower = raw.toLowerCase();
+
+  if (lower === 'мир квестов') return 'Мир Квестов';
+  if (lower === 'extrareality') return 'ExtraReality';
+  if (raw && lower !== 'сайт') return raw; // some other explicitly-chosen source — keep as typed
+
+  const comment = typeof record.comment === 'string' ? record.comment.toLowerCase() : '';
+  if (/экстра|extra\s*reality/.test(comment)) return 'ExtraReality';
+  if (/мир\s*квест/.test(comment)) return 'Мир Квестов';
+
+  return raw || 'Сайт';
+}
+
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
   const provided = req.headers['x-admin-password'];
@@ -116,10 +157,12 @@ export default async function handler(req, res) {
     }
 
     // Бронь без явно указанного источника — это бронь, созданная прямо в
-    // админке (или отредактированная так, что поле осталось пустым). Такие
-    // брони по сути и есть "сайтовые" (сделаны нами, а не через партнёра),
-    // поэтому считаем их как канал "Сайт", а не отдельным "Не указан".
-    const channel = record.channel || 'Сайт';
+    // админке (или отредактированная так, что поле осталось пустым), ИЛИ
+    // историческая бронь с сайта-агрегатора, перенесённая вручную ДО того,
+    // как заработало настоящее API — см. canonicalChannel() выше для того,
+    // как и то, и другое, и разный регистр "Мир Квестов"/"Мир квестов"
+    // сводятся к одному счётчику.
+    const channel = canonicalChannel(record);
     if (!channelTotals[channel]) channelTotals[channel] = { count: 0, total: 0 };
     channelTotals[channel].count += 1;
     channelTotals[channel].total += toAmount(record.price);

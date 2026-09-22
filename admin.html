@@ -167,7 +167,7 @@
   }
   .more-menu-list button:hover{background:var(--black-3);}
 
-  /* ---------- Source tracker (Сайт / Мир квестов / ExtraReality) ---------- */
+  /* ---------- Source tracker (Сайт / Мир Квестов / ExtraReality) ---------- */
   /* Всегда видимая плашка прямо на главном экране, над списком броней —
      не нужно открывать "Бухгалтерию" ради того, чтобы увидеть "сколько
      броней с какого источника в этом месяце". Пересчитывается по тем же
@@ -758,7 +758,7 @@
         <div class="pay-split-total">Итого: <b id="editPayTotal">0</b> Br</div>
       </div>
       <div class="detail-field"><label>Скидка / номер сертификата</label><input id="editDiscountNote" placeholder="Например: скидка 10% или серт. №123"></div>
-      <div class="detail-field"><label>Источник брони</label><input id="editChannel" list="knownChannelsList" placeholder="Сайт, Мир квестов, ExtraReality…"></div>
+      <div class="detail-field"><label>Источник брони</label><input id="editChannel" list="knownChannelsList" placeholder="Сайт, Мир Квестов, ExtraReality…"></div>
       <div class="detail-field">
         <label>Кто отыграл</label>
         <div class="pay-split">
@@ -1022,7 +1022,7 @@
   </div>
 </div>
 <datalist id="knownChannelsList">
-  <option value="Сайт"><option value="Мир квестов"><option value="ExtraReality"><option value="Instagram"><option value="Пинкертон"><option value="Сливки"><option value="Бартер"><option value="Телефон">
+  <option value="Сайт"><option value="Мир Квестов"><option value="ExtraReality"><option value="Instagram"><option value="Пинкертон"><option value="Сливки"><option value="Бартер"><option value="Телефон">
 </datalist>
 <datalist id="knownActorNamesList"></datalist>
 
@@ -3189,14 +3189,20 @@
   // ---------- always-visible source tracker (main screen, above the list) ----------
   // Те же цифры, что и в таблице "Источники броней" внутри отчёта в
   // "Бухгалтерии", только вынесены на главный экран крупными плитками: 3
-  // основных источника (Сайт / Мир квестов / ExtraReality) и общее
+  // основных источника (Сайт / Мир Квестов / ExtraReality) и общее
   // количество броней за месяц по ВСЕМ источникам сразу (раньше вместо
   // этого была плитка "Другое" — каталог всего, что не попало в 3
   // основных; теперь это просто общий счётчик).
   // Брони без явно указанного источника (созданные прямо в админке) сервер
   // считает как "Сайт" — см. api/admin/report.js — поэтому они уже включены
   // в плитку "Сайт", а не теряются где-то в стороне.
-  const TRACKED_SOURCES = ['Сайт', 'Мир квестов', 'ExtraReality'];
+  // 22.09.2026: было 'Мир квестов' (строчная к) — не совпадало с тем, как
+  // настоящие брони с их API помечены на сервере ('Мир Квестов', заглавная
+  // К, см. api/mirkvestov.js), поэтому плитка всегда показывала 0, а число
+  // "Всего" не сходилось с суммой плиток. api/admin/report.js теперь сам
+  // приводит оба варианта регистра к одному счётчику, но и здесь исправлено
+  // для порядка.
+  const TRACKED_SOURCES = ['Сайт', 'Мир Квестов', 'ExtraReality'];
 
   async function loadSourceTracker(){
     const itemsEl = document.getElementById('sourceTrackerItems');

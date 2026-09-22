@@ -141,8 +141,14 @@ export default async function handler(req, res) {
     });
   }
 
-  const escapeMd = (s) => String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
-  const text = `🏠 *Loony Room — заявка на предзаказ*\n\n📧 Email: ${escapeMd(cleanEmail)}`;
+  // 22.09.2026: sent as plain text now (no parse_mode) — see the
+  // escapeMd() comment in api/book.js for why the old backslash-escaping
+  // (written for MarkdownV2, but sent with the legacy 'Markdown' mode)
+  // showed up as literal backslashes in real notifications. An email
+  // address commonly contains "." and sometimes "-", both MarkdownV2-
+  // reserved, so this one was affected too.
+  const escapeMd = (s) => String(s);
+  const text = `🏠 Loony Room — заявка на предзаказ\n\n📧 Email: ${escapeMd(cleanEmail)}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -151,7 +157,6 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         chat_id: chatId,
         text,
-        parse_mode: 'Markdown',
       }),
     });
     const tgData = await tgRes.json();
