@@ -271,8 +271,22 @@ async function handleOrder(req, res) {
 }
 
 export default async function handler(req, res) {
+  // CORS — added 22.09.2026, mirroring the same fix on api/extrareality.js
+  // after ExtraReality's own "Проверить" button turned out to be blocked
+  // by the browser's own cross-origin rules (see that file's comment for
+  // the full story). Mir Kvestov's own test tool wasn't affected by this —
+  // its 200 response showed it runs server-side, where CORS doesn't
+  // apply — but adding the same harmless headers here keeps both
+  // integrations consistent in case a browser-based test ever gets added
+  // on their side too.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
   if (req.method === 'GET') return handleTimetable(req, res);
   if (req.method === 'POST') return handleOrder(req, res);
-  res.setHeader('Allow', 'GET, POST');
+  res.setHeader('Allow', 'GET, POST, OPTIONS');
   return res.status(200).json({ success: false, message: 'Method not allowed' });
 }

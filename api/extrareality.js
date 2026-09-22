@@ -262,8 +262,31 @@ async function handleBook(req, res) {
 }
 
 export default async function handler(req, res) {
+  // CORS — added 22.09.2026. ExtraReality's own "Проверить" button next to
+  // the "Расписание"/"Бронь" fields in their settings panel appears to call
+  // this URL directly from JavaScript running IN THEIR OWN dashboard page
+  // (extrareality.by), not from their server: opening the exact same URL
+  // by typing it into a browser's address bar worked fine (a plain 200
+  // with valid JSON — that kind of top-level navigation is never subject
+  // to CORS), but their "Проверить" button showed a generic "Unsuccessful
+  // response from server." That's the classic signature of the browser
+  // itself blocking a cross-origin fetch() before it ever reaches our
+  // code, because we never sent an Access-Control-Allow-Origin header.
+  // Mir Kvestov's own test tool was unaffected by this — CORS only ever
+  // applies to requests made by a browser's JavaScript, and their test
+  // (per their working 200 response) runs server-side.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    // Preflight — a browser sends this by itself before some cross-origin
+    // requests; answering it (the CORS headers above already apply to
+    // this response too) is what lets the browser then send the real
+    // GET/POST through.
+    return res.status(204).end();
+  }
   if (req.method === 'GET') return handleSchedule(req, res);
   if (req.method === 'POST') return handleBook(req, res);
-  res.setHeader('Allow', 'GET, POST');
+  res.setHeader('Allow', 'GET, POST, OPTIONS');
   return res.status(200).json({ success: false, message: 'Method not allowed' });
 }
