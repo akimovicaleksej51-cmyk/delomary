@@ -67,9 +67,19 @@
 //
 // SIGNATURE VERIFICATION (optional per their spec): if the
 // MIRKVESTOV_SECRET env var is set, an incoming `md5` field is checked
-// against md5(first_name+family_name+phone+email+MIRKVESTOV_SECRET) and the
-// request is rejected if it doesn't match. Until that env var is set,
-// verification is skipped entirely and the endpoint still works.
+// against md5(first_name+family_name+phone+email+MIRKVESTOV_SECRET).
+//
+// 22.09.2026 update: Mir Kvestov's real production system started sending
+// bookings whose md5 does NOT match this formula (their real booking got
+// rejected with "Ошибка проверки подписи." and never reached us — reported
+// by their support team via email). Since the signature check is optional
+// per their own spec, and losing a real customer booking is far worse than
+// accepting one we can't cryptographically verify, a mismatch NO LONGER
+// blocks the booking — it's logged (see verifySignature's caller below) so
+// the mismatch can be diagnosed from Vercel's function logs, but the
+// booking still goes through. Once the real formula (or a corrected
+// MIRKVESTOV_SECRET value) is confirmed with their support, this can be
+// tightened back to a hard rejection if desired.
 //
 // Reuses the exact same reservation mechanism as the site's own
 // api/book.js (HSETNX on the `bookings:<date>` Redis hash) so a Mir
@@ -158,7 +168,18 @@ function verifySignature(body) {
   if (!provided) return true; // Mir Kvestov's own spec: sending no md5 at all is allowed
   const source = `${body.first_name || ''}${body.family_name || ''}${body.phone || ''}${body.email || ''}${secret}`;
   const expected = crypto.createHash('md5').update(source, 'utf8').digest('hex');
-  return provided === expected;
+  if (provided !== expected) {
+    // Logged (never the secret itself) so a real mismatch can be diagnosed
+    // from Vercel's function logs — see the big comment above this
+    // function for why this no longer blocks the booking.
+    console.error(
+      'Mir Kvestov md5 signature mismatch — booking will still be accepted. ' +
+      `provided=${provided} expectedByOurFormula=${expected} ` +
+      `fields(first_name,family_name,phone,email)=${JSON.stringify([body.first_name, body.family_name, body.phone, body.email])}`
+    );
+    return false;
+  }
+  return true;
 }
 
 async function handleOrder(req, res) {
@@ -180,9 +201,12 @@ async function handleOrder(req, res) {
     return res.status(200).json({ success: false, message: 'Не хватает обязательных полей (имя, телефон, дата, время).' });
   }
 
-  if (!verifySignature(body)) {
-    return res.status(200).json({ success: false, message: 'Ошибка проверки подписи.' });
-  }
+  // A signature mismatch is logged inside verifySignature() but, as of
+  // 22.09.2026, no longer rejects the booking — see the big comment above
+  // verifySignature() for why. `signatureMismatch` just flags the record
+  // for the owner (in the Telegram notification below) so it isn't a
+  // silent discrepancy.
+  const signatureMismatch = !verifySignature(body);
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -231,6 +255,7 @@ async function handleOrder(req, res) {
     cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
     cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
+    signatureMismatch ? `⚠️ Подпись \\(md5\\) не совпала — booking принят, но проверьте логи` : null,
   ].filter(Boolean).join('\n');
   const text = `🩺 *Новая бронь — Мир Квестов*\n\n${fields}`;
 
