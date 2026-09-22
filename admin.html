@@ -553,6 +553,24 @@
   .actor-suggest-item{padding:10px 14px; font-size:14px; cursor:pointer;}
   .actor-suggest-item:hover{background:var(--black-3);}
 
+  /* 22.09.2026 (3): the floating dropdown above kept breaking on real
+     iPhones no matter how the show/hide timing was tuned — Safari moves
+     focus and the on-screen keyboard around in ways a positioned overlay
+     tracking a moving input can't reliably keep up with, so a tap kept
+     landing on the wrong (seemingly random) row once the list had shifted
+     under the finger. On a touch device (`pointer: coarse`) the field no
+     longer opens that floating list at all: tapping it opens this plain
+     full-screen picker modal instead — fixed to the viewport, not tracking
+     any input, so there's nothing for the keyboard to desync it from. Mouse
+     users (desktop) are unaffected and keep the dropdown above. */
+  .actor-picker-list{max-height:50vh; overflow-y:auto; margin-top:10px; border:1px solid #2a2a2a; border-radius:10px;}
+  .actor-picker-item{
+    display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid #242424;
+    color:inherit; font:inherit; font-size:15px; padding:14px 16px; cursor:pointer;
+  }
+  .actor-picker-item:last-child{border-bottom:none;}
+  .actor-picker-item:hover, .actor-picker-item:active{background:var(--black-3);}
+
   /* ---------- Payment split (edit form + Касса) ---------- */
   .pay-split{display:flex; gap:8px; flex-wrap:wrap;}
   .pay-split-item{display:flex; flex-direction:column; gap:4px; flex:1 1 90px;}
@@ -1033,6 +1051,25 @@
      shared floating element, repositioned under whichever .shift-slot-actor
      input is currently focused. -->
 <div class="actor-suggest" id="actorSuggest"></div>
+
+<!-- 22.09.2026 (3): touch-device picker for the actor-username field — see
+     the CSS comment above .actor-picker-list for why the floating dropdown
+     above isn't used on a phone. -->
+<div class="modal-overlay" id="actorPickerOverlay">
+  <div class="modal-box" style="max-width:420px;">
+    <button class="modal-close-x" data-close="actorPicker">✕</button>
+    <h2>Выбрать сотрудника</h2>
+    <div class="detail-field">
+      <label>Логин в Telegram</label>
+      <input type="text" id="actorPickerSearch" placeholder="Поиск, или введите новый username" autocomplete="off">
+    </div>
+    <div class="actor-picker-list" id="actorPickerList"></div>
+    <div class="modal-actions">
+      <button class="btn" id="actorPickerUseTyped">Использовать это имя</button>
+      <button class="btn-secondary" data-close="actorPicker">Отмена</button>
+    </div>
+  </div>
+</div>
 
 <!-- Cash register ("Касса") — running cash balance, replaces the manual
      running-total column from the owner's old spreadsheet -->
@@ -3549,27 +3586,55 @@
     actorSuggestEl.classList.add('show');
   }
 
+  // 22.09.2026 (3): three attempts at a floating dropdown for this field all
+  // broke on a real iPhone in slightly different ways (list closing the
+  // instant the keyboard opened; then closing on the very tap meant to
+  // select a name; then — with selection moved to touchstart — picking
+  // whatever row the list had silently reflowed to under the finger, since
+  // the list kept repositioning itself while the keyboard animation was
+  // still moving the input). All three failures share one cause: a floating
+  // element that must track a moving input while the on-screen keyboard is
+  // sliding in cannot be kept in sync with a finger already moving toward
+  // it. On a touch device the field no longer tries to track anything —
+  // tapping it blurs it immediately (the keyboard never opens at all) and
+  // opens a plain full-screen picker modal instead, fixed to the viewport,
+  // completely independent of the input's position. Desktop/mouse use is
+  // untouched: it still gets the dropdown below, which was never reported
+  // broken there.
+  const isCoarsePointer = Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
   // Delegated on the container (rows are re-rendered wholesale on every
   // week change / save), so this needs binding only once, ever.
   shiftsDaysList.addEventListener('input', (e) => {
+    if (isCoarsePointer) return;
     if (e.target.classList.contains('shift-slot-actor')) showActorSuggestFor(e.target);
   });
   shiftsDaysList.addEventListener('focusin', (e) => {
-    if (e.target.classList.contains('shift-slot-actor')) showActorSuggestFor(e.target);
+    if (!e.target.classList.contains('shift-slot-actor')) return;
+    if (isCoarsePointer) {
+      e.target.blur();
+      openActorPicker(e.target);
+    } else {
+      showActorSuggestFor(e.target);
+    }
   });
+  // Belt-and-braces for touch: blurs and opens the picker on the very first
+  // touch, before focus (and the keyboard) would otherwise happen — the
+  // focusin handler above is the fallback for any input method that skips
+  // straight to focusing (e.g. switch control / external keyboard "next
+  // field").
+  shiftsDaysList.addEventListener('touchstart', (e) => {
+    if (!isCoarsePointer) return;
+    const input = e.target.closest('.shift-slot-actor');
+    if (!input) return;
+    e.preventDefault();
+    if (document.activeElement === input) input.blur();
+    openActorPicker(input);
+  }, { passive: false });
 
-  // 22.09.2026 (2): the previous version closed the list on the input's own
-  // `focusout` (with a short delay so a tap on a suggestion could land
-  // first). On a real iPhone that delay never helps — Safari blurs the
-  // focused input the instant you touch ANYWHERE else on the screen,
-  // including the suggestion list itself, before your tap is ever resolved
-  // into a click; `preventDefault()` on `pointerdown` (tried in the previous
-  // fix) does not stop that. So selecting a name can no longer depend on
-  // blur/focus timing at all: it happens on `touchstart`/`mousedown` on the
-  // list itself (both fire — and can be prevented — before the browser
-  // blurs the input), and the list is otherwise closed only by an explicit
-  // tap/click that lands outside both the input and the list, via a
-  // document-level listener, never by blur.
+  // 22.09.2026 (2): kept for desktop/mouse — selecting on `mousedown` (fires
+  // before the input's blur/focusout) rather than `click`, so the dropdown
+  // closing never races a click the way it used to.
   function selectActorSuggestion(e){
     const item = e.target.closest('.actor-suggest-item');
     if (!item || !actorSuggestInput) return;
@@ -3577,7 +3642,6 @@
     actorSuggestInput.value = item.dataset.username;
     hideActorSuggest();
   }
-  actorSuggestEl.addEventListener('touchstart', selectActorSuggestion, { passive: false });
   actorSuggestEl.addEventListener('mousedown', selectActorSuggestion);
 
   function closeActorSuggestIfOutside(e){
@@ -3585,18 +3649,47 @@
     if (actorSuggestEl.contains(e.target) || e.target === actorSuggestInput) return;
     hideActorSuggest();
   }
-  document.addEventListener('touchstart', closeActorSuggestIfOutside, true);
   document.addEventListener('mousedown', closeActorSuggestIfOutside, true);
 
-  // Tapping the input to open the list also opens the on-screen keyboard,
-  // which itself fires a `resize` (viewport shrinks) and usually a `scroll`
-  // (the browser auto-scrolls the focused input into view) right away —
-  // reposition the list to follow the input instead of hiding it.
-  function repositionActorSuggest(){
-    if (actorSuggestInput) showActorSuggestFor(actorSuggestInput);
+  // ---------- touch-device picker modal ----------
+  const actorPickerOverlay = document.getElementById('actorPickerOverlay');
+  const actorPickerSearch = document.getElementById('actorPickerSearch');
+  const actorPickerList = document.getElementById('actorPickerList');
+  let actorPickerTargetInput = null;
+
+  function renderActorPickerList(){
+    const q = actorPickerSearch.value.trim().toLowerCase();
+    const usernames = Object.keys(shiftsActors);
+    const matches = q ? usernames.filter(u => u.toLowerCase().includes(q)) : usernames;
+    actorPickerList.innerHTML = matches.length
+      ? matches.map(u => `<button type="button" class="actor-picker-item" data-username="${escapeHtml(u)}">${escapeHtml(u)}</button>`).join('')
+      : '<div class="load-note">Совпадений нет — введите имя выше и нажмите «Использовать это имя».</div>';
   }
-  window.addEventListener('scroll', repositionActorSuggest, true);
-  window.addEventListener('resize', repositionActorSuggest);
+  actorPickerSearch.addEventListener('input', renderActorPickerList);
+
+  function openActorPicker(input){
+    actorPickerTargetInput = input;
+    actorPickerSearch.value = input.value || '';
+    renderActorPickerList();
+    actorPickerOverlay.classList.add('show');
+  }
+  function closeActorPicker(){
+    actorPickerOverlay.classList.remove('show');
+    actorPickerTargetInput = null;
+  }
+  actorPickerList.addEventListener('click', (e) => {
+    const item = e.target.closest('.actor-picker-item');
+    if (!item || !actorPickerTargetInput) return;
+    actorPickerTargetInput.value = item.dataset.username;
+    closeActorPicker();
+  });
+  document.getElementById('actorPickerUseTyped').addEventListener('click', () => {
+    if (!actorPickerTargetInput) return;
+    actorPickerTargetInput.value = actorPickerSearch.value.trim().replace(/^@/, '');
+    closeActorPicker();
+  });
+  document.querySelectorAll('[data-close="actorPicker"]').forEach(b => b.addEventListener('click', closeActorPicker));
+  actorPickerOverlay.addEventListener('click', e => { if (e.target === actorPickerOverlay) closeActorPicker(); });
 
   function renderShiftsDays(){
     const dates = shiftsWeekDates();
