@@ -187,6 +187,8 @@
   .source-item .si-count{font-family:var(--display); font-weight:400; font-size:22px; color:var(--paper); line-height:1;}
   .source-item .si-sum{font-size:11.5px; color:var(--muted); margin-top:2px;}
   .source-item.si-site .si-count{color:var(--ochre-bright);}
+  .source-item.si-tech .si-count{color:var(--muted);}
+  .source-tracker-note{grid-column:1/-1; font-size:11px; color:var(--muted); margin-top:2px;}
   @media (max-width:640px){ .source-tracker-items{grid-template-columns:repeat(2,1fr);} }
 
   /* ---------- Status tabs (active / cancelled / rescheduled) ---------- */
@@ -194,6 +196,7 @@
      together" — each tab is homogeneous, so a row doesn't need a status
      badge fighting for attention on top of its type badge. */
   .list-tabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .list-tabs-note{font-size:11px; color:var(--muted); margin:-8px 0 14px;}
   .list-tab{
     padding:10px 16px; border-radius:9px; border:1.5px solid #333; background:var(--black-3);
     color:var(--muted); font-weight:800; font-size:13.5px; font-family:var(--sans);
@@ -634,6 +637,12 @@
       <button type="button" class="list-tab" data-tab="cancelled">Отменённые <span class="tab-count" id="tabCountCancelled"></span></button>
       <button type="button" class="list-tab" data-tab="rescheduled">Перенесённые <span class="tab-count" id="tabCountRescheduled"></span></button>
     </div>
+    <!-- 22.09.2026: владелец сравнил число во вкладке "Активные" (охватывает
+         сегодня + ~65 дней вперёд, см. WINDOW_DAYS_AHEAD в api/admin/bookings.js)
+         с плиткой "Источники броней" (строго календарный месяц) и решил, что
+         числа не сходятся — они действительно про разные периоды, оба
+         посчитаны верно. Эта подсказка — чтобы больше не путало. -->
+    <div class="list-tabs-note">Вкладки выше — брони с сегодняшнего дня примерно на 2 месяца вперёд (не привязано к текущему месяцу). "Источники броней" выше — отдельный счётчик строго за календарный месяц.</div>
     <div class="list-toolbar">
       <input type="text" id="searchBox" placeholder="Поиск по имени или телефону…">
       <div class="day-filter-wrap">
@@ -3220,11 +3229,25 @@
       const channels = out.channels || {};
       const totalAll = { count: 0, total: 0 };
       Object.values(channels).forEach((v) => { totalAll.count += v.count; totalAll.total += v.total; });
+      // 22.09.2026: владелец сравнил "Всего броней" тут со своим ручным
+      // подсчётом строк в списке броней за месяц — они не совпали (14 vs
+      // 20), и это смутило, хотя баг был уже в другом (регистр "Мир
+      // Квестов", исправлено выше). Причина расхождения: список броней в
+      // админке показывает И клиентские, И технические/заблокированные
+      // записи (см. заголовок api/admin/bookings.js), а "Источники броней"
+      // всегда считал только клиентские — у технической брони просто нет
+      // источника. Показываем techalCount отдельной приглушённой плиткой и
+      // строкой-подсказкой, чтобы сумма всегда сходилась с тем, что видно
+      // в списке, и больше не выглядела "неправильной".
+      const technicalCount = Number(out.technicalCount) || 0;
       const tiles = TRACKED_SOURCES.map(name => {
         const v = channels[name] || { count: 0, total: 0 };
         const cls = name === 'Сайт' ? ' si-site' : '';
         return `<div class="source-item${cls}"><div class="si-label">${escapeHtml(name)}</div><div class="si-count">${v.count}</div><div class="si-sum">${Math.round(v.total)} Br</div></div>`;
-      }).join('') + `<div class="source-item"><div class="si-label">Всего броней</div><div class="si-count">${totalAll.count}</div><div class="si-sum">${Math.round(totalAll.total)} Br</div></div>`;
+      }).join('')
+        + `<div class="source-item"><div class="si-label">Всего броней</div><div class="si-count">${totalAll.count}</div><div class="si-sum">${Math.round(totalAll.total)} Br</div></div>`
+        + `<div class="source-item si-tech"><div class="si-label">Технич. / заблокировано</div><div class="si-count">${technicalCount}</div><div class="si-sum">не источник брони</div></div>`
+        + `<div class="source-tracker-note">В списке броней за месяц строк: ${totalAll.count + technicalCount} (клиентские + технические/заблокированные)</div>`;
       itemsEl.innerHTML = tiles;
     } catch(err){
       itemsEl.innerHTML = '<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">Ошибка сети.</div>';

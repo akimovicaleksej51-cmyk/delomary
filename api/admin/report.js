@@ -143,10 +143,24 @@ export default async function handler(req, res) {
   const actorTotals = {};
   const wantDetailed = String((req.query && req.query.detailed) || '') === '1';
   const detailedRows = [];
+  // 22.09.2026: the owner counted the admin panel's own booking list by hand
+  // (20 rows for September) and compared it to "Источники броней" (14) —
+  // they didn't match, but this time NOT because of a bug: GET on this same
+  // file's neighbor, api/admin/bookings.js, explicitly returns "every
+  // booking AND history entry (customer OR technical)" (see its own header
+  // comment), while "Источники броней" only ever counted type:'customer'
+  // records on purpose — a technical/blocked slot has no real "source" to
+  // attribute (it's not a customer booking from any channel). The 6-booking
+  // gap was very likely exactly that many technical/blocked-day entries.
+  // Surfaced explicitly here (instead of just silently excluding them) so
+  // admin.html can show it next to "Всего" and the numbers always visibly
+  // add up to what the booking list shows, instead of one looking "wrong".
+  let technicalCount = 0;
 
   function ingestRecord(record, dateISO) {
     if (!record) return;
     if (wantDetailed) detailedRows.push({ ...record, dateISO, time: record.time || '' });
+    if (record.type === 'technical') { technicalCount += 1; return; }
     if (record.type !== 'customer') return;
     const day = byDay[dateISO];
     if (day) {
@@ -214,6 +228,7 @@ export default async function handler(req, res) {
     days: daysOut,
     channels: channelTotals,
     actors: actorTotals,
+    technicalCount,
     ...(wantDetailed ? { bookings: detailedRows } : {}),
   });
 }
