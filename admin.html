@@ -533,6 +533,19 @@
   .shift-actor-status.ok{color:#199e70;}
   .shift-actor-status.warn{color:var(--ochre-bright);}
   .shift-actor-status:empty{display:none;}
+  /* 22.09.2026: the actor-username field used the browser's native
+     <input list="..."> autocomplete (a <datalist>) — works fine on desktop
+     Chrome/Firefox/Edge, but iOS Safari (and some Android browsers) simply
+     never shows that dropdown at all, so on a phone the field looked like
+     it had no suggestions. Replaced with our own dropdown (positioned by
+     JS, see actorSuggestEl below) that behaves the same on every device. */
+  .actor-suggest{
+    position:fixed; z-index:200; background:var(--black-2); border:1px solid #333; border-radius:10px;
+    max-height:220px; overflow-y:auto; display:none; box-shadow:0 8px 24px rgba(0,0,0,.5);
+  }
+  .actor-suggest.show{display:block;}
+  .actor-suggest-item{padding:10px 14px; font-size:14px; cursor:pointer;}
+  .actor-suggest-item:hover{background:var(--black-3);}
 
   /* ---------- Payment split (edit form + Касса) ---------- */
   .pay-split{display:flex; gap:8px; flex-wrap:wrap;}
@@ -1008,6 +1021,12 @@
   </div>
 </div>
 <datalist id="knownActorsList"></datalist>
+<!-- 22.09.2026: custom actor-username suggestion dropdown — see the CSS
+     comment above .actor-suggest for why the native <datalist> above isn't
+     enough on its own (iOS Safari doesn't render its dropdown at all). One
+     shared floating element, repositioned under whichever .shift-slot-actor
+     input is currently focused. -->
+<div class="actor-suggest" id="actorSuggest"></div>
 
 <!-- Cash register ("Касса") — running cash balance, replaces the manual
      running-total column from the owner's old spreadsheet -->
@@ -3502,6 +3521,70 @@
     list.innerHTML = Object.keys(shiftsActors).map(u => `<option value="${escapeHtml(u)}">`).join('');
   }
 
+  // ---------- custom actor-username suggestion dropdown (works on phones) --
+  // 22.09.2026: the owner noticed the desktop version of "Смены и
+  // напоминания" suggests usernames (from everyone who's messaged the
+  // Telegram bot) while typing an actor's name, but the phone version
+  // doesn't — even though both use the exact same shiftsActors data. Root
+  // cause: the field relied on the browser's native <input list="..."> /
+  // <datalist> autocomplete, which desktop Chrome/Firefox/Edge render as a
+  // dropdown, but iOS Safari (the phone's browser) never shows at all — a
+  // long-standing WebKit limitation, not a bug in our own code. Replaced
+  // with one shared floating dropdown built and positioned by hand, which
+  // behaves identically on desktop and phone.
+  const actorSuggestEl = document.getElementById('actorSuggest');
+  let actorSuggestInput = null;
+
+  function hideActorSuggest(){
+    actorSuggestEl.classList.remove('show');
+    actorSuggestEl.innerHTML = '';
+    actorSuggestInput = null;
+  }
+
+  function showActorSuggestFor(input){
+    const q = input.value.trim().toLowerCase();
+    const usernames = Object.keys(shiftsActors);
+    const matches = (q ? usernames.filter(u => u.toLowerCase().includes(q)) : usernames).slice(0, 8);
+    if (!matches.length){ hideActorSuggest(); return; }
+    actorSuggestInput = input;
+    const rect = input.getBoundingClientRect();
+    actorSuggestEl.style.left = Math.round(rect.left) + 'px';
+    actorSuggestEl.style.top = Math.round(rect.bottom + 4) + 'px';
+    actorSuggestEl.style.width = Math.max(rect.width, 160) + 'px';
+    actorSuggestEl.innerHTML = matches.map(u => `<div class="actor-suggest-item" data-username="${escapeHtml(u)}">${escapeHtml(u)}</div>`).join('');
+    actorSuggestEl.classList.add('show');
+  }
+
+  // Delegated on the container (rows are re-rendered wholesale on every
+  // week change / save), so this needs binding only once, ever.
+  shiftsDaysList.addEventListener('input', (e) => {
+    if (e.target.classList.contains('shift-slot-actor')) showActorSuggestFor(e.target);
+  });
+  shiftsDaysList.addEventListener('focusin', (e) => {
+    if (e.target.classList.contains('shift-slot-actor')) showActorSuggestFor(e.target);
+  });
+  shiftsDaysList.addEventListener('focusout', (e) => {
+    if (!e.target.classList.contains('shift-slot-actor')) return;
+    // Delay so a tap/click on a suggestion item below still lands before the
+    // dropdown disappears — see the pointerdown handler's preventDefault
+    // too, which is the other half of keeping that tap from just closing
+    // the list before it registers.
+    setTimeout(() => { if (document.activeElement !== actorSuggestInput) hideActorSuggest(); }, 150);
+  });
+  // pointerdown (not click) fires before the input's blur/focusout, and
+  // unlike mousedown it also covers touch taps on a phone — preventDefault
+  // stops that blur from happening at all, so the value assignment below
+  // always lands on the right input.
+  actorSuggestEl.addEventListener('pointerdown', (e) => {
+    const item = e.target.closest('.actor-suggest-item');
+    if (!item || !actorSuggestInput) return;
+    e.preventDefault();
+    actorSuggestInput.value = item.dataset.username;
+    hideActorSuggest();
+  });
+  window.addEventListener('scroll', hideActorSuggest, true);
+  window.addEventListener('resize', hideActorSuggest);
+
   function renderShiftsDays(){
     const dates = shiftsWeekDates();
     shiftsWeekLabel.textContent = `${formatDateHeading(dates[0])} — ${formatDateHeading(dates[dates.length - 1])}`;
@@ -3524,7 +3607,7 @@
             <input type="time" class="shift-slot-start" step="900" value="${escapeHtml(s.start || '')}">
             <span class="shift-dash">–</span>
             <input type="time" class="shift-slot-end" step="900" value="${escapeHtml(s.end || '')}">
-            <input type="text" class="shift-slot-actor" placeholder="username" list="knownActorsList" value="${escapeHtml(s.actorUsername || '')}">
+            <input type="text" class="shift-slot-actor" placeholder="username" autocomplete="off" value="${escapeHtml(s.actorUsername || '')}">
             <button type="button" class="btn-secondary shift-slot-save">Сохранить</button>
             ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-closeout" title="Отправить актёру сверку по броням этой смены прямо сейчас — не дожидаясь конца смены и автоматики. Отправит ЕЩЁ РАЗ, даже если сверка уже была отправлена, но не пришла — не отправит только по игре, на которую актёр уже точно ответил.">Сверка сейчас</button>' : ''}
             ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-cancel-closeout" style="border-color:var(--danger-bright); color:var(--danger-bright);" title="Сбросить результат уже полученной сверки (оплату и кто отыграл) по всем броням этой смены, чтобы актёр мог пройти её заново — только для тех броней, где сверка уже завершена.">Отменить сверку</button>' : ''}
