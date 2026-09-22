@@ -20,6 +20,12 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- 22.09.2026: настоящий .xlsx вместо CSV-текста для "Экспорт CSV" и
+     "Скачать таблицу за период" — на айфоне скачивание CSV через Blob
+     Safari то открывает как нечитаемый текст, то сохраняет файлом без
+     понятного расширения. Настоящий Excel-файл (свой MIME-тип) телефон
+     распознаёт правильно и сразу предлагает открыть в Excel/Числах. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 <script>
   // Регистрирует сервис-воркер только для того, чтобы Android/Chrome
   // предложил «Установить приложение» — сам он ничего не кэширует и не
@@ -677,7 +683,7 @@
         <button type="button" class="day-filter-clear" id="dayFilterClear" aria-label="Сбросить фильтр по дате">✕</button>
       </div>
       <button class="btn-secondary" id="todayToggleBtn">Сегодня</button>
-      <button class="btn-secondary" id="exportCsvBtn">Экспорт CSV</button>
+      <button class="btn-secondary" id="exportCsvBtn">Экспорт в Excel</button>
     </div>
     <!-- Итоги нал/безнал/ЕРИП за выбранный день — видно сразу, без похода
          в «Бухгалтерию» (появляется только когда выбран конкретный день). -->
@@ -994,7 +1000,7 @@
         <div class="pay-split-item" style="flex:1 1 130px;"><span>С</span><input type="date" id="reportDownloadFrom"></div>
         <div class="pay-split-item" style="flex:1 1 130px;"><span>По</span><input type="date" id="reportDownloadTo"></div>
       </div>
-      <button class="btn-secondary" id="reportDownloadBtn">Скачать таблицу CSV</button>
+      <button class="btn-secondary" id="reportDownloadBtn">Скачать таблицу Excel</button>
       <div class="modal-msg" id="reportDownloadMsg"></div>
     </div>
   </div>
@@ -1643,7 +1649,7 @@
     if (e.key === 'Escape') closeMoreMenu();
   });
 
-  // ---------- toolbar: search, day filter, CSV export ----------
+  // ---------- toolbar: search, day filter, Excel export ----------
   const searchBox = document.getElementById('searchBox');
   const dayFilterInput = document.getElementById('dayFilterInput');
   const dayFilterClear = document.getElementById('dayFilterClear');
@@ -1681,15 +1687,24 @@
     renderList();
   });
 
-  function csvEscape(value){
-    const s = String(value == null ? '' : value);
-    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  }
-
-  function statusLabelForCsv(b){
+  function statusLabelForExport(b){
     if (b.status === 'cancelled') return 'Отменена';
     if (b.status === 'rescheduled') return 'Перенесена';
     return 'Активна';
+  }
+
+  // 22.09.2026: builds a real .xlsx (not a CSV text file) and triggers its
+  // download — used by both "Экспорт CSV" (now "Экспорт в Excel", below)
+  // and "Скачать таблицу за период". A plain CSV Blob downloaded this way
+  // used to show up on an iPhone as an unreadable/unrecognized file (Safari
+  // has no reliable "this is a spreadsheet" handling for a text Blob with a
+  // .csv name) — an actual Excel file has its own real file type, so the
+  // phone recognizes it immediately and offers to open it in Excel/Numbers.
+  function downloadAsXlsx(header, dataRows, filenameBase){
+    const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Брони');
+    XLSX.writeFile(wb, `${filenameBase}.xlsx`);
   }
 
   exportCsvBtn.addEventListener('click', () => {
@@ -1701,18 +1716,17 @@
       return;
     }
     const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Сверка','Комментарий','Как создано','Перенос'];
-    const lines = [header.join(';')];
-    rows.forEach(b => {
+    const dataRows = rows.map(b => {
       const isTech = b.type === 'technical';
       const moveNote = b.status === 'rescheduled' && b.rescheduledTo
         ? `на ${b.rescheduledTo.dateISO} ${b.rescheduledTo.time}`
         : (b.status === 'active' && b.rescheduledFrom ? `с ${b.rescheduledFrom.dateISO} ${b.rescheduledFrom.time}` : '');
-      const sverkaForCsv = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : (!isTech ? (formatCloseoutStatus(b) || '') : '');
-      lines.push([
+      const sverkaForExport = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : (!isTech ? (formatCloseoutStatus(b) || '') : '');
+      return [
         b.dateISO || '',
         b.time || '',
         isTech ? 'Техническая' : 'Клиент',
-        statusLabelForCsv(b),
+        statusLabelForExport(b),
         isTech ? '' : (b.name || ''),
         isTech ? '' : (b.phone || ''),
         isTech ? '' : (b.players || ''),
@@ -1724,23 +1738,13 @@
         isTech ? '' : (b.discountNote || ''),
         isTech ? '' : (b.workedActor || ''),
         isTech ? '' : (b.workedActress || ''),
-        sverkaForCsv,
+        sverkaForExport,
         b.comment || '',
         b.source === 'admin' ? 'вручную' : (b.source || ''),
         moveNote
-      ].map(csvEscape).join(';'));
+      ];
     });
-    // Leading BOM so Excel opens Cyrillic text as UTF-8 instead of guessing wrong.
-    const csvContent = '﻿' + lines.join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `брони_${todayISO()}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadAsXlsx(header, dataRows, `брони_${todayISO()}`);
   });
 
   // ---------- detail modal ----------
@@ -3403,7 +3407,7 @@
   }
 
   // ---------- download a full detailed table for an arbitrary period ----------
-  // Reuses the exact same rich per-booking columns as "Экспорт CSV" above,
+  // Reuses the exact same rich per-booking columns as "Экспорт в Excel" above,
   // but is sourced from the server (via ?detailed=1 on the same report
   // endpoint) instead of the admin panel's own client-side booking cache —
   // that cache only ever holds ~2 months of history, so this is the only
@@ -3445,14 +3449,13 @@
         return;
       }
       const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Сверка','Комментарий'];
-      const lines = [header.join(';')];
-      rows.forEach(b => {
+      const dataRows = rows.map(b => {
         const isTech = b.type === 'technical';
-        const sverkaForCsv = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : (!isTech ? (formatCloseoutStatus(b) || '') : '');
-        lines.push([
+        const sverkaForExport = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : (!isTech ? (formatCloseoutStatus(b) || '') : '');
+        return [
           b.dateISO || '', b.time || '',
           isTech ? 'Техническая' : 'Клиент',
-          statusLabelForCsv(b),
+          statusLabelForExport(b),
           isTech ? '' : (b.name || ''),
           isTech ? '' : (b.phone || ''),
           isTech ? '' : (b.players || ''),
@@ -3464,20 +3467,11 @@
           isTech ? '' : (b.discountNote || ''),
           isTech ? '' : (b.workedActor || ''),
           isTech ? '' : (b.workedActress || ''),
-          sverkaForCsv,
+          sverkaForExport,
           b.comment || '',
-        ].map(csvEscape).join(';'));
+        ];
       });
-      const csvContent = '﻿' + lines.join('\r\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `отчёт_${fromISO}_${toISO}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadAsXlsx(header, dataRows, `отчёт_${fromISO}_${toISO}`);
       msg.textContent = `Готово — ${rows.length} ${rows.length === 1 ? 'строка' : 'строк'} за ${fromISO} — ${toISO}.`;
     } catch(err){
       msg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
@@ -3582,8 +3576,19 @@
     actorSuggestInput.value = item.dataset.username;
     hideActorSuggest();
   });
-  window.addEventListener('scroll', hideActorSuggest, true);
-  window.addEventListener('resize', hideActorSuggest);
+  // 22.09.2026: was `hideActorSuggest` on both events — on a phone, tapping
+  // the input to open it also opens the on-screen keyboard, which itself
+  // fires a `resize` (viewport shrinks) and usually a `scroll` (browser
+  // auto-scrolls the focused input into view) right away. Those two
+  // listeners were closing the list a moment after it opened, before the
+  // person could tap a suggestion — "при любом нажатии список сразу
+  // пропадает". Reposition instead of hiding: the list just follows the
+  // input to wherever the keyboard/scroll put it, and stays open.
+  function repositionActorSuggest(){
+    if (actorSuggestInput) showActorSuggestFor(actorSuggestInput);
+  }
+  window.addEventListener('scroll', repositionActorSuggest, true);
+  window.addEventListener('resize', repositionActorSuggest);
 
   function renderShiftsDays(){
     const dates = shiftsWeekDates();
