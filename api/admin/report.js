@@ -159,7 +159,17 @@ export default async function handler(req, res) {
 
   function ingestRecord(record, dateISO) {
     if (!record) return;
-    if (wantDetailed) detailedRows.push({ ...record, dateISO, time: record.time || '' });
+    // 22.09.2026: computed up front (not just inside the customer-only branch
+    // below) so it can also ride along on detailed rows as `channelCanonical`
+    // — the owner wants to click a source tile ("Сайт" / "Мир Квестов" /
+    // ExtraReality / "Всего" / "Технич.") on admin.html's main screen and see
+    // that exact month's bookings, by date and time, without leaving the
+    // site. The client can't recompute canonicalChannel() itself (it doesn't
+    // have record.comment sniffing logic, and shouldn't have to duplicate
+    // it), so the server does it once here and hands back the already-
+    // normalized value alongside each raw row.
+    const channelCanonical = record.type === 'customer' ? canonicalChannel(record) : null;
+    if (wantDetailed) detailedRows.push({ ...record, dateISO, time: record.time || '', channelCanonical });
     if (record.type === 'technical') { technicalCount += 1; return; }
     if (record.type !== 'customer') return;
     const day = byDay[dateISO];
@@ -176,7 +186,7 @@ export default async function handler(req, res) {
     // как заработало настоящее API — см. canonicalChannel() выше для того,
     // как и то, и другое, и разный регистр "Мир Квестов"/"Мир квестов"
     // сводятся к одному счётчику.
-    const channel = canonicalChannel(record);
+    const channel = channelCanonical;
     if (!channelTotals[channel]) channelTotals[channel] = { count: 0, total: 0 };
     channelTotals[channel].count += 1;
     channelTotals[channel].total += toAmount(record.price);

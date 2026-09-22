@@ -182,7 +182,21 @@
   .source-tracker-title{font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
   .source-tracker-title span{color:var(--paper);}
   .source-tracker-items{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
-  .source-item{background:var(--black-3); border:1px solid #262626; border-radius:10px; padding:10px 12px;}
+  .source-item{
+    background:var(--black-3); border:1px solid #262626; border-radius:10px; padding:10px 12px;
+    /* 22.09.2026: tiles are now buttons (click -> see that source's bookings
+       for the month) — reset button chrome so they still look like the
+       plain tiles they always were. */
+    font:inherit; color:inherit; text-align:left; width:100%; cursor:pointer;
+  }
+  .source-item:hover{border-color:#454545;}
+  .source-bookings-table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px;}
+  .source-bookings-table th, .source-bookings-table td{padding:6px 8px; text-align:right; border-bottom:1px solid #232323; font-variant-numeric:tabular-nums;}
+  .source-bookings-table th:first-child, .source-bookings-table td:first-child,
+  .source-bookings-table th:nth-child(3), .source-bookings-table td:nth-child(3){text-align:left;}
+  .source-bookings-table th{color:var(--muted); font-weight:700; font-size:11px; text-transform:uppercase;}
+  .source-bookings-table td.is-cancelled{color:var(--muted); text-decoration:line-through;}
+  .source-bookings-summary{font-size:12.5px; color:var(--muted); margin-bottom:10px;}
   .source-item .si-label{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .source-item .si-count{font-family:var(--display); font-weight:400; font-size:22px; color:var(--paper); line-height:1;}
   .source-item .si-sum{font-size:11.5px; color:var(--muted); margin-top:2px;}
@@ -931,6 +945,20 @@
     <button class="modal-close-x" data-close="stats">✕</button>
     <h2>Статистика броней</h2>
     <div id="statsBody"><div class="load-note">Загрузка…</div></div>
+  </div>
+</div>
+
+<!-- 22.09.2026: клик по плитке в "Источники броней" — список броней этого
+     источника за месяц, по датам и времени, не выходя с сайта (раньше
+     единственный способ был скачать CSV). Данные берутся из того же
+     /api/admin/report?detailed=1, что и CSV-выгрузка — сервер уже
+     присылает channelCanonical на каждой строке, так что фильтрация тут
+     простая. -->
+<div class="modal-overlay" id="sourceBookingsOverlay">
+  <div class="modal-box" style="max-width:640px;">
+    <button class="modal-close-x" data-close="sourceBookings">✕</button>
+    <h2 id="sourceBookingsTitle">Источник</h2>
+    <div id="sourceBookingsBody"><div class="load-note">Загрузка…</div></div>
   </div>
 </div>
 
@@ -3240,19 +3268,98 @@
       // строкой-подсказкой, чтобы сумма всегда сходилась с тем, что видно
       // в списке, и больше не выглядела "неправильной".
       const technicalCount = Number(out.technicalCount) || 0;
+      // 22.09.2026: каждая плитка теперь ещё и кнопка — клик открывает список
+      // именно этих броней за месяц (см. openSourceBookingsModal ниже).
+      // data-source: конкретное имя источника, "__all__" для "Всего" (все
+      // клиентские брони месяца) или "__technical__" для технических.
       const tiles = TRACKED_SOURCES.map(name => {
         const v = channels[name] || { count: 0, total: 0 };
         const cls = name === 'Сайт' ? ' si-site' : '';
-        return `<div class="source-item${cls}"><div class="si-label">${escapeHtml(name)}</div><div class="si-count">${v.count}</div><div class="si-sum">${Math.round(v.total)} Br</div></div>`;
+        return `<button type="button" class="source-item${cls}" data-source="${escapeHtml(name)}"><div class="si-label">${escapeHtml(name)}</div><div class="si-count">${v.count}</div><div class="si-sum">${Math.round(v.total)} Br</div></button>`;
       }).join('')
-        + `<div class="source-item"><div class="si-label">Всего броней</div><div class="si-count">${totalAll.count}</div><div class="si-sum">${Math.round(totalAll.total)} Br</div></div>`
-        + `<div class="source-item si-tech"><div class="si-label">Технич. / заблокировано</div><div class="si-count">${technicalCount}</div><div class="si-sum">не источник брони</div></div>`
-        + `<div class="source-tracker-note">В списке броней за месяц строк: ${totalAll.count + technicalCount} (клиентские + технические/заблокированные)</div>`;
+        + `<button type="button" class="source-item" data-source="__all__"><div class="si-label">Всего броней</div><div class="si-count">${totalAll.count}</div><div class="si-sum">${Math.round(totalAll.total)} Br</div></button>`
+        + `<button type="button" class="source-item si-tech" data-source="__technical__"><div class="si-label">Технич. / заблокировано</div><div class="si-count">${technicalCount}</div><div class="si-sum">не источник брони</div></button>`
+        + `<div class="source-tracker-note">В списке броней за месяц строк: ${totalAll.count + technicalCount} (клиентские + технические/заблокированные). Нажмите на плитку, чтобы увидеть список.</div>`;
       itemsEl.innerHTML = tiles;
     } catch(err){
       itemsEl.innerHTML = '<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">Ошибка сети.</div>';
     }
   }
+
+  // ---------- source tile click -> that source's bookings for the month ----------
+  const sourceBookingsOverlay = document.getElementById('sourceBookingsOverlay');
+  const SOURCE_TILE_TITLES = {
+    __all__: 'Всего броней',
+    __technical__: 'Технические / заблокированные',
+  };
+
+  async function openSourceBookingsModal(source){
+    const now = new Date();
+    const monthLabel = MONTH_NAMES_NOM[now.getMonth()] + ' ' + now.getFullYear();
+    const title = SOURCE_TILE_TITLES[source] || source;
+    document.getElementById('sourceBookingsTitle').textContent = `${title} — ${monthLabel}`;
+    const bodyEl = document.getElementById('sourceBookingsBody');
+    bodyEl.innerHTML = '<div class="load-note">Загрузка…</div>';
+    sourceBookingsOverlay.classList.add('show');
+    try{
+      const { toISO, days } = monthRangeISO(now.getFullYear(), now.getMonth());
+      const res = await fetch(`/api/admin/report?to=${toISO}&days=${days}&detailed=1`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){
+        bodyEl.innerHTML = `<div class="stats-empty">${escapeHtml(out.error || 'Не удалось загрузить.')}</div>`;
+        return;
+      }
+      const allRows = Array.isArray(out.bookings) ? out.bookings : [];
+      let rows;
+      if (source === '__all__'){
+        rows = allRows.filter(b => b.type === 'customer');
+      } else if (source === '__technical__'){
+        rows = allRows.filter(b => b.type === 'technical');
+      } else {
+        // channelCanonical is null on technical rows and computed server-side
+        // for every customer row (see api/admin/report.js) — this matches
+        // exactly what the tile itself counted, no re-implementing
+        // canonicalChannel()'s case-folding/comment-sniffing here.
+        rows = allRows.filter(b => b.channelCanonical === source);
+      }
+      rows.sort((a, b) => (a.dateISO + a.time).localeCompare(b.dateISO + b.time));
+      if (!rows.length){
+        bodyEl.innerHTML = '<div class="stats-empty">За этот месяц броней не найдено.</div>';
+        return;
+      }
+      const STATUS_LABELS = { active: 'Активна', cancelled: 'Отменена', rescheduled: 'Перенесена' };
+      const tableRows = rows.map(b => {
+        const isTech = b.type === 'technical';
+        const isCancelledLike = b.status === 'cancelled' || b.status === 'rescheduled';
+        const name = isTech ? 'Техническая бронь' : (b.name || '—');
+        const statusLabel = isTech ? '—' : (STATUS_LABELS[b.status] || b.status || 'Активна');
+        const sum = (!isTech && b.price) ? `${Math.round(Number(b.price) || 0)} Br` : '—';
+        return `<tr>
+          <td${isCancelledLike ? ' class="is-cancelled"' : ''}>${escapeHtml(formatDateHeading(b.dateISO))}</td>
+          <td${isCancelledLike ? ' class="is-cancelled"' : ''}>${escapeHtml(b.time || '')}</td>
+          <td${isCancelledLike ? ' class="is-cancelled"' : ''}>${escapeHtml(name)}</td>
+          <td${isCancelledLike ? ' class="is-cancelled"' : ''}>${escapeHtml(statusLabel)}</td>
+          <td${isCancelledLike ? ' class="is-cancelled"' : ''}>${sum}</td>
+        </tr>`;
+      }).join('');
+      bodyEl.innerHTML = `
+        <div class="source-bookings-summary">Найдено: ${rows.length}</div>
+        <table class="source-bookings-table">
+          <thead><tr><th>Дата</th><th>Время</th><th>Клиент</th><th>Статус</th><th>Сумма</th></tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>`;
+    } catch(err){
+      bodyEl.innerHTML = '<div class="stats-empty">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
+
+  document.getElementById('sourceTrackerItems').addEventListener('click', (e) => {
+    const btn = e.target.closest('.source-item');
+    if (!btn) return;
+    openSourceBookingsModal(btn.dataset.source);
+  });
+  document.querySelectorAll('[data-close="sourceBookings"]').forEach(b => b.addEventListener('click', () => sourceBookingsOverlay.classList.remove('show')));
+  sourceBookingsOverlay.addEventListener('click', e => { if (e.target === sourceBookingsOverlay) sourceBookingsOverlay.classList.remove('show'); });
 
   async function loadReport(){
     document.getElementById('reportMonthLabel').textContent = MONTH_NAMES_NOM[reportViewMonth] + ' ' + reportViewYear;
