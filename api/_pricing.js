@@ -44,7 +44,7 @@ export function isWeekendISO(dateISO) {
 // coming — i.e. the cheapest tier for that day, plus the fixed late-slot
 // surcharge if it applies to this exact time. This is deliberately the
 // "starting from" price (not a per-team-size breakdown) — see
-// api/mirkvestov/timetable.js's file comment for why.
+// api/mirkvestov.js's file comment for why.
 export function startingPriceFor(dateISO, time) {
   const tiers = tiersFor(isWeekendISO(dateISO));
   const base = tiers[0].price;

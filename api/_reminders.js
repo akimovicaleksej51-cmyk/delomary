@@ -5,7 +5,7 @@
 //
 // Not a route — Vercel ignores files starting with "_" — just imported by
 // api/book.js, api/admin/bookings.js, api/admin/shifts.js,
-// api/telegram-webhook.js and api/cron/reminders-sweep.js.
+// api/telegram-webhook.js and api/internal-jobs.js (?job=sweep).
 //
 // ── Data model ──────────────────────────────────────────────────────────
 //   shifts:<ISO date>   STRING, JSON object with up to 4 fixed slots per
@@ -32,7 +32,7 @@
 //                status is 'scheduled' (msgId present — a precise QStash
 //                job is set), 'pending' (booking is more than 7 days out,
 //                the QStash free-tier delay ceiling — the daily sweep in
-//                api/cron/reminders-sweep.js will schedule it for real once
+//                api/internal-jobs.js (?job=sweep) will schedule it for real once
 //                it's in range), or 'actor-not-registered' (assigned to
 //                the shift but never sent /start to the bot, so there's no
 //                chat id to deliver to yet).
@@ -175,7 +175,10 @@ export async function scheduleReminder(record) {
   });
 
   const delaySeconds = Math.floor((fireAt.getTime() - now) / 1000);
-  const destination = `${siteUrl.replace(/\/$/, '')}/api/telegram-reminder`;
+  // 22.09.2026: moved from a dedicated api/internal-jobs.js (?job=reminder) file into
+  // the shared api/internal-jobs.js (?job=reminder) to stay within
+  // Vercel's Hobby-plan 12-function limit — see that file's header comment.
+  const destination = `${siteUrl.replace(/\/$/, '')}/api/internal-jobs?job=reminder`;
 
   const reminders = await Promise.all(actorUsernames.map(async (actorUsername) => {
     const already = existingByActor[actorUsername];
@@ -191,7 +194,7 @@ export async function scheduleReminder(record) {
 
     if (delaySeconds > QSTASH_MAX_DELAY_SECONDS) {
       // Further out than QStash's free-tier delay ceiling — the daily
-      // sweep (api/cron/reminders-sweep.js) will schedule it once in range.
+      // sweep (api/internal-jobs.js (?job=sweep)) will schedule it once in range.
       return { actorUsername, fireAt: fireAt.toISOString(), status: 'pending' };
     }
 

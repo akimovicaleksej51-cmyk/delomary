@@ -20,12 +20,12 @@
 // Not a route — Vercel ignores files starting with "_" — imported by
 // api/book.js and api/admin/bookings.js (schedule/cancel a booking's
 // closeout jobs alongside its reminder jobs, at the same call sites),
-// api/telegram-closeout.js (the job QStash actually calls),
+// api/internal-jobs.js (?job=closeout) (the job QStash actually calls),
 // api/telegram-webhook.js (tracks the actor's in-progress reply once they
 // tap a button), api/admin/shifts.js (the admin's manual "Сверка сейчас"
 // button — still organized per shift slot in the UI, but now implemented
 // as "run the per-booking sender for every booking that slot covers") and
-// api/cron/reminders-sweep.js (schedules any 'pending' closeout that was
+// api/internal-jobs.js (?job=sweep) (schedules any 'pending' closeout that was
 // too far out to schedule immediately — same QStash 7-day ceiling as
 // reminders — and the missed-closeout safety net below).
 //
@@ -37,7 +37,7 @@
 //                [{ actorUsername, msgId, fireAt, status }]
 //                status is 'scheduled' (msgId present — a precise QStash
 //                job is set), 'pending' (more than 7 days out — the daily
-//                sweep in api/cron/reminders-sweep.js schedules it for
+//                sweep in api/internal-jobs.js (?job=sweep) schedules it for
 //                real once it's in range), or 'actor-not-registered'
 //                (assigned to the shift but never sent /start to the bot).
 //
@@ -216,7 +216,10 @@ export async function scheduleGameCloseout(record) {
   });
 
   const delaySeconds = Math.floor((fireAt.getTime() - now) / 1000);
-  const destination = `${siteUrl.replace(/\/$/, '')}/api/telegram-closeout`;
+  // 22.09.2026: moved from a dedicated api/internal-jobs.js (?job=closeout) file into
+  // the shared api/internal-jobs.js (?job=closeout) to stay within
+  // Vercel's Hobby-plan 12-function limit — see that file's header comment.
+  const destination = `${siteUrl.replace(/\/$/, '')}/api/internal-jobs?job=closeout`;
 
   const closeouts = await Promise.all(actorUsernames.map(async (actorUsername) => {
     const already = existingByActor[actorUsername];
@@ -229,7 +232,7 @@ export async function scheduleGameCloseout(record) {
 
     if (delaySeconds > QSTASH_MAX_DELAY_SECONDS) {
       // Further out than QStash's free-tier delay ceiling — the daily
-      // sweep (api/cron/reminders-sweep.js) schedules it for real once
+      // sweep (api/internal-jobs.js (?job=sweep)) schedules it for real once
       // it's in range, same as booking reminders.
       return { actorUsername, fireAt: fireAt.toISOString(), status: 'pending' };
     }
@@ -387,7 +390,7 @@ export async function cancelManualCloseout(dateISO, time) {
 
 // The actual "send ONE performer their sverka for ONE booking" logic —
 // the single-booking equivalent of what used to be a whole-shift batch.
-// Shared by: api/telegram-closeout.js (the automatic QStash job, firing
+// Shared by: api/internal-jobs.js (?job=closeout) (the automatic QStash job, firing
 // 60 minutes (1 hour) after that booking's start), api/admin/shifts.js's
 // "Сверка сейчас" button (via runCloseoutForSlot below, for whenever the
 // automatic one didn't go out or needs retrying), and the daily
@@ -686,7 +689,7 @@ export async function cancelCloseoutForSlot(dateISO, slot) {
   };
 }
 
-// Safety net for the daily sweep (api/cron/reminders-sweep.js): finds any
+// Safety net for the daily sweep (api/internal-jobs.js (?job=sweep)): finds any
 // customer booking whose sverka time (start + 60 minutes) has already
 // passed (checked over the last couple of days, not just today) but where
 // at least one of its covering performers still has NO send attempt
