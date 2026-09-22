@@ -3108,7 +3108,14 @@
       resetDataMsg.textContent = 'Готово — все брони, история и касса очищены.';
       resetDataMsg.className = 'modal-msg ok';
       resetDataConfirmInput.value = '';
-      await loadBookings();
+      // The main bookings list isn't the only thing on screen showing old
+      // numbers — "Источники броней" (loaded once at page load / on
+      // "Обновить", see loadSourceTracker()) reads the very same now-empty
+      // bookings:*/history:* data, but nothing was telling it to re-fetch
+      // after a reset, so it kept showing whatever it last loaded. Refresh
+      // it here too so the dashboard actually reflects the wipe right away
+      // instead of needing a manual "Обновить"/reload.
+      await Promise.all([loadBookings(), loadSourceTracker()]);
     } catch(err){
       resetDataMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
       resetDataMsg.className = 'modal-msg err';
