@@ -180,7 +180,22 @@ export default async function handler(req, res) {
     // here double-counted every rescheduled booking's money, day count and
     // actor game-count. See the matching fix + full explanation in
     // api/_finance.js's sumCashInForDates().
-    if (record.status === 'rescheduled') return;
+    //
+    // 23.09.2026: same treatment for status:'cancelled' — found from the
+    // owner's own screenshots: a booked-then-cancelled game was still
+    // being counted in "Броней" (day.bookings) and in the day's Нал/
+    // Безнал/ЕРИП totals for "Бухгалтерия", exactly as if it had actually
+    // been played. The raw record is still pushed to detailedRows above
+    // (so it stays visible in the day's booking list, struck through), but
+    // a cancelled game never happened, so it shouldn't count toward how
+    // many games ran that day or how much the day brought in. This is
+    // deliberately NOT the same policy as ../_finance.js's cash register
+    // (computeCashRegister/sumCashInForDates), which keeps a cancelled
+    // booking's cash on purpose — that function tracks the PHYSICAL cash
+    // that should be in the drawer right now (cancelling a booking doesn't
+    // un-collect cash already taken; a refund has to be entered by editing
+    // payCash), a different question from "how many games happened".
+    if (record.status === 'rescheduled' || record.status === 'cancelled') return;
     const day = byDay[dateISO];
     if (day) {
       day.bookings += 1;

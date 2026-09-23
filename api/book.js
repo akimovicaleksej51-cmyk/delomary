@@ -38,6 +38,7 @@ import { sendBookingConfirmationSms } from './_sms.js';
 import { isSlotClosingSoon } from './_time.js';
 import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, ANIMATOR_SURCHARGE, tiersFor, isWeekendISO } from './_pricing.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
+import { escapeTgHtml, dateTimeBlock } from './_telegram.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
 
@@ -233,26 +234,24 @@ export default async function handler(req, res) {
   // else: KV isn't connected at all in this deployment — proceed
   // unreserved, exactly as documented at the top of this file.
 
-  // 22.09.2026: no longer backslash-escaped, and the message below is sent
-  // as PLAIN TEXT (no parse_mode) — the old escaping was written for
-  // MarkdownV2, but this call actually used the LEGACY 'Markdown' mode,
-  // which has no backslash-escape mechanism at all, so a "\-" or "\("
-  // showed up as a literal backslash in real Telegram notifications (seen
-  // in a Мир Квестов one: "2026\-09\-28"). Plain text needs no escaping.
-  const escapeMd = (s) => String(s);
-
+  // 23.09.2026: date+time now shown FIRST and in bold (owner's request —
+  // wants them visible without opening the message), no emoji anywhere,
+  // and the date is always day/month/year, never a raw ISO string. See
+  // api/_telegram.js for the shared formatting this and the other two
+  // booking sources (Мир Квестов, ExtraReality) all use, and why this is
+  // HTML parse_mode rather than the old plain text or the even-older
+  // Markdown (that history is also there).
   const fields = [
-    `👤 Имя: ${escapeMd(cleanName)}`,
-    `📞 Телефон: ${cleanPhone}`,
-    cleanPlayers ? `👥 Игроков: ${escapeMd(cleanPlayers)}` : null,
-    cleanDateLabel ? `📅 Дата: ${escapeMd(cleanDateLabel)}` : null,
-    cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
-    cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
-    cleanAnimator ? `🎭 Аниматор: да (+30 Br)` : null,
-    cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
-  ].filter(Boolean).join('\n');
+    ...dateTimeBlock(cleanDateISO, cleanTime),
+    `Имя: ${escapeTgHtml(cleanName)}`,
+    `Телефон: ${escapeTgHtml(cleanPhone)}`,
+    cleanPlayers ? `Игроков: ${escapeTgHtml(cleanPlayers)}` : null,
+    cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
+    cleanAnimator ? `Аниматор: да (+30 Br)` : null,
+    cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
+  ].filter((line) => line !== null).join('\n');
 
-  const text = `🩺 Новая заявка — Дело Мэри\n\n${fields}`;
+  const text = `Новая заявка — Дело Мэри\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -260,7 +259,8 @@ export default async function handler(req, res) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text, // plain text — see the escapeMd() comment above
+        text,
+        parse_mode: 'HTML', // only for the <b> tags dateTimeBlock() adds — see api/_telegram.js
       }),
     });
     const tgData = await tgRes.json();

@@ -268,8 +268,9 @@
     cursor:pointer; transition:border-color .15s, background .15s;
   }
   .booking-row:hover{border-color:#3d3d3d; background:#141414;}
-  /* Ручная сверка проведена — тихая плашка в уголке карточки (зелёная —
-     сверено, красная — игра не состоялась), как в staff.html. */
+  /* Плашка сверки в уголке карточки — зелёная (сверено), красная (игра не
+     состоялась) или жёлтая (сверка ещё не проведена, см. её 23.09.2026
+     комментарий выше в JS), как в staff.html. */
   .row-sverka-badge{
     position:absolute; top:-7px; right:12px; font-size:10px; font-weight:800;
     text-transform:uppercase; letter-spacing:.03em; color:#5fe08a;
@@ -278,6 +279,9 @@
   }
   .row-sverka-badge.not-played{
     color:var(--danger-bright); background:#1a1011; border-color:rgba(255,107,111,.45);
+  }
+  .row-sverka-badge.not-done{
+    color:var(--ochre-bright); background:#1a1508; border-color:rgba(245,197,24,.5);
   }
   /* Прозвон клиента — такая же тихая плашка-уголок, но слева, чтобы не
      спорить со сверкой справа. По умолчанию (нет поля callStatus или оно
@@ -1514,13 +1518,21 @@
     document.getElementById('tabCountRescheduled').textContent = getFilteredBookings('rescheduled').length;
   }
 
-  // Итоги нал/безнал/ЕРИП за конкретный выбранный день — считаем по ВСЕМ
-  // клиентским броням этого дня (любой статус), точно так же, как это
-  // делает /api/admin/report.js для "Бухгалтерии" (там тоже суммируются
-  // и активные, и архивные записи) — чтобы цифры тут и там не расходились.
-  // Появляется только когда выбран конкретный день (иначе непонятно, за
-  // какой день считать) — не заменяет "Бухгалтерию" (та — за месяц), а
-  // дополняет её мгновенным видом на один день прямо над списком.
+  // Итоги нал/безнал/ЕРИП за конкретный выбранный день — считаем по
+  // клиентским броням этого дня, точно так же, как это делает
+  // /api/admin/report.js для "Бухгалтерии" (там тоже суммируются активные и
+  // архивные записи) — чтобы цифры тут и там не расходились. Появляется
+  // только когда выбран конкретный день (иначе непонятно, за какой день
+  // считать) — не заменяет "Бухгалтерию" (та — за месяц), а дополняет её
+  // мгновенным видом на один день прямо над списком.
+  //
+  // 23.09.2026: раньше здесь суммировались брони ЛЮБОГО статуса — из-за
+  // этого забронированная и тут же отменённая игра всё равно попадала в
+  // "Броней" и в сумму дня, как будто она состоялась (см. скриншоты
+  // владельца). Теперь перенесённые и отменённые брони сюда не считаются —
+  // ровно та же логика, что и в api/admin/report.js (см. его комментарий
+  // от той же даты про то, почему касса — единственное намеренное
+  // исключение, а не эта плитка).
   function renderDaySummary(){
     const bar = document.getElementById('daySummaryBar');
     if (!filterDateISO){
@@ -1528,7 +1540,7 @@
       bar.innerHTML = '';
       return;
     }
-    const dayBookings = allBookings.filter(b => b.dateISO === filterDateISO && b.type === 'customer');
+    const dayBookings = allBookings.filter(b => b.dateISO === filterDateISO && b.type === 'customer' && b.status !== 'cancelled' && b.status !== 'rescheduled');
     const totals = dayBookings.reduce((acc, b) => {
       acc.cash += toNum(b.payCash);
       acc.card += toNum(b.payCard);
@@ -1619,13 +1631,17 @@
               ? `<span class="row-price-old">${escapeHtml(String(b.manualCloseout.priceBefore))}</span> → ${escapeHtml(breakdown)}`
               : escapeHtml(breakdown);
           }
-          // Зелёная/красная плашка в уголке — единственный признак того, что
-          // сверка по этой брони проведена (played:false — «игра не
-          // состоялась» — тоже считается проведённой сверкой, просто с
-          // другим текстом и красным цветом).
+          // Плашка в уголке — сверено (зелёная) / игра не состоялась
+          // (красная) / сверка ещё не проведена (жёлтая). 23.09.2026: по
+          // просьбе владельца показывается теперь на КАЖДОЙ активной
+          // клиентской брони, а не только уже сверенных — точно так же, как
+          // плашка прозвона ниже, чтобы сразу было видно, где сверку ещё
+          // нужно провести, а не только где она уже есть.
           const sverkaNotPlayed = Boolean(sverka && sverka.label && sverka.label.startsWith('Игра не состоялась'));
-          const sverkaBadge = sverka
-            ? `<span class="row-sverka-badge${sverkaNotPlayed ? ' not-played' : ''}"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverkaNotPlayed ? '✕ Игра не состоялась' : '✓ Сверено'}</span>`
+          const sverkaBadge = (!isTech && !isHistory)
+            ? (sverka
+                ? `<span class="row-sverka-badge${sverkaNotPlayed ? ' not-played' : ''}"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverkaNotPlayed ? '✕ Игра не состоялась' : '✓ Сверено'}</span>`
+                : '<span class="row-sverka-badge not-done">Сверка не проведена</span>')
             : '';
           // Прозвон клиента — показываем на КАЖДОЙ активной клиентской брони
           // (не только на уже прозвоненных), чтобы сразу было видно, кому

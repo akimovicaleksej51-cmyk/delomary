@@ -111,6 +111,7 @@ import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, startingPriceFor, tiersFor, isW
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
+import { escapeTgHtml, dateTimeBlock } from './_telegram.js';
 
 const DAYS_AHEAD = 14; // Mir Kvestov's spec: "расписание на 2 недели"
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // same retention as every other booking
@@ -321,27 +322,24 @@ async function handleOrder(req, res) {
   }
   const reserved = added === 1;
 
-  // 22.09.2026: no longer backslash-escaped, and the message below is sent
-  // as PLAIN TEXT (no parse_mode) — see the comment on escapeMd() in
-  // api/extrareality.js for why the old escaping showed up as literal
-  // backslashes in real notifications (e.g. "2026\-09\-28", "\(md5\)").
-  const escapeMd = (s) => String(s);
+  // 23.09.2026: date+time first and bold, no emoji, always day/month/year
+  // (this used to show the bare ISO date, "2026-09-28") — see
+  // api/_telegram.js for the shared formatting and why HTML parse_mode.
   const fields = [
-    `👤 Имя: ${escapeMd(cleanName)}`,
-    `📞 Телефон: ${cleanPhone}`,
-    cleanDateISO ? `📅 Дата: ${escapeMd(cleanDateISO)}` : null,
-    cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
-    cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
-    cleanTariff ? `👥 Тариф: ${escapeMd(cleanTariff)}` : null,
-    cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
-  ].filter(Boolean).join('\n');
-  const text = `🩺 Новая бронь — Мир Квестов\n\n${fields}`;
+    ...dateTimeBlock(cleanDateISO, cleanTime),
+    `Имя: ${escapeTgHtml(cleanName)}`,
+    `Телефон: ${escapeTgHtml(cleanPhone)}`,
+    cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
+    cleanTariff ? `Тариф: ${escapeTgHtml(cleanTariff)}` : null,
+    cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
+  ].filter((line) => line !== null).join('\n');
+  const text = `Новая бронь — Мир Квестов\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
     });
     const tgData = await tgRes.json();
 

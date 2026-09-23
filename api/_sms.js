@@ -52,7 +52,22 @@ export function normalizePhoneForRocketSms(raw) {
   return digits;
 }
 
+// 23.09.2026: PAUSED at the owner's request — RocketSMS's default sender
+// (a number/short name that isn't "Дело Мэри") is what customers currently
+// see these come from, and the owner is waiting on RocketSMS to approve
+// the alpha-name (ROCKETSMS_SENDER, see the comment above) before
+// resuming. Nothing else about this feature changed — flip this back to
+// true (nothing else needs editing here or at any call site) the moment
+// the alpha-name is approved and set in Vercel. Exported (not just a local
+// const) purely so the test suite can tell it's paused and adjust its own
+// expectations, without needing its own copy of this flag.
+export const SMS_RECEIPTS_ENABLED = false;
+
 export async function sendBookingConfirmationSms(record) {
+  if (!SMS_RECEIPTS_ENABLED) {
+    console.error('RocketSMS: SMS-квитанции временно отключены (ждём одобрения альфа-имени) — квитанция не отправлена.');
+    return;
+  }
   try {
     const login = process.env.ROCKETSMS_LOGIN;
     const password = process.env.ROCKETSMS_PASSWORD;

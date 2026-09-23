@@ -107,6 +107,7 @@ import { scheduleReminder, cancelReminder, stripReminderFields } from '../_remin
 import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime } from '../_time.js';
+import { escapeTgHtml, dateTimeBlock, formatDateRu } from '../_telegram.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -169,36 +170,17 @@ function isValidTime(s) {
   return typeof s === 'string' && s.trim().length > 0 && s.trim().length <= 20;
 }
 
-const MONTH_NAMES = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-const WEEKDAY_NAMES = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-
-function parseISO(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function formatDateLabel(iso) {
-  const d = parseISO(iso);
-  return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}, ${WEEKDAY_NAMES[d.getDay()]}`;
-}
-
-// 22.09.2026: no longer backslash-escapes anything, and sendTelegram()
-// below sends plain text (no parse_mode) — the old escaping was written
-// for MarkdownV2's reserved-character set, but every call here actually
-// used the LEGACY 'Markdown' mode, which has no backslash-escape mechanism
-// at all. The result: a stray literal backslash in real notifications
-// (e.g. a date rendered as "2026\-09\-28"). Plain text needs no escaping,
-// so this is now just a passthrough — kept as a named function so each
-// call site's "this might be someone else's text" intent stays visible.
-function escapeMd(s) {
-  return String(s);
-}
-
 // Best-effort notification for a booking created from the admin panel. Unlike
 // the public api/book.js flow (where Telegram IS the record, so a failure
 // there rolls back the reservation), the admin already sees the booking in
 // the panel the moment it's created — so a Telegram hiccup here is only
 // logged, never allowed to fail the request or undo the booking.
+//
+// 23.09.2026: every message below now goes through api/_telegram.js's
+// escapeTgHtml()/dateTimeBlock()/formatDateRu() — date+time first and bold,
+// no emoji, always day/month/year — and is sent with parse_mode:'HTML'
+// instead of the old plain text (see that file's comment for the full
+// history of why HTML and not the Markdown modes this used before).
 async function sendTelegram(text, label) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -208,7 +190,7 @@ async function sendTelegram(text, label) {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
     });
     const tgData = await tgRes.json().catch(() => ({}));
     if (!tgData.ok) {
@@ -220,62 +202,59 @@ async function sendTelegram(text, label) {
 }
 
 async function notifyTelegram(record) {
-  const dateLabelText = record.dateISO ? formatDateLabel(record.dateISO) : '';
+  const dtBlock = record.dateISO ? dateTimeBlock(record.dateISO, record.time || '') : [];
   let text;
 
   if (record.type === 'customer') {
     const fields = [
-      `👤 Имя: ${escapeMd(record.name)}`,
-      // Phone stays unescaped — see the comment next to it in api/book.js —
-      // so Telegram still recognizes it as a tappable/copyable number.
-      `📞 Телефон: ${record.phone}`,
-      record.players ? `👥 Игроков: ${escapeMd(record.players)}` : null,
-      dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
-      record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
-      record.price ? `💰 Цена: ${escapeMd(record.price)} Br` : null,
-      record.comment ? `💬 Комментарий: ${escapeMd(record.comment)}` : null,
-    ].filter(Boolean).join('\n');
-    text = `🩺 Новая бронь — из админки\n\n${fields}`;
+      ...dtBlock,
+      `Имя: ${escapeTgHtml(record.name)}`,
+      `Телефон: ${escapeTgHtml(record.phone)}`,
+      record.players ? `Игроков: ${escapeTgHtml(record.players)}` : null,
+      record.price ? `Цена: ${escapeTgHtml(record.price)} Br` : null,
+      record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
+    ].filter((line) => line !== null).join('\n');
+    text = `Новая бронь — из админки\n\n${fields}`;
   } else {
     const fields = [
-      dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
-      record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
-      record.comment ? `💬 Комментарий: ${escapeMd(record.comment)}` : null,
-    ].filter(Boolean).join('\n');
-    text = `🔧 Техническая бронь — из админки\n\n${fields}`;
+      ...dtBlock,
+      record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
+    ].filter((line) => line !== null).join('\n');
+    text = `Техническая бронь — из админки\n\n${fields}`;
   }
 
   await sendTelegram(text, 'admin create');
 }
 
 async function notifyTelegramCancel(record) {
-  const dateLabelText = record.dateISO ? formatDateLabel(record.dateISO) : '';
+  const dtBlock = record.dateISO ? dateTimeBlock(record.dateISO, record.time || '') : [];
   const fields = [
-    record.type === 'customer' && record.name ? `👤 Имя: ${escapeMd(record.name)}` : null,
-    record.type === 'customer' && record.phone ? `📞 Телефон: ${record.phone}` : null,
-    dateLabelText ? `📅 Дата: ${escapeMd(dateLabelText)}` : null,
-    record.time ? `🕒 Время: ${escapeMd(record.time)}` : null,
-  ].filter(Boolean).join('\n');
+    ...dtBlock,
+    record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
+    record.type === 'customer' && record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
+  ].filter((line) => line !== null).join('\n');
   const kind = record.type === 'customer' ? 'Бронь отменена' : 'Техническая бронь снята';
-  await sendTelegram(`❌ ${kind}\n\n${fields}`, 'admin cancel');
+  await sendTelegram(`${kind}\n\n${fields}`, 'admin cancel');
 }
 
 async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO, toTime) {
-  const fromLabel = formatDateLabel(fromDateISO);
-  const toLabel = formatDateLabel(toDateISO);
   const fields = [
-    record.type === 'customer' && record.name ? `👤 Имя: ${escapeMd(record.name)}` : null,
-    record.type === 'customer' && record.phone ? `📞 Телефон: ${record.phone}` : null,
-    `📅 Было: ${escapeMd(fromLabel)} в ${escapeMd(fromTime)}`,
-    `📅 Стало: ${escapeMd(toLabel)} в ${escapeMd(toTime)}`,
-  ].filter(Boolean).join('\n');
+    `Было: <b>${escapeTgHtml(formatDateRu(fromDateISO))}</b> в <b>${escapeTgHtml(fromTime)}</b>`,
+    `Стало: <b>${escapeTgHtml(formatDateRu(toDateISO))}</b> в <b>${escapeTgHtml(toTime)}</b>`,
+    '',
+    record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
+    record.type === 'customer' && record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
+  ].filter((line) => line !== null).join('\n');
   const kind = record.type === 'customer' ? 'Бронь перенесена' : 'Техническая бронь перенесена';
-  await sendTelegram(`🔁 ${kind}\n\n${fields}`, 'admin reschedule');
+  await sendTelegram(`${kind}\n\n${fields}`, 'admin reschedule');
 }
 
 async function notifyTelegramDayAction(dateISO, kindLabel, count) {
-  const dateLabelText = formatDateLabel(dateISO);
-  await sendTelegram(`🗓 ${escapeMd(kindLabel)}\n\n📅 Дата: ${escapeMd(dateLabelText)}\nСлотов: ${count}`, 'admin day action');
+  // Whole-day action (not a single time slot), so no "Время:" line here —
+  // dateTimeBlock() always includes one, which is why this builds its own
+  // date-only line instead of reusing it.
+  const fields = [`Дата: <b>${escapeTgHtml(formatDateRu(dateISO))}</b>`, `Слотов: ${count}`];
+  await sendTelegram(`${escapeTgHtml(kindLabel)}\n\n${fields.join('\n')}`, 'admin day action');
 }
 
 export default async function handler(req, res) {

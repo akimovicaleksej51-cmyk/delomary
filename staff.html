@@ -226,6 +226,12 @@
   .row-sverka-badge.not-played{
     color:var(--danger-bright); background:#1a1011; border-color:rgba(255,107,111,.45);
   }
+  /* 23.09.2026: сверка ещё не проведена — жёлтая, тот же цвет, что и
+     "Не прозвонили" ниже, чтобы обе плашки одинаково бросались в глаза,
+     пока по брони ещё ничего не сделано. */
+  .row-sverka-badge.not-done{
+    color:var(--ochre-bright); background:#1a1508; border-color:rgba(245,197,24,.5);
+  }
   /* Прозвон клиента — такая же тихая плашка-уголок, но слева, чтобы не
      спорить со сверкой справа. По умолчанию (нет поля callStatus или оно
      пустое) бронь показывает "Не прозвонили" — специально заметным
@@ -1159,12 +1165,17 @@
               ? `<span class="row-price-old">${escapeHtml(String(b.manualCloseout.priceBefore))}</span> → ${escapeHtml(breakdown)}`
               : escapeHtml(breakdown);
           }
-          // Зелёная плашка в уголке — единственный признак того, что сверка
-          // по этой брони проведена (played:false — «игра не состоялась» —
-          // тоже считается проведённой сверкой, просто с другим текстом).
+          // Плашка в уголке — сверено (зелёная) / игра не состоялась
+          // (красная) / сверка ещё не проведена (жёлтая). 23.09.2026: по
+          // просьбе владельца показывается теперь на КАЖДОЙ активной
+          // клиентской брони, а не только уже сверенных — точно так же, как
+          // плашка прозвона ниже, чтобы сразу было видно, где сверку ещё
+          // нужно провести.
           const sverkaNotPlayed = Boolean(sverka && sverka.label && sverka.label.startsWith('Игра не состоялась'));
-          const sverkaBadge = sverka
-            ? `<span class="row-sverka-badge${sverkaNotPlayed ? ' not-played' : ''}"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverkaNotPlayed ? '✕ Игра не состоялась' : '✓ Сверено'}</span>`
+          const sverkaBadge = (!isTech && !isHistory)
+            ? (sverka
+                ? `<span class="row-sverka-badge${sverkaNotPlayed ? ' not-played' : ''}"${sverka.label ? ` title="${escapeHtml(sverka.label)}"` : ''}>${sverkaNotPlayed ? '✕ Игра не состоялась' : '✓ Сверено'}</span>`
+                : '<span class="row-sverka-badge not-done">Сверка не проведена</span>')
             : '';
           // Прозвон клиента — показываем на КАЖДОЙ активной клиентской брони
           // (не только на уже прозвоненных), чтобы сразу было видно, кому

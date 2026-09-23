@@ -145,6 +145,7 @@ import { SLOTS, tiersFor, isWeekendISO, startingPriceFor, LATE_SLOT_INDEX, LATE_
 import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
+import { escapeTgHtml, dateTimeBlock, formatDateRu } from './_telegram.js';
 
 const DAYS_AHEAD = 45; // was 14 (2 weeks) — extended to ~1.5 months, 22.09.2026
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
@@ -154,19 +155,12 @@ const REVIEWS_CACHE_KEY = 'extrareality:reviewsCache';
 const REVIEWS_MIN_REFRESH_SECONDS = 30 * 60; // ExtraReality's own guidance: "не чаще раза в 30 минут"
 const REVIEWS_CACHE_TTL_SECONDS = 60 * 60 * 24 * 2; // safety-net Redis expiry only — the 30-min check above is what actually paces the refresh
 
-// 22.09.2026: used to backslash-escape MarkdownV2-reserved characters, but
-// every Telegram sendMessage call in this file uses parse_mode:'Markdown'
-// (the LEGACY mode), which has no backslash-escape mechanism at all — so a
-// "\-" or "\(" just showed up as a literal backslash in the message
-// (visible in a Мир Квестов notification: "2026\-09\-28"). Since these
-// messages are now sent as plain text (see the sendMessage calls below —
-// no parse_mode at all), no escaping is needed or possible: Telegram shows
-// the text exactly as given, so this is now just a passthrough. Kept as a
-// named function (instead of removing every call site) so the "this field
-// might contain someone else's text" intent stays visible at each call.
-function escapeMd(s) {
-  return String(s);
-}
+// 23.09.2026: the local escapeMd() that used to live here (see git history/
+// old comments if curious — it was a plain-text passthrough, kept around
+// after an earlier Markdown-escaping bug) is gone: every Telegram message
+// in this file now goes through escapeTgHtml() from api/_telegram.js
+// instead, since these messages are HTML parse_mode now (bold date/time —
+// see that file's own comment for the full history).
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -312,22 +306,24 @@ async function handleBook(req, res) {
   }
   const reserved = added === 1;
 
+  // 23.09.2026: date+time first and bold, no emoji, always day/month/year
+  // (this used to show the bare ISO date, "2026-09-28") — see
+  // api/_telegram.js for the shared formatting and why HTML parse_mode.
   const fields = [
-    `👤 Имя: ${escapeMd(cleanName)}`,
-    `📞 Телефон: ${cleanPhone}`,
-    cleanPlayers ? `👥 Игроков: ${escapeMd(cleanPlayers)}` : null,
-    cleanDateISO ? `📅 Дата: ${escapeMd(cleanDateISO)}` : null,
-    cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
-    cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
-    cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
-  ].filter(Boolean).join('\n');
-  const text = `🩺 Новая бронь — ExtraReality\n\n${fields}`;
+    ...dateTimeBlock(cleanDateISO, cleanTime),
+    `Имя: ${escapeTgHtml(cleanName)}`,
+    `Телефон: ${escapeTgHtml(cleanPhone)}`,
+    cleanPlayers ? `Игроков: ${escapeTgHtml(cleanPlayers)}` : null,
+    cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
+    cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
+  ].filter((line) => line !== null).join('\n');
+  const text = `Новая бронь — ExtraReality\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
     });
     const tgData = await tgRes.json();
 
@@ -429,18 +425,22 @@ async function handleCancel(req, res) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (token && chatId) {
+    // 23.09.2026: same date/time-first, bold, no-emoji, day/month/year
+    // formatting as the booking notification above — see api/_telegram.js.
+    // No same-day urgency note here (that's specific to a NEW booking).
     const fields = [
-      existing.name ? `👤 Имя: ${escapeMd(existing.name)}` : null,
-      existing.phone ? `📞 Телефон: ${existing.phone}` : null,
-      `📅 Дата: ${escapeMd(cleanDateISO)}`,
-      `🕒 Время: ${escapeMd(cleanTime)}`,
-    ].filter(Boolean).join('\n');
-    const text = `❌ Бронь отменена — ExtraReality\n\n${fields}`;
+      `Дата: <b>${escapeTgHtml(formatDateRu(cleanDateISO))}</b>`,
+      `Время: <b>${escapeTgHtml(cleanTime)}</b>`,
+      '',
+      existing.name ? `Имя: ${escapeTgHtml(existing.name)}` : null,
+      existing.phone ? `Телефон: ${escapeTgHtml(existing.phone)}` : null,
+    ].filter((line) => line !== null).join('\n');
+    const text = `Бронь отменена — ExtraReality\n\n${fields}`;
     try {
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text }), // plain text — see the escapeMd() comment above
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
       });
     } catch (err) {
       console.error('Failed to notify Telegram about ExtraReality cancellation:', err);
