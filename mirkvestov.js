@@ -266,10 +266,21 @@ async function handleOrder(req, res) {
 
   // A signature mismatch is logged inside verifySignature() but, as of
   // 22.09.2026, no longer rejects the booking — see the big comment above
-  // verifySignature() for why. `signatureMismatch` just flags the record
-  // for the owner (in the Telegram notification below) so it isn't a
-  // silent discrepancy.
-  const signatureMismatch = !verifySignature(body);
+  // verifySignature() for why.
+  //
+  // 23.09.2026: used to also add a "⚠️ Подпись (md5) не совпала" line to
+  // every Telegram notification below. Dropped that — Mir Kvestov's real
+  // system computes this signature differently from the formula in their
+  // own docs (or MIRKVESTOV_SECRET doesn't match whatever they actually
+  // use), so in practice EVERY real booking from them triggers it: it
+  // wasn't flagging anything unusual, just adding a scary-looking warning
+  // to a completely normal booking every single time. Nothing about the
+  // booking itself is affected either way (it's accepted regardless, as
+  // above) — this only ever controlled whether that one line showed up in
+  // the message. Still checked and logged to Vercel's function logs (not
+  // shown to the owner) in case the real formula ever gets confirmed and
+  // this becomes a genuinely useful signal again.
+  verifySignature(body);
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -323,7 +334,6 @@ async function handleOrder(req, res) {
     cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
     cleanTariff ? `👥 Тариф: ${escapeMd(cleanTariff)}` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
-    signatureMismatch ? `⚠️ Подпись (md5) не совпала — booking принят, но проверьте логи` : null,
   ].filter(Boolean).join('\n');
   const text = `🩺 Новая бронь — Мир Квестов\n\n${fields}`;
 
