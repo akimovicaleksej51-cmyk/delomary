@@ -70,20 +70,35 @@ export function sameDayUrgencyNote(dateISO, timeStr, now = new Date()) {
   return `‼️‼️${core}‼️‼️`;
 }
 
-// Builds the "Дата: <b>...</b>" / "Время: <b>...</b>" / (urgency note)
-// block shared by every one of these notifications, so the ordering and
-// bolding stay identical everywhere instead of being retyped per call
-// site. Returns an array of lines to join with the rest of the message's
-// own fields.
+// Builds the "Дата: <b>...</b>" / "Время: <b>...</b>" block shared by every
+// one of these notifications, so the ordering and bolding stay identical
+// everywhere instead of being retyped per call site. Returns an array of
+// lines to join with the rest of the message's own fields.
 //
 // 23.09.2026: no longer ends with a blank-line spacer (there used to be
 // one here) — the owner asked for Время and the next field (usually Имя)
 // to follow directly with no gap between them.
+//
+// 23.09.2026 (later same day): used to also append the same-day urgency
+// note (sameDayUrgencyNote()) as a third line here. Moved out to its own
+// call — the owner asked for that note to be the very FIRST thing in the
+// whole message (ahead of the "НОВАЯ БРОНЬ..." title itself), so it's the
+// first line Telegram shows in the push-notification preview, with Дата
+// and Время following only once the message is opened. See
+// urgencyLead() below and each call site's own use of it.
 export function dateTimeBlock(dateISO, timeStr, now = new Date()) {
-  const note = sameDayUrgencyNote(dateISO, timeStr, now);
   return [
     `Дата: <b>${escapeTgHtml(formatDateRu(dateISO))}</b>`,
     `Время: <b>${escapeTgHtml(timeStr)}</b>`,
-    note || null,
   ];
+}
+
+// Prefix to put at the very top of a message, above the title line: the
+// same-day urgency note plus a blank-line separator, or '' when the
+// booking isn't for today (sameDayUrgencyNote() already returns '' then).
+// 23.09.2026: owner's request — this note used to sit between Дата and
+// Время further down; now it leads the entire message instead.
+export function urgencyLead(dateISO, timeStr, now = new Date()) {
+  const note = sameDayUrgencyNote(dateISO, timeStr, now);
+  return note ? `${note}\n\n` : '';
 }

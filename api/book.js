@@ -38,7 +38,7 @@ import { sendBookingConfirmationSms } from './_sms.js';
 import { isSlotClosingSoon } from './_time.js';
 import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, ANIMATOR_SURCHARGE, tiersFor, isWeekendISO } from './_pricing.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
-import { escapeTgHtml, dateTimeBlock } from './_telegram.js';
+import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
 
@@ -252,7 +252,11 @@ export default async function handler(req, res) {
   ].filter((line) => line !== null).join('\n');
 
   // 23.09.2026: title line always CAPS (owner's request).
-  const text = `${'Новая заявка — Дело Мэри'.toUpperCase()}\n\n${fields}`;
+  // 23.09.2026 (later same day): the same-day urgency note now leads the
+  // whole message (owner's request — it should be the very first thing
+  // visible in the Telegram push-notification preview, ahead of even the
+  // title), with Дата/Время following once the message is opened.
+  const text = `${urgencyLead(cleanDateISO, cleanTime)}${'Новая заявка — Дело Мэри'.toUpperCase()}\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

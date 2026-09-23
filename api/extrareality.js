@@ -145,7 +145,7 @@ import { SLOTS, tiersFor, isWeekendISO, startingPriceFor, LATE_SLOT_INDEX, LATE_
 import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
-import { escapeTgHtml, dateTimeBlock, formatDateRu } from './_telegram.js';
+import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from './_telegram.js';
 
 const DAYS_AHEAD = 45; // was 14 (2 weeks) — extended to ~1.5 months, 22.09.2026
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
@@ -318,7 +318,9 @@ async function handleBook(req, res) {
     cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
   ].filter((line) => line !== null).join('\n');
   // 23.09.2026: title line always CAPS (owner's request).
-  const text = `${'Новая бронь — ExtraReality'.toUpperCase()}\n\n${fields}`;
+  // 23.09.2026 (later same day): same-day urgency note now leads the whole
+  // message — see api/_telegram.js's urgencyLead().
+  const text = `${urgencyLead(cleanDateISO, cleanTime)}${'Новая бронь — ExtraReality'.toUpperCase()}\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

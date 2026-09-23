@@ -111,7 +111,7 @@ import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, startingPriceFor, tiersFor, isW
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
-import { escapeTgHtml, dateTimeBlock } from './_telegram.js';
+import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
 
 const DAYS_AHEAD = 14; // Mir Kvestov's spec: "расписание на 2 недели"
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // same retention as every other booking
@@ -334,7 +334,9 @@ async function handleOrder(req, res) {
     cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
   ].filter((line) => line !== null).join('\n');
   // 23.09.2026: title line always CAPS (owner's request).
-  const text = `${'Новая бронь — Мир Квестов'.toUpperCase()}\n\n${fields}`;
+  // 23.09.2026 (later same day): same-day urgency note now leads the whole
+  // message — see api/_telegram.js's urgencyLead().
+  const text = `${urgencyLead(cleanDateISO, cleanTime)}${'Новая бронь — Мир Квестов'.toUpperCase()}\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

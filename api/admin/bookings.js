@@ -107,7 +107,7 @@ import { scheduleReminder, cancelReminder, stripReminderFields } from '../_remin
 import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime } from '../_time.js';
-import { escapeTgHtml, dateTimeBlock, formatDateRu } from '../_telegram.js';
+import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -203,6 +203,9 @@ async function sendTelegram(text, label) {
 
 async function notifyTelegram(record) {
   const dtBlock = record.dateISO ? dateTimeBlock(record.dateISO, record.time || '') : [];
+  // 23.09.2026: same-day urgency note now leads the whole message, ahead
+  // of even the title — see api/_telegram.js's urgencyLead().
+  const lead = record.dateISO ? urgencyLead(record.dateISO, record.time || '') : '';
   let text;
 
   if (record.type === 'customer') {
@@ -214,13 +217,13 @@ async function notifyTelegram(record) {
       record.price ? `Цена: ${escapeTgHtml(record.price)} Br` : null,
       record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
     ].filter((line) => line !== null).join('\n');
-    text = `${'Новая бронь — из админки'.toUpperCase()}\n\n${fields}`;
+    text = `${lead}${'Новая бронь — из админки'.toUpperCase()}\n\n${fields}`;
   } else {
     const fields = [
       ...dtBlock,
       record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
     ].filter((line) => line !== null).join('\n');
-    text = `${'Техническая бронь — из админки'.toUpperCase()}\n\n${fields}`;
+    text = `${lead}${'Техническая бронь — из админки'.toUpperCase()}\n\n${fields}`;
   }
 
   await sendTelegram(text, 'admin create');
@@ -228,6 +231,7 @@ async function notifyTelegram(record) {
 
 async function notifyTelegramCancel(record) {
   const dtBlock = record.dateISO ? dateTimeBlock(record.dateISO, record.time || '') : [];
+  const lead = record.dateISO ? urgencyLead(record.dateISO, record.time || '') : '';
   const fields = [
     ...dtBlock,
     record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
@@ -235,7 +239,7 @@ async function notifyTelegramCancel(record) {
   ].filter((line) => line !== null).join('\n');
   // 23.09.2026: title line always CAPS (owner's request).
   const kind = (record.type === 'customer' ? 'Бронь отменена' : 'Техническая бронь снята').toUpperCase();
-  await sendTelegram(`${kind}\n\n${fields}`, 'admin cancel');
+  await sendTelegram(`${lead}${kind}\n\n${fields}`, 'admin cancel');
 }
 
 async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO, toTime) {
