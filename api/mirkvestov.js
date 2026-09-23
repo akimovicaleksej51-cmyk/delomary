@@ -35,16 +35,33 @@
 // or an admin's "blockDay" technical closure — so `is_free` here always
 // matches what a visitor on the site itself would see.
 //
-// NOTE ON PRICING — no per-team-size tariffs (Mir Kvestov's optional
-// "Получение тарифов" feature) are implemented here on purpose. The site's
-// real price depends on team size (140–240 Br depending on weekday/weekend
-// and team size — see api/_pricing.js), but Mir Kvestov's own docs are
-// explicit that sending the standard single price here is a complete,
-// valid integration on its own. We show the CHEAPEST tier ("от X Br"), and
-// — exactly like every other booking channel this site already has — the
-// admin panel's existing "Позвонить/подтвердить" workflow is where the
-// exact price for that team's size gets confirmed by phone before the
-// game.
+// NOTE ON PRICING — the schedule (GET, no params) above still sends only the
+// CHEAPEST tier's price ("от X Br"), same as always.
+//
+// 23.09.2026: per-team-size tariffs ARE now implemented — see handleTariffs
+// below — because the owner noticed another quest on Mir Kvestov shows a
+// "Тариф" dropdown with a price per group size on its booking form, while
+// ours only showed one flat price. That dropdown is Mir Kvestov's optional
+// "Получение тарифов" feature (section 3 of their API doc, shared with us as
+// a Google Doc): a SECOND kind of GET call to the same URL, this one WITH
+// `date` and `time` query params, expecting back an object mapping a
+// display label to its price, e.g. {"1–2 человека: 140 Br": 140, "3–4
+// человека: 160 Br": 160, ...} — built here from the exact same
+// api/_pricing.js tiers the site's own booking widget uses, so it can never
+// drift from the real price. The label the customer picks comes back
+// verbatim in the `tariff` field of the booking POST (handleOrder below) —
+// captured only for visibility (comment + Telegram alert); the `price`
+// field they send alongside it is Mir Kvestov's own copy of that tariff's
+// price, so no computation depends on parsing the label back into a number.
+//
+// MANUAL STEP (not something this code can do on its own): Mir Kvestov's
+// doc says a quest must separately tell their manager which URL to call for
+// this — it isn't auto-detected from the schedule URL already on file. Since
+// our own handler already tells the two kinds of GET call apart by whether
+// `date`/`time` are present, there's no need to register a second URL:
+// just let Mir Kvestov's support/manager know the SAME URL already on file
+// (https://loonygames.by/api/mirkvestov) should also be used for
+// "Получение тарифов".
 //
 // ===========================================================================
 // POST — "Бронирование", from the same spec. Mir Kvestov's servers POST
@@ -90,7 +107,7 @@
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
-import { SLOTS, startingPriceFor } from './_pricing.js';
+import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, startingPriceFor, tiersFor, isWeekendISO } from './_pricing.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
@@ -148,6 +165,35 @@ async function handleTimetable(req, res) {
   return res.status(200).json(out);
 }
 
+// "Получение тарифов" — see the big comment near the top of this file. Only
+// reached when the GET request carries `date` and `time` (the plain
+// schedule call above never does), so this needs no query param of its own
+// to be told apart from handleTimetable.
+async function handleTariffs(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+
+  const q = req.query || {};
+  const dateISO = typeof q.date === 'string' ? q.date.trim() : '';
+  const time = typeof q.time === 'string' ? q.time.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO) || !/^\d{2}:\d{2}$/.test(time)) {
+    // Malformed request — no sane tariff list to answer with. Their own doc
+    // doesn't define an error shape for this call, so an empty object (no
+    // tariffs) is the safest fallback rather than a 4xx that might make
+    // their side treat the whole integration as broken.
+    return res.status(200).json({});
+  }
+
+  const tiers = tiersFor(isWeekendISO(dateISO));
+  const surcharge = time === SLOTS[LATE_SLOT_INDEX] ? LATE_SURCHARGE : 0;
+  const out = {};
+  tiers.forEach((tier) => {
+    const price = tier.price + surcharge;
+    out[`${tier.people}: ${price} Br`] = price;
+  });
+
+  return res.status(200).json(out);
+}
+
 function parseBody(req) {
   let body = req.body;
   if (body == null) return {};
@@ -197,6 +243,13 @@ async function handleOrder(req, res) {
   const cleanTime = typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time.trim()) ? body.time.trim() : '';
   const cleanPrice = body.price != null ? String(body.price).slice(0, 20) : '';
   const cleanUniqueId = body.unique_id != null ? String(body.unique_id).slice(0, 100) : '';
+  // 23.09.2026: the label the customer picked from the "Получение тарифов"
+  // dropdown (see handleTariffs above) — e.g. "3–4 человека: 160 Br" —
+  // echoed back verbatim per Mir Kvestov's spec. Purely informational: it's
+  // just the same tier the `price` field above already reflects, spelled
+  // out for a human reading the comment/Telegram alert instead of a bare
+  // number with no team size attached.
+  const cleanTariff = typeof body.tariff === 'string' ? body.tariff.trim().slice(0, 100) : '';
 
   const cleanName = [cleanFirst, cleanLast].filter(Boolean).join(' ').trim();
 
@@ -213,10 +266,21 @@ async function handleOrder(req, res) {
 
   // A signature mismatch is logged inside verifySignature() but, as of
   // 22.09.2026, no longer rejects the booking — see the big comment above
-  // verifySignature() for why. `signatureMismatch` just flags the record
-  // for the owner (in the Telegram notification below) so it isn't a
-  // silent discrepancy.
-  const signatureMismatch = !verifySignature(body);
+  // verifySignature() for why.
+  //
+  // 23.09.2026: used to also add a "⚠️ Подпись (md5) не совпала" line to
+  // every Telegram notification below. Dropped that — Mir Kvestov's real
+  // system computes this signature differently from the formula in their
+  // own docs (or MIRKVESTOV_SECRET doesn't match whatever they actually
+  // use), so in practice EVERY real booking from them triggers it: it
+  // wasn't flagging anything unusual, just adding a scary-looking warning
+  // to a completely normal booking every single time. Nothing about the
+  // booking itself is affected either way (it's accepted regardless, as
+  // above) — this only ever controlled whether that one line showed up in
+  // the message. Still checked and logged to Vercel's function logs (not
+  // shown to the owner) in case the real formula ever gets confirmed and
+  // this becomes a genuinely useful signal again.
+  verifySignature(body);
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -225,7 +289,7 @@ async function handleOrder(req, res) {
     return res.status(200).json({ success: false, message: 'Бронирование временно недоступно, попробуйте позже.' });
   }
 
-  const commentParts = [cleanComment, cleanEmail ? `Email: ${cleanEmail}` : ''].filter(Boolean);
+  const commentParts = [cleanComment, cleanTariff ? `Тариф: ${cleanTariff}` : '', cleanEmail ? `Email: ${cleanEmail}` : ''].filter(Boolean);
 
   const record = {
     type: 'customer',
@@ -268,8 +332,8 @@ async function handleOrder(req, res) {
     cleanDateISO ? `📅 Дата: ${escapeMd(cleanDateISO)}` : null,
     cleanTime ? `🕒 Время: ${escapeMd(cleanTime)}` : null,
     cleanPrice ? `💰 Цена: ${escapeMd(cleanPrice)} Br` : null,
+    cleanTariff ? `👥 Тариф: ${escapeMd(cleanTariff)}` : null,
     cleanComment ? `💬 Комментарий: ${escapeMd(cleanComment)}` : null,
-    signatureMismatch ? `⚠️ Подпись (md5) не совпала — booking принят, но проверьте логи` : null,
   ].filter(Boolean).join('\n');
   const text = `🩺 Новая бронь — Мир Квестов\n\n${fields}`;
 
@@ -324,7 +388,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
-  if (req.method === 'GET') return handleTimetable(req, res);
+  if (req.method === 'GET') {
+    const q = req.query || {};
+    const hasDateAndTime = typeof q.date === 'string' && typeof q.time === 'string';
+    return hasDateAndTime ? handleTariffs(req, res) : handleTimetable(req, res);
+  }
   if (req.method === 'POST') return handleOrder(req, res);
   res.setHeader('Allow', 'GET, POST, OPTIONS');
   return res.status(200).json({ success: false, message: 'Method not allowed' });
