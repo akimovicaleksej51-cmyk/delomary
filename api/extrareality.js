@@ -317,7 +317,8 @@ async function handleBook(req, res) {
     cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
     cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
   ].filter((line) => line !== null).join('\n');
-  const text = `Новая бронь — ExtraReality\n\n${fields}`;
+  // 23.09.2026: title line always CAPS (owner's request).
+  const text = `${'Новая бронь — ExtraReality'.toUpperCase()}\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -431,11 +432,11 @@ async function handleCancel(req, res) {
     const fields = [
       `Дата: <b>${escapeTgHtml(formatDateRu(cleanDateISO))}</b>`,
       `Время: <b>${escapeTgHtml(cleanTime)}</b>`,
-      '',
       existing.name ? `Имя: ${escapeTgHtml(existing.name)}` : null,
       existing.phone ? `Телефон: ${escapeTgHtml(existing.phone)}` : null,
     ].filter((line) => line !== null).join('\n');
-    const text = `Бронь отменена — ExtraReality\n\n${fields}`;
+    // 23.09.2026: title line always CAPS (owner's request).
+    const text = `${'Бронь отменена — ExtraReality'.toUpperCase()}\n\n${fields}`;
     try {
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',

@@ -1796,11 +1796,23 @@
         ? slots.filter(s => bookedForDay.includes(s) || minutesUntilSlot(d, s) < CLOSE_SLOT_MINUTES_BEFORE).length
         : 0;
       const isFull = bookable && unavailableForDay >= slots.length;
+      // 23.09.2026: по просьбе владельца — СЕГОДНЯШНИЙ день не закрывается
+      // для клика вплоть до полуночи, даже если isFull. Раньше "занято"
+      // почти всегда означало "до слота осталось меньше часа" (см.
+      // CLOSE_SLOT_MINUTES_BEFORE выше), а не "мест вообще нет", и день
+      // становился полностью некликабельным (pointer-events:none у
+      // .day.full) — посетитель, который мог бы успеть позвонить и
+      // договориться на ближайший слот (например 23:00), даже не видел
+      // список времени с подсказкой "звоните" и номером телефона (см.
+      // .slot-closed-soon ниже). Другие дни ведут себя как раньше — там
+      // "занято" почти всегда значит реально раскуплено другими.
+      const isToday = bookable && sameDate(d, today);
+      const showAsFull = isFull && !isToday;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (isFull ? ' full':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
+      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (showAsFull ? ' full':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
       btn.innerHTML = '<small>'+dayNames[mondayIdx(d)]+'</small>'+dnum;
-      if(!bookable || isFull){
+      if(!bookable || showAsFull){
         btn.disabled = true;
       } else {
         btn.addEventListener('click', ()=>{

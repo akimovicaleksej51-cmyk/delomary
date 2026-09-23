@@ -214,13 +214,13 @@ async function notifyTelegram(record) {
       record.price ? `Цена: ${escapeTgHtml(record.price)} Br` : null,
       record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
     ].filter((line) => line !== null).join('\n');
-    text = `Новая бронь — из админки\n\n${fields}`;
+    text = `${'Новая бронь — из админки'.toUpperCase()}\n\n${fields}`;
   } else {
     const fields = [
       ...dtBlock,
       record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
     ].filter((line) => line !== null).join('\n');
-    text = `Техническая бронь — из админки\n\n${fields}`;
+    text = `${'Техническая бронь — из админки'.toUpperCase()}\n\n${fields}`;
   }
 
   await sendTelegram(text, 'admin create');
@@ -233,7 +233,8 @@ async function notifyTelegramCancel(record) {
     record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
     record.type === 'customer' && record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
   ].filter((line) => line !== null).join('\n');
-  const kind = record.type === 'customer' ? 'Бронь отменена' : 'Техническая бронь снята';
+  // 23.09.2026: title line always CAPS (owner's request).
+  const kind = (record.type === 'customer' ? 'Бронь отменена' : 'Техническая бронь снята').toUpperCase();
   await sendTelegram(`${kind}\n\n${fields}`, 'admin cancel');
 }
 
@@ -241,11 +242,10 @@ async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO
   const fields = [
     `Было: <b>${escapeTgHtml(formatDateRu(fromDateISO))}</b> в <b>${escapeTgHtml(fromTime)}</b>`,
     `Стало: <b>${escapeTgHtml(formatDateRu(toDateISO))}</b> в <b>${escapeTgHtml(toTime)}</b>`,
-    '',
     record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
     record.type === 'customer' && record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
   ].filter((line) => line !== null).join('\n');
-  const kind = record.type === 'customer' ? 'Бронь перенесена' : 'Техническая бронь перенесена';
+  const kind = (record.type === 'customer' ? 'Бронь перенесена' : 'Техническая бронь перенесена').toUpperCase();
   await sendTelegram(`${kind}\n\n${fields}`, 'admin reschedule');
 }
 

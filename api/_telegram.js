@@ -45,9 +45,12 @@ export function formatDateRu(dateISO) {
   return `${d} ${MONTH_NAMES_RU[m - 1] || ''} ${y}`.trim();
 }
 
-// A booking made for TODAY gets a CAPS urgency note; any other day gets
-// none (''). The three buckets are deliberately rough — the owner asked
-// for a quick sense of urgency at a glance, not an exact countdown:
+// A booking made for TODAY gets a CAPS urgency note, wrapped in ‼️ on both
+// ends (23.09.2026, owner's request — the one deliberate exception to
+// "no emoji anywhere in these messages" above, specifically so this one
+// line jumps out); any other day gets none (''). The three buckets are
+// deliberately rough — the owner asked for a quick sense of urgency at a
+// glance, not an exact countdown:
 //   ~60-75 min left   -> "МЕНЬШЕ ЧАСА"  (the earliest a booking can ever
 //                        come in at all — see CLOSE_SLOT_MINUTES_BEFORE in
 //                        api/_time.js, which refuses anything closer)
@@ -60,22 +63,27 @@ export function sameDayUrgencyNote(dateISO, timeStr, now = new Date()) {
   const mm = Number(parts[1]);
   if (Number.isNaN(hh) || Number.isNaN(mm)) return '';
   const minutesLeft = (businessDateTime(dateISO, hh, mm).getTime() - now.getTime()) / 60000;
-  if (minutesLeft <= 75) return 'ДО ИГРЫ МЕНЬШЕ ЧАСА';
-  if (minutesLeft <= 105) return 'ДО ИГРЫ ПОЛТОРА ЧАСА';
-  return 'ДО ИГРЫ ОСТАЛОСЬ НЕСКОЛЬКО ЧАСОВ';
+  let core;
+  if (minutesLeft <= 75) core = 'ДО ИГРЫ МЕНЬШЕ ЧАСА';
+  else if (minutesLeft <= 105) core = 'ДО ИГРЫ ПОЛТОРА ЧАСА';
+  else core = 'ДО ИГРЫ ОСТАЛОСЬ НЕСКОЛЬКО ЧАСОВ';
+  return `‼️‼️${core}‼️‼️`;
 }
 
 // Builds the "Дата: <b>...</b>" / "Время: <b>...</b>" / (urgency note)
 // block shared by every one of these notifications, so the ordering and
 // bolding stay identical everywhere instead of being retyped per call
-// site. Returns an array of lines (some possibly empty-string spacers) —
-// join with the rest of the message's own fields.
+// site. Returns an array of lines to join with the rest of the message's
+// own fields.
+//
+// 23.09.2026: no longer ends with a blank-line spacer (there used to be
+// one here) — the owner asked for Время and the next field (usually Имя)
+// to follow directly with no gap between them.
 export function dateTimeBlock(dateISO, timeStr, now = new Date()) {
   const note = sameDayUrgencyNote(dateISO, timeStr, now);
   return [
     `Дата: <b>${escapeTgHtml(formatDateRu(dateISO))}</b>`,
     `Время: <b>${escapeTgHtml(timeStr)}</b>`,
     note || null,
-    '',
   ];
 }

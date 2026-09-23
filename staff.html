@@ -2079,9 +2079,18 @@
     document.getElementById('financeOpeningDate').value = state.sinceDateISO || '';
     document.getElementById('financeOpeningBalance').value = state.openingBalance || 0;
 
-    const list = state.recentCashouts || [];
+    // 23.09.2026: по просьбе владельца — в панели актёров записи о расходах/
+    // ЗП старше 3 дней не показываются вообще (полная админка получает и
+    // показывает те же данные без этого ограничения — см. её собственную
+    // копию этой функции). Сервер отдаёт одни и те же ~30 дней ОБОИМ
+    // панелям (у них общий пароль, сервер не различает, кто именно
+    // спрашивает) — фильтр по возрасту записи применяется здесь, только
+    // на экране у актёра.
+    const cutoffDate = new Date(); cutoffDate.setHours(0,0,0,0); cutoffDate.setDate(cutoffDate.getDate() - 3);
+    const cutoffISO = isoDate(cutoffDate);
+    const list = (state.recentCashouts || []).filter(c => c.dateISO >= cutoffISO);
     if (!list.length){
-      financeList.innerHTML = '<div class="empty-note">Записей пока нет.</div>';
+      financeList.innerHTML = '<div class="empty-note">Записей за последние 3 дня нет.</div>';
       return;
     }
     financeList.innerHTML = list.map(c => `

@@ -3985,6 +3985,10 @@
     document.getElementById('financeOpeningDate').value = state.sinceDateISO || '';
     document.getElementById('financeOpeningBalance').value = state.openingBalance || 0;
 
+    // 23.09.2026: полная админка НАМЕРЕННО показывает записи без ограничения
+    // по возрасту (сервер отдаёт до ~30 дней) — в отличие от панели актёров
+    // (staff.html), где та же самая копия этой функции обрезает список до
+    // последних 3 дней по просьбе владельца. Здесь менять не нужно.
     const list = state.recentCashouts || [];
     if (!list.length){
       financeList.innerHTML = '<div class="empty-note">Записей пока нет.</div>';

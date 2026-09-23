@@ -251,7 +251,8 @@ export default async function handler(req, res) {
     cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
   ].filter((line) => line !== null).join('\n');
 
-  const text = `Новая заявка — Дело Мэри\n\n${fields}`;
+  // 23.09.2026: title line always CAPS (owner's request).
+  const text = `${'Новая заявка — Дело Мэри'.toUpperCase()}\n\n${fields}`;
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
