@@ -1244,22 +1244,22 @@
     <div class="step step-hidden" id="step3Wrap">
       <div class="field-block">
         <span class="field-label"><span class="num">3</span>Контакты и оплата</span>
-        <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <input type="text" id="bookWebsite" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
         <div class="contact-fields">
-          <input type="text" id="bookName" placeholder="Ваше имя">
+          <input type="text" id="bookName" placeholder="Ваше имя" aria-label="Ваше имя">
           <div class="phone-field-wrap">
             <span class="phone-prefix">+375</span>
-            <input type="tel" id="bookPhone" placeholder="(__) ___-__-__">
+            <input type="tel" id="bookPhone" placeholder="(__) ___-__-__" aria-label="Номер телефона">
           </div>
         </div>
         <div class="contact-fields">
-          <select id="playersSelect" class="players-select"></select>
+          <select id="playersSelect" class="players-select" aria-label="Количество игроков"></select>
         </div>
         <label class="animator-toggle" id="animatorToggle">
           <input type="checkbox" id="animatorCheck">
           <span class="animator-toggle-text">Аниматор к празднику <b>+30 <span class="byn-icon"></span></b></span>
         </label>
-        <textarea id="bookComment" class="comment-field" placeholder="Комментарий (необязательно): пожелания, повод визита, особые обстоятельства" maxlength="500" rows="3"></textarea>
+        <textarea id="bookComment" class="comment-field" placeholder="Комментарий (необязательно): пожелания, повод визита, особые обстоятельства" maxlength="500" rows="3" aria-label="Комментарий"></textarea>
       </div>
 
       <div class="price-panel">
@@ -1338,7 +1338,7 @@
       </div>
       <input type="text" id="loonyWebsite" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
       <div class="notify-row">
-        <input type="email" id="loonyEmail" placeholder="Ваш e-mail">
+        <input type="email" id="loonyEmail" placeholder="Ваш e-mail" aria-label="Ваш e-mail">
         <button id="loonyNotifyBtn">Сообщить мне первому</button>
       </div>
       <div class="confirm-msg" id="loonyMsg"></div>
@@ -1553,11 +1553,25 @@
   /* ---- live slot availability (backed by /api/slots, so bookings made by
      other visitors show up here too, without a full page reload) ---- */
   let bookedSlots = {};
+  let bookedSlotsRaw = '';
   async function fetchBookedSlots(){
     try{
       const res = await fetch('/api/slots', { cache:'no-store' });
       if(!res.ok) return;
-      bookedSlots = await res.json();
+      const text = await res.text();
+      // 23.09.2026: renderMonth() fully rebuilds every day <button> in the
+      // calendar (dayRow.innerHTML = '' + re-append) — that's fine while
+      // the visitor is just looking, but this runs on a 25s timer even
+      // while they're actively browsing the calendar, and if that timer
+      // fires between a touchstart and touchend on a day button, the DOM
+      // node gets destroyed and replaced mid-tap, which can silently drop
+      // the tap on a touch device. Most 25s ticks bring back the exact same
+      // data as last time (nobody else booked anything in that window), so
+      // skipping the rebuild whenever the raw response hasn't actually
+      // changed removes almost all of that rebuild churn for free.
+      if (text === bookedSlotsRaw) return;
+      bookedSlotsRaw = text;
+      bookedSlots = JSON.parse(text);
       renderMonth();
       refreshSlotAvailability();
     } catch(err){
@@ -1706,8 +1720,31 @@
   const dayNames = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
   const monthNames = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
   const monthNamesNom = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-  const today = new Date(); today.setHours(0,0,0,0);
+  // 23.09.2026: was `new Date(); today.setHours(0,0,0,0)` — that's the
+  // VISITOR'S OWN browser/device timezone, not Minsk's (the business's own
+  // api/_time.js was written specifically to avoid exactly this, since the
+  // server's own naive `new Date()` used to disagree with Minsk for a
+  // 3-hour window every night). A visitor whose device timezone isn't
+  // Minsk (a foreign visitor, a misconfigured clock, a VPN) would see
+  // "today" and every slot's open/closing-soon state computed against the
+  // wrong day/hour — a slot could look available here but get rejected by
+  // the server's own isSlotClosingSoon() check after they'd already filled
+  // in the whole contact form, or the reverse. Computed the same way
+  // api/_time.js's todayISO() does: read the actual current date AS IT IS
+  // RIGHT NOW IN MINSK, regardless of the visitor's own clock/timezone.
+  const MINSK_TZ_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Minsk', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const MINSK_UTC_OFFSET_MS = 3 * 60 * 60 * 1000; // Europe/Minsk: fixed UTC+3, no DST since 2011 — same as the server
+  function minskTodayDate(){
+    const [y, m, d] = MINSK_TZ_FMT.format(new Date()).split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const today = minskTodayDate();
   const BOOKING_DAYS_AHEAD = 60; // ~2 месяца вперёд
+  // 23.09.2026: moved up from further below (next to minutesUntilSlot) so
+  // renderMonth() — which now also uses this, see isFull below — can read
+  // it; renderMonth() runs before that later spot in the file would have
+  // been reached.
+  const CLOSE_SLOT_MINUTES_BEFORE = 60;
   const rangeEnd = new Date(today); rangeEnd.setDate(today.getDate() + BOOKING_DAYS_AHEAD - 1);
 
   function mondayIdx(d){ return (d.getDay()+6)%7; } // Monday=0 ... Sunday=6
@@ -1748,7 +1785,17 @@
       const weekend = isWeekend(d);
       const bookable = inRange(d);
       const bookedForDay = bookedSlots[isoDate(d)] || [];
-      const isFull = bookable && bookedForDay.length >= slots.length;
+      // 23.09.2026: was `bookedForDay.length >= slots.length` — only counted
+      // slots someone had actually booked, not ones that had merely tipped
+      // into the "closing soon" (<60 min) window and are no longer
+      // bookable either. On "today", once it's late enough that every
+      // remaining slot is inside that window, the day still wasn't marked
+      // `.full` and stayed clickable — the visitor only found out there was
+      // nothing left to book after opening the day and its slot list.
+      const unavailableForDay = bookable
+        ? slots.filter(s => bookedForDay.includes(s) || minutesUntilSlot(d, s) < CLOSE_SLOT_MINUTES_BEFORE).length
+        : 0;
+      const isFull = bookable && unavailableForDay >= slots.length;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (isFull ? ' full':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
@@ -1837,17 +1884,22 @@
   refreshSlotPrices();
 
   // Minutes from now until a given "HH:MM" slot on `d` starts — negative
-  // once the slot has already begun. Compared against the visitor's own
-  // clock, same as the rest of this calendar (see `today` above) — good
-  // enough for a same-city quest room without pulling in server time here.
+  // once the slot has already begun. `d`'s y/m/d are a MINSK calendar date
+  // (see `today`/minskTodayDate() above) and timeStr is a Minsk wall-clock
+  // time — so, same fix as `today` above, this builds the slot's real UTC
+  // instant from those Minsk wall-clock components (matching
+  // api/_time.js's businessDateTime() exactly) instead of reinterpreting
+  // them as the visitor's own browser timezone, which used to make "closing
+  // soon" come out wrong for anyone not physically in Minsk's timezone.
   function minutesUntilSlot(d, timeStr){
     const parts = String(timeStr).split(':');
     const hh = Number(parts[0]), mm = Number(parts[1]);
     if(Number.isNaN(hh) || Number.isNaN(mm)) return Infinity;
-    const slotAt = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0);
-    return (slotAt.getTime() - Date.now()) / 60000;
+    const slotAtMs = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0) - MINSK_UTC_OFFSET_MS;
+    return (slotAtMs - Date.now()) / 60000;
   }
-  const CLOSE_SLOT_MINUTES_BEFORE = 60;
+  // (CLOSE_SLOT_MINUTES_BEFORE is now declared up near `today` — see the
+  // 23.09.2026 comment there for why.)
 
   function refreshSlotAvailability(){
     if(!selectedDate) return;
@@ -1913,19 +1965,62 @@
   }
   function attachPhoneMask(el){
     if (!el) return;
-    el.addEventListener('input', () => { el.value = formatByPhone(el.value); });
+    // 23.09.2026: used to just reassign el.value on every keystroke with no
+    // regard for where the caret was — the browser then always snaps the
+    // caret to the END of the new value. That's invisible while typing at
+    // the end (the normal case), but breaks completely the moment someone
+    // edits in the MIDDLE (e.g. fixing a wrong digit near the start): the
+    // very next keystroke's reformat jumps the caret to the end, so further
+    // typing appends instead of continuing the edit — silently producing a
+    // wrong phone number unless the customer notices and retypes the whole
+    // thing. Fixed by counting how many digits sit before the caret in the
+    // OLD value, then placing the caret after that same number of digits in
+    // the reformatted value.
+    el.addEventListener('input', () => {
+      const oldValue = el.value;
+      const oldPos = el.selectionStart == null ? oldValue.length : el.selectionStart;
+      const digitsBeforeCaret = oldValue.slice(0, oldPos).replace(/\D/g, '').length;
+      el.value = formatByPhone(oldValue);
+      if (digitsBeforeCaret === 0){
+        try { el.setSelectionRange(0, 0); } catch(e) {}
+        return;
+      }
+      let seen = 0, newPos = el.value.length;
+      for (let i = 0; i < el.value.length; i++){
+        if (/\d/.test(el.value[i])) seen++;
+        if (seen >= digitsBeforeCaret){ newPos = i + 1; break; }
+      }
+      try { el.setSelectionRange(newPos, newPos); } catch(e) {}
+    });
   }
   attachPhoneMask(document.getElementById('bookPhone'));
 
   const submitBtn = document.getElementById('submitBtn');
   const submitBtnDefaultText = submitBtn.textContent;
 
+  // 23.09.2026: the name/phone fields had no Enter-to-submit at all — a
+  // customer on a mobile keyboard pressing Enter/"Done" (the natural thing
+  // to do after typing a phone number) got nothing, whereas the Loony Room
+  // capture form elsewhere on this same page already wires Enter to submit
+  // (see loonyEmail below). bookComment is a <textarea> and deliberately
+  // excluded — Enter there should insert a newline, not submit.
+  ['bookName', 'bookPhone'].forEach((id) => {
+    const field = document.getElementById(id);
+    if (field) field.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitBtn.click(); } });
+  });
+
   submitBtn.addEventListener('click', async ()=>{
     const msg = document.getElementById('confirmMsg');
     const nameField = document.getElementById('bookName');
     const phoneField = document.getElementById('bookPhone');
     const commentField = document.getElementById('bookComment');
-    const websiteField = document.querySelector('input[name="website"]');
+    // 23.09.2026: was document.querySelector('input[name="website"]') — the
+    // booking modal's honeypot and the Loony Room section's #loonyWebsite
+    // honeypot both share that same `name`, so this only ever worked
+    // because the booking modal's field happens to come first in DOM
+    // order; reordering the page's sections would have silently made this
+    // read the WRONG hidden field. Scoped to this field's own id instead.
+    const websiteField = document.getElementById('bookWebsite');
     const name = nameField.value.trim();
     const localPhone = phoneField.value.trim();
     // The visible field only ever holds the local part — "+375" lives in the

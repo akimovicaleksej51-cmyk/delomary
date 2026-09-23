@@ -31,13 +31,30 @@
 // api/slots.js endpoint only ever reads the field NAMES (the times), never
 // these JSON values, so customer details are never exposed publicly.
 
-import { kv } from './_kv.js';
+import { kv, isKvConfigured } from './_kv.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { isSlotClosingSoon } from './_time.js';
+import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, ANIMATOR_SURCHARGE, tiersFor, isWeekendISO } from './_pricing.js';
+import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
+
+// 23.09.2026: an actual calendar date, not just something shaped like one —
+// cleanDateISO below only checked the YYYY-MM-DD shape with a regex, so
+// "2026-02-30" (or any other date that doesn't really exist) passed as
+// valid. That mattered because a date this check rejects, combined with a
+// missing/invalid time, used to leave hashKey null further down — which
+// skipped BOTH the "closing soon" rejection above it AND the slot-
+// reservation step entirely, so the booking still succeeded and reached the
+// owner's Telegram without ever occupying a real slot in bookings:<date>.
+function isRealCalendarDate(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  if (!y || !m || !d) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -59,6 +76,24 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
+  // 23.09.2026: this endpoint had no anti-flood protection of its own at
+  // all (unlike the admin login, see api/_ratelimit.js) — only the
+  // honeypot above, plus the per-(date,time) dedup further down, which does
+  // nothing to stop a script hitting a DIFFERENT date/time on every
+  // request. Each one reaches all the way to a live Telegram message (and,
+  // if RocketSMS is configured, an SMS) before this point, so a flood here
+  // has a real, visible cost, not just wasted CPU. Deliberately a separate,
+  // much more generous counter from the login lockout's 8-per-15-minutes —
+  // a real customer bouncing between a few slots after a couple of 409s
+  // must never be blocked.
+  const clientIp = getClientIp(req);
+  const bookingRate = await checkAndBumpRateLimit('bookattempts', clientIp, 20, 10 * 60);
+  if (bookingRate.limited) {
+    return res.status(429).json({
+      error: 'Слишком много заявок подряд с этого устройства. Попробуйте через несколько минут или позвоните нам: +375 (44) 780-30-00.',
+    });
+  }
+
   const cleanName = typeof name === 'string' ? name.trim().slice(0, 100) : '';
   const cleanPhone = typeof phone === 'string' ? phone.trim().slice(0, 40) : '';
   const cleanComment = typeof comment === 'string' ? comment.trim().slice(0, 500) : '';
@@ -66,11 +101,28 @@ export default async function handler(req, res) {
   const cleanTime = typeof time === 'string' ? time.trim().slice(0, 20) : '';
   const cleanDateLabel = typeof date === 'string' ? date.trim().slice(0, 60) : '';
   const cleanPlayers = players != null ? String(players).slice(0, 40) : '';
-  const cleanPrice = price != null ? String(price).slice(0, 20) : '';
   const cleanAnimator = animator === true || animator === 'true';
 
   if (!cleanName || !cleanPhone) {
     return res.status(400).json({ error: 'Укажите имя и телефон.' });
+  }
+
+  // 23.09.2026: dateISO/time used to only be checked for SHAPE (a
+  // YYYY-MM-DD-looking string, and any string at all for time), never
+  // against a real calendar date or the site's actual published slots. A
+  // request with a blank/malformed date left `hashKey` (below) null, which
+  // skipped BOTH the "closing soon" check right after this block AND the
+  // slot-reservation step entirely — so the booking still went through and
+  // reached the owner's Telegram, just without ever occupying a real slot
+  // in bookings:<date>. That let anyone flood the owner with unlimited
+  // "phantom" bookings that no amount of resubmitting would ever collide
+  // with (nothing to collide against), on top of not being blocked by the
+  // real per-slot dedup at all.
+  if (!isRealCalendarDate(cleanDateISO)) {
+    return res.status(400).json({ error: 'Некорректная дата.' });
+  }
+  if (!SLOTS.includes(cleanTime)) {
+    return res.status(400).json({ error: 'Некорректное время сеанса.' });
   }
 
   // 22.09.2026: the front-end calendar (index.html) already greys out and
@@ -79,12 +131,34 @@ export default async function handler(req, res) {
   // whose page had been open a while, past the hour boundary) could still
   // slip through server-side. Mirrors the exact same rule now enforced on
   // the Mir Kvestov/ExtraReality booking endpoints — see api/_time.js.
-  if (cleanDateISO && cleanTime && isSlotClosingSoon(cleanDateISO, cleanTime)) {
+  if (isSlotClosingSoon(cleanDateISO, cleanTime)) {
     return res.status(409).json({
       conflict: true,
       error: 'Онлайн-бронь этого времени уже закрыта — до сеанса меньше часа. Позвоните нам: +375 (44) 780-30-00.',
     });
   }
+
+  // 23.09.2026: `price` used to be whatever the client sent, verbatim —
+  // never checked against api/_pricing.js the way every other booking path
+  // (Мир Квестов, ExtraReality, the admin panel) already is. A direct POST
+  // here (bypassing the widget's own JS) could claim any price for any
+  // team size/date/time; the owner would just see whatever number was sent
+  // in the Telegram notification. `players` doubles as the tier-selector
+  // here (it's the exact tier label the widget sends, e.g. "3–4 человека"
+  // — see index.html), so an unrecognised value also means an unrecognised
+  // team size, not just a cosmetic mismatch.
+  const matchedTier = tiersFor(isWeekendISO(cleanDateISO)).find((t) => t.people === cleanPlayers);
+  if (!matchedTier) {
+    return res.status(400).json({ error: 'Некорректное количество игроков.' });
+  }
+  const expectedPrice = matchedTier.price
+    + (cleanTime === SLOTS[LATE_SLOT_INDEX] ? LATE_SURCHARGE : 0)
+    + (cleanAnimator ? ANIMATOR_SURCHARGE : 0);
+  const submittedPrice = price != null ? String(price).slice(0, 20) : '';
+  if (submittedPrice !== String(expectedPrice)) {
+    console.error(`book.js: price mismatch for ${cleanDateISO} ${cleanTime} (${cleanPlayers}${cleanAnimator ? ' + аниматор' : ''}) — client sent "${submittedPrice}", expected ${expectedPrice}. Using the correct price.`);
+  }
+  const cleanPrice = String(expectedPrice);
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -98,8 +172,9 @@ export default async function handler(req, res) {
 
   // Reserve the slot atomically: HSETNX only sets the field if it doesn't
   // already exist in the hash, so two simultaneous requests can never both
-  // "win" the same (date, time) pair.
-  const hashKey = cleanDateISO && cleanTime ? `bookings:${cleanDateISO}` : null;
+  // "win" the same (date, time) pair. cleanDateISO/cleanTime are guaranteed
+  // non-empty and valid by the checks above, so this key is always built.
+  const hashKey = `bookings:${cleanDateISO}`;
   let reserved = false;
 
   const record = {
@@ -130,16 +205,33 @@ export default async function handler(req, res) {
     createdAt: new Date().toISOString(),
   };
 
-  if (hashKey) {
-    const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));
-    if (added === 0) {
-      return res.status(409).json({
-        conflict: true,
-        error: 'Это время только что заняли — пожалуйста, выберите другое.',
-      });
-    }
-    if (added === 1) reserved = true; // null means KV isn't connected — proceed unchecked
+  const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));
+  if (added === 0) {
+    return res.status(409).json({
+      conflict: true,
+      error: 'Это время только что заняли — пожалуйста, выберите другое.',
+    });
   }
+  if (added === 1) {
+    reserved = true;
+  } else if (isKvConfigured()) {
+    // 23.09.2026: `added` is also `null` when KV IS connected but this one
+    // call failed/timed out (a real Redis hiccup — see api/_kv.js) — that
+    // used to be treated exactly like "KV isn't connected at all" and the
+    // booking proceeded anyway, unreserved. On a deployment where KV is
+    // actually in use (this one), that's the dangerous case: if two
+    // customers hit the same transient failure for the same slot, BOTH
+    // requests would "succeed" with no 409 ever shown to either of them,
+    // and the owner would get two separate Telegram messages for one real
+    // slot. Failing the request instead means a customer sees a clear
+    // "try again" instead of a phantom successful booking.
+    console.error(`book.js: KV write failed for ${hashKey} ${cleanTime} while KV is configured — refusing to book unreserved.`);
+    return res.status(503).json({
+      error: 'Временные неполадки с сервером. Пожалуйста, попробуйте отправить заявку ещё раз через минуту.',
+    });
+  }
+  // else: KV isn't connected at all in this deployment — proceed
+  // unreserved, exactly as documented at the top of this file.
 
   // 22.09.2026: no longer backslash-escaped, and the message below is sent
   // as PLAIN TEXT (no parse_mode) — the old escaping was written for

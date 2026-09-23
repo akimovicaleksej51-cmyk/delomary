@@ -62,7 +62,13 @@ export async function sendBookingConfirmationSms(record) {
     }
 
     const phone = normalizePhoneForRocketSms(record.phone);
-    if (phone.length < 11 || !phone.startsWith('375')) {
+    // 23.09.2026: was `< 11`, i.e. it only rejected 10 digits or fewer — but
+    // a correctly-normalized Belarus number is always exactly 12 digits
+    // ("375" + a 9-digit subscriber number), so an 11-digit result (e.g. a
+    // customer's number typo'd one digit short, which still happens to
+    // start with "375") silently passed this guard and was sent to
+    // RocketSMS instead of being caught here as intended.
+    if (phone.length !== 12 || !phone.startsWith('375')) {
       console.error('RocketSMS: не удалось привести телефон к формату 375XXXXXXXXX, SMS не отправлена:', record.phone);
       return;
     }
@@ -74,7 +80,11 @@ export async function sendBookingConfirmationSms(record) {
     // с той же информацией уже уходила в 3.
     let text = `Дело Мэри: заявка на ${record.dateLabel || record.dateISO} в ${record.time} принята`;
     const details = [];
-    if (record.players) details.push(`${record.players} чел.`);
+    // 23.09.2026: was `${record.players} чел.` — record.players is already
+    // a full tier phrase from the booking widget (e.g. "1–2 человека" or
+    // "3–4 человека"), not a bare number, so this produced a redundant
+    // "1–2 человека чел." in the actual SMS text sent to real customers.
+    if (record.players) details.push(String(record.players));
     if (record.price) details.push(`${record.price} Br`);
     if (details.length) text += ' (' + details.join(', ') + ')';
     text += '. Скоро позвоним для подтверждения. Тел.: +375 (44) 780-30-00';

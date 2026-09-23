@@ -101,8 +101,8 @@
 // vars as api/book.js; if they're not set, the action still completes — the
 // Telegram step is just skipped.
 
-import { kv, kvPipeline, pairsToObject } from '../_kv.js';
-import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { kv, kvPipeline, pairsToObject, isKvConfigured } from '../_kv.js';
+import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
 import { toAmount } from '../_finance.js';
@@ -158,7 +158,7 @@ function historyWindowDates() {
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
   const provided = req.headers['x-admin-password'];
-  return Boolean(adminPassword) && provided === adminPassword;
+  return Boolean(adminPassword) && typeof provided === 'string' && safeEqual(provided, adminPassword);
 }
 
 function isValidDateISO(s) {
@@ -422,6 +422,14 @@ export default async function handler(req, res) {
       if (added === 0) {
         return res.status(409).json({ error: 'Этот слот уже занят.' });
       }
+      // 23.09.2026: `added` is also `null` if KV IS connected but this
+      // write failed/timed out — that used to be silently treated as
+      // success (the code just carried on to notifyTelegram() and returned
+      // ok:true below) even though nothing was actually saved. See the
+      // matching fix + explanation in api/book.js.
+      if (added === null && isKvConfigured()) {
+        return res.status(503).json({ error: 'Не удалось сохранить — временные неполадки с базой данных. Попробуйте ещё раз.' });
+      }
       await kv('expire', hashKey, SLOT_TTL_SECONDS);
       await notifyTelegram(record);
 
@@ -658,7 +666,16 @@ export default async function handler(req, res) {
         updated = { ...stripReminderFields(updated), ...reminderPatch };
       }
 
-      await kv('hset', hashKey, cleanTime, JSON.stringify(updated));
+      const editSaved = await kv('hset', hashKey, cleanTime, JSON.stringify(updated));
+      // 23.09.2026: this hset's result was never checked — a failed/timed-
+      // out write (KV connected but this one call errored) looked exactly
+      // like a successful edit to the admin: "ok:true" with the new data,
+      // while the OLD record was still what's actually stored. The next
+      // page load would then show the edit as silently reverted with no
+      // error ever having been shown. See the matching fix in api/book.js.
+      if (editSaved === null && isKvConfigured()) {
+        return res.status(503).json({ error: 'Не удалось сохранить изменения — временные неполадки с базой данных. Попробуйте ещё раз.' });
+      }
       return res.status(200).json({ ok: true, booking: updated });
     }
 
@@ -686,7 +703,10 @@ export default async function handler(req, res) {
       }
 
       const updated = { ...existing, callStatus: body.callStatus };
-      await kv('hset', hashKey, cleanTime, JSON.stringify(updated));
+      const callStatusSaved = await kv('hset', hashKey, cleanTime, JSON.stringify(updated));
+      if (callStatusSaved === null && isKvConfigured()) {
+        return res.status(503).json({ error: 'Не удалось сохранить — временные неполадки с базой данных. Попробуйте ещё раз.' });
+      }
       return res.status(200).json({ ok: true, booking: updated });
     }
 
@@ -731,7 +751,24 @@ export default async function handler(req, res) {
       if (added === 0) {
         return res.status(409).json({ error: 'Это время уже занято — выберите другое.' });
       }
+      if (added === null && isKvConfigured()) {
+        return res.status(503).json({ error: 'Не удалось перенести бронь — временные неполадки с базой данных. Попробуйте ещё раз.' });
+      }
       await kv('expire', toKey, SLOT_TTL_SECONDS);
+
+      // 23.09.2026: the old slot used to only be freed (hdel, below) AFTER
+      // scheduling the new reminder/closeout and writing the history
+      // record — both of which are extra network calls that can fail or
+      // time out. If any of them did, the booking was left sitting at BOTH
+      // the old and new slot at once: still fully occupying `fromKey`
+      // (blocking it for everyone else) while also now live at `toKey`,
+      // and — since sumCashInForDates()/report.js's ingestRecord() count
+      // every 'customer' record across bookings:* AND history:* with no
+      // special-casing — its price/cash would double-count in Касса and
+      // Финансы too, on top of the phantom double booking. Freeing the old
+      // slot right away, before any of those later steps, means a failure
+      // further down can no longer leave the booking in two places.
+      await kv('hdel', fromKey, fromTime);
 
       if (updated.type === 'customer') {
         const [reminderPatch, closeoutPatch] = await Promise.all([
@@ -760,7 +797,8 @@ export default async function handler(req, res) {
       const historyField = `${fromTime}@${Date.now()}`;
       await kv('hset', historyKey, historyField, JSON.stringify(historyRecord));
       await kv('expire', historyKey, HISTORY_TTL_SECONDS);
-      await kv('hdel', fromKey, fromTime);
+      // (the old slot itself was already freed right after the new slot was
+      // reserved, above — see the 23.09.2026 comment there)
 
       await notifyTelegramReschedule(existing, fromDateISO, fromTime, toDateISO, toTime);
 

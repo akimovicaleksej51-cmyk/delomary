@@ -18,7 +18,7 @@
 // bookings" for everyone — nothing on the site breaks, slots just aren't
 // blocked until the database is connected.
 
-import { kvPipeline } from './_kv.js';
+import { kvPipeline, isKvConfigured } from './_kv.js';
 import { businessToday } from './_time.js';
 
 const BOOKING_DAYS_AHEAD = 65; // small buffer beyond the site's 60-day window
@@ -50,8 +50,22 @@ export default async function handler(req, res) {
   const results = await kvPipeline(commands);
 
   if (!results) {
-    // Database not connected (or the request failed) — report no bookings
-    // rather than failing the whole site.
+    // 23.09.2026: used to unconditionally report "no bookings" here,
+    // whether KV was never connected OR it IS connected and this one
+    // request just failed/timed out (a real Redis hiccup). Those aren't
+    // the same thing: reporting a clean slate during a transient failure
+    // means every visitor's calendar briefly shows EVERY slot as free,
+    // including already-booked ones — right when index.html's own
+    // fetchBookedSlots() would otherwise have kept showing its last-known
+    // (correct) state on a non-200 response. api/book.js independently
+    // refuses to actually reserve a slot during the same kind of failure
+    // (see its 23.09.2026 comment), so no double-booking can result from
+    // this either way — but there's no reason to actively feed visitors
+    // wrong availability when "not configured at all" isn't actually true
+    // here.
+    if (isKvConfigured()) {
+      return res.status(503).json({ error: 'Временно не удалось проверить занятость слотов.' });
+    }
     return res.status(200).json({});
   }
 

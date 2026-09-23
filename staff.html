@@ -321,14 +321,10 @@
   .slot-btn:hover{border-color:var(--ochre);}
   .slot-btn.active{background:var(--ochre-bright); color:var(--black); border-color:var(--ochre-bright);}
   .slot-btn.taken{opacity:.35; cursor:not-allowed; text-decoration:line-through; pointer-events:none;}
-  /* Слот занят технической бронью — в отличие от .taken (клиент), этот
-     остаётся кликабельным: нажатие предлагает отменить бронь и освободить
-     слот (по просьбе владельца, 17.09.2026). */
-  .slot-btn.taken-tech{
-    opacity:.85; cursor:pointer; text-decoration:line-through;
-    border-color:#3987e5; color:#8fb8ef; background:var(--black-3);
-  }
-  .slot-btn.taken-tech:hover{ border-color:#e2574c; color:#e2574c; }
+  /* 23.09.2026: .slot-btn.taken-tech removed — it styled the "cancel a
+     technical booking from the slot grid" interaction, which only existed
+     as part of the "+ Новая бронь" tech modal. That modal was fully
+     removed from this file, and nothing sets this class any more. */
 
   .day-status{
     background:var(--black-3); border:1px solid #2a2a2a; border-radius:10px;
@@ -707,13 +703,17 @@
   </div>
 </div>
 
-<!-- Shared confirmation modal: cancel a booking, cancel an already-done sverka
-     for one booking, OR cancel a whole shift's sverka from "Смены и
-     напоминания". It can now be opened FROM INSIDE another already-open
-     modal (shiftsOverlay), so it needs a higher z-index than the plain
-     .modal-overlay default (50) — otherwise, since shiftsOverlay sits later
-     in the page than this element, equal z-index would let shiftsOverlay's
-     own inputs paint on top and swallow clicks meant for this dialog. -->
+<!-- Shared confirmation modal: cancel a booking or cancel an already-done
+     sverka for one booking. It can be opened FROM INSIDE another already-
+     open modal (detailOverlay, the booking-detail view), so it needs a
+     higher z-index than the plain .modal-overlay default (50) — otherwise,
+     since detailOverlay sits later in the page than this element, equal
+     z-index would let detailOverlay's own inputs paint on top and swallow
+     clicks meant for this dialog.
+     (23.09.2026: this comment used to name "shiftsOverlay" — this file has
+     no such element, only the read-only shiftsViewOverlay, which never
+     opens this dialog; the description was copy-pasted from admin.html,
+     where it does apply to a real shiftsOverlay there.) -->
 <div class="modal-overlay" id="confirmOverlay" style="z-index:60;">
   <div class="modal-box" style="max-width:380px;">
     <h2 style="font-size:17px;" id="confirmTitle">Отменить бронь?</h2>
@@ -786,21 +786,11 @@
 <script>
 (function(){
   const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
-  const LATE_IDX = 8;
   const BOOKING_DAYS_AHEAD = 65;
-  const WEEKDAY_TIERS = [
-    {max:2, price:140, people:'1–2 человека'},
-    {max:4, price:160, people:'3–4 человека'},
-    {max:5, price:190, people:'5 человек'},
-    {max:6, price:220, people:'6 человек'}
-  ];
-  const WEEKEND_TIERS = [
-    {max:2, price:160, people:'1–2 человека'},
-    {max:4, price:180, people:'3–4 человека'},
-    {max:5, price:210, people:'5 человек'},
-    {max:6, price:240, people:'6 человек'}
-  ];
-  function tiersFor(weekend){ return weekend ? WEEKEND_TIERS : WEEKDAY_TIERS; }
+  // 23.09.2026: LATE_IDX/WEEKDAY_TIERS/WEEKEND_TIERS/tiersFor() removed —
+  // dead code left over from the "+ Новая бронь" tech-modal feature (which
+  // priced a new booking as it was created) after that feature was fully
+  // removed from this file; nothing here referenced them any more.
   const WEEKDAY_NAMES = ['вс','пн','вт','ср','чт','пт','сб'];
   const MONTH_NAMES = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
   const MONTH_NAMES_NOM = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
@@ -831,6 +821,13 @@
     return isoDate(d);
   }
   function parseISO(iso){
+    // 23.09.2026: guard added — a falsy/malformed value used to throw here
+    // (iso.split on undefined), which broke the ENTIRE Касса modal
+    // (renderFinanceState() calls this via formatDateHeading() on a
+    // server-supplied field with no defensive check) while the caller's
+    // own catch just showed a generic "Ошибка сети" even though the
+    // request itself had succeeded.
+    if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return new Date();
     const [y,m,d] = iso.split('-').map(Number);
     return new Date(y, m-1, d);
   }
@@ -1372,6 +1369,9 @@
           if (r.status === 'actor-not-registered') {
             return `@${r.actorUsername} ещё не подключил бота — попросите отправить /start`;
           }
+          if (r.status === 'missed') {
+            return `@${r.actorUsername} — не отправлено (время напоминания уже прошло)`;
+          }
           return `@${r.actorUsername}`;
         }).join('; ');
       }
@@ -1499,7 +1499,14 @@
   const SVERKA_PLAYERS_OPTIONS = ['1–2', '3', '4', '5', '6'];
   sverkaPlayersSelect.innerHTML = SVERKA_PLAYERS_OPTIONS.map(v => `<option value="${v}">${v}</option>`).join('');
   function sverkaPlayersValueFor(players){
-    const n = parseInt(String(players == null ? '' : players).replace(/\D+/g, ''), 10);
+    // 23.09.2026: was replace(/\D+/g,'') — stripping every non-digit and
+    // CONCATENATING what's left, so a hand-typed range like "1-2" became
+    // "12" (parsed as 12, which is >= 6, so it wrongly preselected "6"
+    // instead of "1–2") and "3-4 человека" became "34" (also wrongly "6").
+    // Taking just the first number found in the text is what the rest of
+    // this function's own tier logic actually expects.
+    const match = String(players == null ? '' : players).match(/\d+/);
+    const n = match ? parseInt(match[0], 10) : NaN;
     if (!Number.isFinite(n) || n <= 2) return '1–2';
     if (n >= 6) return '6';
     return String(n);

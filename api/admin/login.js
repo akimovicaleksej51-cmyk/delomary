@@ -16,7 +16,7 @@
 // attacker guessing passwords straight against it, without ever touching
 // this login screen, is throttled the same way.
 
-import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -46,7 +46,7 @@ export default async function handler(req, res) {
     });
   }
 
-  if (typeof body.password !== 'string' || body.password !== adminPassword) {
+  if (typeof body.password !== 'string' || !safeEqual(body.password, adminPassword)) {
     await recordFailedAttempt(ip);
     return res.status(401).json({ error: 'Неверный пароль.' });
   }

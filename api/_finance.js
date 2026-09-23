@@ -144,6 +144,18 @@ export async function saveCashoutsForDate(dateISO, list) {
 // booking that was later cancelled still counts here by default — if cash
 // genuinely got refunded, the admin can just clear that booking's payCash
 // by editing it.
+//
+// 23.09.2026: a RESCHEDULED booking is different from a cancelled one, and
+// is deliberately excluded here — when a booking moves to a new date/time
+// (api/admin/bookings.js's 'reschedule' action), the vacated slot's old
+// record is kept in history:<fromDate> as a status:'rescheduled' snapshot
+// purely so the move stays visible there, but it's still the exact same
+// payment as the live record now sitting at the new date/time — counting
+// both was double-counting every single payment on every reschedule (a
+// 200 Br cash booking moved from Tuesday to Thursday made Касса show 400
+// Br for one game, permanently, since nothing ever reconciled it). This
+// filter fixes it retroactively too, since the total is computed fresh
+// from these records every time rather than stored pre-summed anywhere.
 async function sumCashInForDates(dates) {
   if (!dates.length) return 0;
   const results = await kvPipeline([
@@ -157,7 +169,7 @@ async function sumCashInForDates(dates) {
     Object.values(obj).forEach((raw) => {
       try {
         const record = JSON.parse(raw);
-        if (record.type === 'customer') total += toAmount(record.payCash);
+        if (record.type === 'customer' && record.status !== 'rescheduled') total += toAmount(record.payCash);
       } catch {
         // skip malformed entry
       }

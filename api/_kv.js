@@ -36,6 +36,18 @@ async function fetchWithTimeout(url, options, timeoutMs = KV_TIMEOUT_MS) {
   }
 }
 
+// 23.09.2026: lets a caller tell "KV was never set up on this deployment"
+// (documented, intentional fail-open — see api/book.js's header comment)
+// apart from "KV IS set up but this particular call just failed/timed out".
+// kv()/kvPipeline() themselves can't tell those two apart (both return
+// null), which used to mean a real Redis hiccup was silently treated the
+// same as "no database at all" — including by the one write (reserving a
+// slot) where that distinction matters most: see the 23.09.2026 comment in
+// api/book.js.
+export function isKvConfigured() {
+  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+}
+
 export async function kv(...args) {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;

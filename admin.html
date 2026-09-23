@@ -1044,12 +1044,18 @@
     <div class="modal-msg" id="shiftsMsg"></div>
   </div>
 </div>
-<datalist id="knownActorsList"></datalist>
-<!-- 22.09.2026: custom actor-username suggestion dropdown — see the CSS
-     comment above .actor-suggest for why the native <datalist> above isn't
-     enough on its own (iOS Safari doesn't render its dropdown at all). One
-     shared floating element, repositioned under whichever .shift-slot-actor
-     input is currently focused. -->
+<!-- 23.09.2026: the #knownActorsList <datalist> that used to sit here was
+     removed — it was a leftover from before .shift-slot-actor had its own
+     custom suggestion UI (the floating dropdown below, plus the touch
+     picker modal); the input hasn't pointed a `list` attribute at it since,
+     so renderKnownActorsList() was populating a datalist nothing reads.
+     (Not to be confused with #knownActorNamesList, used by
+     editWorkedActor/editWorkedActress below, which is still live.) -->
+<!-- 22.09.2026: custom actor-username suggestion dropdown — one shared
+     floating element, repositioned under whichever .shift-slot-actor input
+     is currently focused (desktop/mouse only — see isCoarsePointer below
+     for the touch-device picker modal instead; native <datalist> renders no
+     dropdown UI at all on iOS Safari, which is why this exists). -->
 <div class="actor-suggest" id="actorSuggest"></div>
 
 <!-- 22.09.2026 (3): touch-device picker for the actor-username field — see
@@ -1154,6 +1160,7 @@
   let pendingConfirmAction = 'cancel'; // which action the shared confirm dialog (below) performs on "Да"
   let pendingShiftSlotTarget = null; // {dateISO, slot, btn} — only set when pendingConfirmAction is 'cancelCloseoutForSlot'
   let pendingTechCancelTarget = null; // {dateISO, time, id} — only set when pendingConfirmAction is 'cancelTechFromTechModal'
+  let pendingDeleteCashoutTarget = null; // {dateISO, id} — only set when pendingConfirmAction is 'deleteCashout'
   let searchQuery = '';
   let filterDateISO = ''; // '' = show every date; otherwise show only this one day
 
@@ -1175,6 +1182,16 @@
     return isoDate(d);
   }
   function parseISO(iso){
+    // 23.09.2026: guard added — every real caller passes a valid "YYYY-MM-DD"
+    // string today, but this is called from renderFinanceState() (via
+    // formatDateHeading()) on a server-supplied field that has no reason to
+    // ever be empty right now, yet nothing enforces that it can't be. A
+    // falsy/malformed value used to throw here (iso.split on undefined),
+    // which broke the ENTIRE Касса modal — cashout list, opening-date
+    // field, delete handlers, everything after this call in
+    // renderFinanceState() — while the caller's own catch just showed a
+    // generic "Ошибка сети" even though the request itself had succeeded.
+    if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return new Date();
     const [y,m,d] = iso.split('-').map(Number);
     return new Date(y, m-1, d);
   }
@@ -1372,6 +1389,20 @@
         panel.style.display = 'none';
         loginScreen.style.display = 'flex';
         loginErr.textContent = 'Сессия истекла — войдите снова.';
+        return;
+      }
+      // 23.09.2026: any OTHER non-2xx status (500, a Vercel cold-start error
+      // page, a brief upstream hiccup — not just the already-handled 401)
+      // used to fall straight through to the two lines below, which parse
+      // whatever body came back as JSON (or {} if that failed) and treat a
+      // missing `bookings` array as simply "zero bookings". That silently
+      // emptied the whole panel instead of showing an error — and because
+      // takenTimesFor() (used by the reschedule grid AND the "+ Новая
+      // бронь" modal) reads off allBookings, an admin seeing an apparently
+      // empty schedule during a transient error could create a new booking
+      // directly on top of a real one that the panel just failed to load.
+      if (!res.ok){
+        listContainer.innerHTML = '<div class="empty-note">Не удалось загрузить брони (ошибка сервера). Проверьте соединение и нажмите «Обновить» — старый список брони специально НЕ очищен, чтобы не показать пустое расписание вместо ошибки.</div>';
         return;
       }
       const out = await res.json().catch(() => ({}));
@@ -1879,6 +1910,9 @@
           if (r.status === 'actor-not-registered') {
             return `@${r.actorUsername} ещё не подключил бота — попросите отправить /start`;
           }
+          if (r.status === 'missed') {
+            return `@${r.actorUsername} — не отправлено (время напоминания уже прошло)`;
+          }
           return `@${r.actorUsername}`;
         }).join('; ');
       }
@@ -2269,6 +2303,14 @@
         btn.textContent = originalText;
         pendingShiftSlotTarget = null;
       }
+      return;
+    }
+    if (pendingConfirmAction === 'deleteCashout') {
+      const target = pendingDeleteCashoutTarget;
+      confirmOverlay.classList.remove('show');
+      pendingDeleteCashoutTarget = null;
+      if (!target) return;
+      await deleteCashout(target);
       return;
     }
     if (pendingConfirmAction === 'cancelTechFromTechModal') {
@@ -3485,9 +3527,20 @@
         msg.textContent = 'За этот период нет ни одной брони.';
         return;
       }
-      const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Сверка','Комментарий'];
+      // 23.09.2026: added "Как создано"/"Перенос" — this download's own
+      // comment above claims it "reuses the exact same rich per-booking
+      // columns as «Экспорт в Excel» above", but these two were missing
+      // here even though the server already sends the underlying fields
+      // (source/rescheduledTo/rescheduledFrom) on every detailed row; an
+      // owner pulling an older period specifically to reach data outside
+      // the ~2-month client-side cache got a table silently missing
+      // reschedule history and manual-vs-site provenance for it.
+      const header = ['Дата','Время','Тип','Статус','Имя','Телефон','Игроки','Цена','Нал','Безнал','ЕРИП','Источник брони','Скидка/сертификат','Актёр','Актриса','Сверка','Комментарий','Как создано','Перенос'];
       const dataRows = rows.map(b => {
         const isTech = b.type === 'technical';
+        const moveNote = b.status === 'rescheduled' && b.rescheduledTo
+          ? `на ${b.rescheduledTo.dateISO} ${b.rescheduledTo.time}`
+          : (b.status === 'active' && b.rescheduledFrom ? `с ${b.rescheduledFrom.dateISO} ${b.rescheduledFrom.time}` : '');
         const sverkaForExport = (!isTech && formatManualSverka(b)) ? formatManualSverka(b).label : (!isTech ? (formatCloseoutStatus(b) || '') : '');
         return [
           b.dateISO || '', b.time || '',
@@ -3506,6 +3559,8 @@
           isTech ? '' : (b.workedActress || ''),
           sverkaForExport,
           b.comment || '',
+          b.source === 'admin' ? 'вручную' : (b.source || ''),
+          moveNote,
         ];
       });
       downloadAsXlsx(header, dataRows, `отчёт_${fromISO}_${toISO}`);
@@ -3547,10 +3602,9 @@
     return dates;
   }
 
-  function renderKnownActorsList(){
-    const list = document.getElementById('knownActorsList');
-    list.innerHTML = Object.keys(shiftsActors).map(u => `<option value="${escapeHtml(u)}">`).join('');
-  }
+  // 23.09.2026: renderKnownActorsList() removed — it only ever populated
+  // the #knownActorsList <datalist> removed above, which nothing pointed a
+  // `list` attribute at any more.
 
   // ---------- custom actor-username suggestion dropdown (works on phones) --
   // 22.09.2026: the owner noticed the desktop version of "Смены и
@@ -3811,7 +3865,6 @@
       }
       shiftsData = out.shifts || {};
       shiftsActors = out.actors || {};
-      renderKnownActorsList();
       renderShiftsDays();
     } catch(err){
       shiftsDaysList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
@@ -3922,7 +3975,7 @@
       return;
     }
     financeList.innerHTML = list.map(c => `
-      <div class="finance-row" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}">
+      <div class="finance-row" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}" data-label="${escapeHtml(c.label)}" data-amount="${Math.round(c.amount)}">
         <div class="fr-date">${escapeHtml(c.dateISO)}</div>
         <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${c.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'}</div>
         <div class="fr-label">${escapeHtml(c.label)}</div>
@@ -3930,8 +3983,25 @@
         <button type="button" class="fr-del" title="Удалить">✕</button>
       </div>
     `).join('');
+    // 23.09.2026: used to call deleteCashout(row) straight from this click
+    // with zero confirmation — the only destructive action in the whole
+    // panel that didn't go through the shared confirmOverlay dialog (cancel
+    // booking, reset sverka, cancel a technical booking, cancel a shift's
+    // sverka all do). A misclick here permanently deleted a financial
+    // record — e.g. a recorded payroll payout — with no undo, silently
+    // understating expenses/payroll from then on. Now it just opens the
+    // same confirm dialog everything else uses.
     financeList.querySelectorAll('.fr-del').forEach(btn => {
-      btn.addEventListener('click', () => deleteCashout(btn.closest('.finance-row')));
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.finance-row');
+        if (!row) return;
+        pendingConfirmAction = 'deleteCashout';
+        pendingDeleteCashoutTarget = { dateISO: row.dataset.date, id: row.dataset.id };
+        document.getElementById('confirmTitle').textContent = 'Удалить запись?';
+        document.getElementById('confirmText').textContent =
+          `${row.dataset.label || 'Без названия'} — ${row.dataset.amount || 0} Br (${row.dataset.date}). Это действие нельзя отменить.`;
+        confirmOverlay.classList.add('show');
+      });
     });
   }
 
@@ -4006,10 +4076,9 @@
     }
   });
 
-  async function deleteCashout(row){
-    if (!row) return;
-    const dateISO = row.dataset.date;
-    const id = row.dataset.id;
+  async function deleteCashout(target){
+    if (!target) return;
+    const { dateISO, id } = target;
     try{
       const res = await fetch('/api/admin/finance', {
         method:'POST', headers: authHeaders(),

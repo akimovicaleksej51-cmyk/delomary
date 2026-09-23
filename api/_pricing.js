@@ -33,6 +33,14 @@ export function tiersFor(weekend) {
   return weekend ? weekendTiers : weekdayTiers;
 }
 
+// The optional "Аниматор к празднику" add-on on the site's own booking
+// widget (index.html's own ANIMATOR_SURCHARGE constant — kept duplicated
+// there on purpose, same as SLOTS/the tiers above, since index.html is
+// static markup and can't import this file). Added 23.09.2026 so
+// api/book.js can verify a submitted price server-side instead of trusting
+// it outright — see api/book.js's own comment for why.
+export const ANIMATOR_SURCHARGE = 30;
+
 // Saturday/Sunday, same rule as index.html's isWeekend(d).
 export function isWeekendISO(dateISO) {
   const [y, m, d] = String(dateISO).split('-').map(Number);

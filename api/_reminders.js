@@ -163,7 +163,31 @@ export async function scheduleReminder(record) {
 
   const fireAt = new Date(bookingAt.getTime() - REMINDER_LEAD_MINUTES * 60 * 1000);
   const now = Date.now();
-  if (fireAt.getTime() <= now) return {}; // already too late — nothing to schedule
+  if (fireAt.getTime() <= now) {
+    // 23.09.2026: used to just bail out here with no changes at all — but
+    // if a reminder had already been attempted and failed (a transient
+    // QStash error right before this window closed, see the catch blocks
+    // below), it was left stamped 'pending' forever, which admin.html and
+    // staff.html both render as "запланируется позже" ("will be scheduled
+    // later") — actively misleading once "later" can no longer happen. The
+    // daily sweep (api/internal-jobs.js ?job=sweep) is the only other
+    // caller that could ever reach this point for an existing booking, and
+    // by the time it runs once a day, a reminder due within the next 7
+    // days may well have already slipped past its fire time. Flip anything
+    // not already 'scheduled' (or already 'missed') to 'missed' instead,
+    // so the admin panel can show that it genuinely never went out.
+    const existing = Array.isArray(record.reminders) ? record.reminders : [];
+    if (!existing.length) return {};
+    let changed = false;
+    const missedReminders = existing.map((r) => {
+      if (r && r.status && r.status !== 'scheduled' && r.status !== 'missed') {
+        changed = true;
+        return { ...r, status: 'missed' };
+      }
+      return r;
+    });
+    return changed ? { reminders: missedReminders } : {};
+  }
 
   const actorUsernames = await resolveActorUsernamesForSlot(record.dateISO, record.time);
   if (!actorUsernames.length) return {};

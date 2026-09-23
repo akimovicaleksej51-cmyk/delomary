@@ -30,13 +30,13 @@ import {
   computeCashRegister,
   toAmount,
 } from '../_finance.js';
-import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
 
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
   const provided = req.headers['x-admin-password'];
-  return Boolean(adminPassword) && provided === adminPassword;
+  return Boolean(adminPassword) && typeof provided === 'string' && safeEqual(provided, adminPassword);
 }
 
 function isValidDateISO(s) {

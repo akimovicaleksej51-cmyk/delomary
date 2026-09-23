@@ -30,7 +30,7 @@
 //       shift for that time is assigned, scheduleReminder()/
 //       scheduleGameCloseout() find no performer yet and schedule nothing
 //       — and without this backfill, that booking's sverka would only ever
-//       get caught by the once-a-day cron sweep (api/cron/reminders-sweep.js),
+//       get caught by the once-a-day cron sweep (api/internal-jobs.js (?job=sweep)),
 //       which could be many hours after the game already happened. Setting
 //       the shift (even just re-saving the same slot) now immediately
 //       fixes that instead of waiting on the sweep.
@@ -58,7 +58,7 @@
 import { kv } from '../_kv.js';
 import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS, scheduleReminder } from '../_reminders.js';
 import { runCloseoutForSlot, cancelCloseoutForSlot, scheduleGameCloseout } from '../_closeout.js';
-import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel } from '../_ratelimit.js';
+import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
 
 // Whenever a shift slot is (re)saved, catch up any booking on that date
@@ -97,7 +97,7 @@ async function backfillScheduling(dateISO, slotData) {
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
   const provided = req.headers['x-admin-password'];
-  return Boolean(adminPassword) && provided === adminPassword;
+  return Boolean(adminPassword) && typeof provided === 'string' && safeEqual(provided, adminPassword);
 }
 
 function isValidDateISO(s) {
