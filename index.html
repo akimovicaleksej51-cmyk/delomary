@@ -1435,6 +1435,15 @@
   // Если запрос не удался или свежих отзывов ещё нет (например,
   // EXTRAREALITY_QUEST_ID ещё не задан на Vercel) — три карточки ниже
   // остаются как есть, ничего не ломается.
+  //
+  // 26.09.2026: этот же самый ответ уже содержит настоящий средний рейтинг
+  // (data.rating, тоже из 10 — те же единицы, что у отзывов выше) — теперь
+  // используем его и для цифры в блоке "заключение экспертной комиссии"
+  // (#ratingNum) ниже, вместо зашитой "9.9". Число "94 игрока" рядом с ней
+  // не трогаем — для него нет источника живых данных, придумывать не
+  // стали. Если рейтинг не пришёл или запрос не удался — анимация ниже
+  // сама подставит ту же "9.9", что была всегда.
+  let liveRatingValue = null;
   (function(){
     function escapeHtml(s){
       return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1442,6 +1451,12 @@
     fetch('/api/extrareality?action=reviews')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
+        if (data && data.success && data.rating != null) {
+          const r = Number(data.rating);
+          // Разумные границы на случай странного ответа стороннего API —
+          // рейтинг из 10 всегда 0 < r <= 10.
+          if (Number.isFinite(r) && r > 0 && r <= 10) liveRatingValue = r;
+        }
         if (!data || !data.success || !Array.isArray(data.reviews) || !data.reviews.length) return;
         const freshest = data.reviews.slice()
           .sort((a, b) => String(b.datetime || '').localeCompare(String(a.datetime || '')))
@@ -1455,7 +1470,7 @@
           </div>
         `).join('');
       })
-      .catch(() => { /* тихо оставляем статичные отзывы ниже */ });
+      .catch(() => { /* тихо оставляем статичные отзывы и "9.9" ниже */ });
   })();
 
   const navToggle = document.getElementById('navToggle');
@@ -1489,7 +1504,7 @@
       if(en.isIntersecting && !ratingDone){
         ratingDone = true;
         const el = document.getElementById('ratingNum');
-        let v = 0; const target = 9.9;
+        let v = 0; const target = (liveRatingValue != null ? liveRatingValue : 9.9);
         const step = ()=>{
           v += 0.35;
           if(v >= target){ el.textContent = target.toFixed(1); return; }
