@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /admin.html
+Disallow: /staff.html
 Disallow: /api/
 
 Sitemap: https://loonygames.by/sitemap.xml

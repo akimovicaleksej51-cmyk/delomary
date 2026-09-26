@@ -29,6 +29,8 @@
 // EMAIL_SUBJECT and the buildEmailHtml()/buildEmailText() functions below
 // to change the wording — nothing else needs to change.
 
+import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
+
 const EMAIL_SUBJECT = 'Вы в списке — Loony Room скоро откроется';
 
 function buildEmailText() {
@@ -109,6 +111,20 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // 26.09.2026: this form has a Telegram notification AND sends a real
+  // email to whatever address is submitted (see sendConfirmationEmail
+  // below) with no rate limiting at all — unlike api/book.js, someone could
+  // flood arbitrary email addresses with unsolicited "you're on the list"
+  // letters (harassment, plus it costs a real Elastic Email API call each
+  // time) or spam the owner's Telegram. Same threshold as api/book.js's own
+  // limiter (20 per 10 min per IP) since this, like that one, is a normal
+  // site visitor's own browser submitting the form — one IP is one person.
+  const clientIp = getClientIp(req);
+  const leadRate = await checkAndBumpRateLimit('leadattempts', clientIp, 20, 10 * 60);
+  if (leadRate.limited) {
+    return res.status(429).json({ error: 'Слишком много попыток подряд. Попробуйте через несколько минут.' });
   }
 
   let body = req.body;

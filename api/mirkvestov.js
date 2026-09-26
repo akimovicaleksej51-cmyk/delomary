@@ -112,9 +112,30 @@ import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
+import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 
 const DAYS_AHEAD = 14; // Mir Kvestov's spec: "расписание на 2 недели"
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // same retention as every other booking
+
+// 26.09.2026: this endpoint (unlike api/book.js) had no rate limiting at
+// all — a script hitting it directly could flood the owner's Telegram/SMS
+// or occupy every open slot with junk reservations. Threshold set much
+// higher than api/book.js's own 20-per-10-min (a real site VISITOR, one
+// browser = one IP) because this URL is called by Mir Kvestov's own SERVER
+// relaying every one of THEIR customers' bookings for this venue — a
+// legitimate burst of several real bookings in a short window from their
+// single IP must never be blocked. This only ever catches a genuine flood,
+// not real traffic.
+const AGGREGATOR_RATE_MAX = 60;
+const AGGREGATOR_RATE_WINDOW_SECONDS = 10 * 60;
+// Sanity bound on the aggregator-supplied `price` field — NOT a strict tier
+// match (unlike api/book.js, which owns its own pricing end-to-end, this
+// price is whatever Mir Kvestov's platform charged the customer, which this
+// server has no way to independently verify), just wide enough to catch an
+// obviously bogus/malicious value (negative, zero, non-numeric, or a wildly
+// unrealistic amount) without ever rejecting a real booking at any
+// plausible current or near-future price.
+const MAX_PLAUSIBLE_PRICE = 1000;
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -233,6 +254,15 @@ function verifySignature(body) {
 }
 
 async function handleOrder(req, res) {
+  // 26.09.2026: see AGGREGATOR_RATE_MAX's comment above — this only ever
+  // throttles a genuine flood, real traffic volume from Mir Kvestov's own
+  // server stays far under it.
+  const clientIp = getClientIp(req);
+  const orderRate = await checkAndBumpRateLimit('mirkvestovattempts', clientIp, AGGREGATOR_RATE_MAX, AGGREGATOR_RATE_WINDOW_SECONDS);
+  if (orderRate.limited) {
+    return res.status(200).json({ success: false, message: 'Слишком много запросов подряд, попробуйте чуть позже.' });
+  }
+
   const body = parseBody(req);
 
   const cleanFirst = typeof body.first_name === 'string' ? body.first_name.trim().slice(0, 60) : '';
@@ -256,6 +286,16 @@ async function handleOrder(req, res) {
 
   if (!cleanName || !cleanPhone || !cleanDateISO || !cleanTime) {
     return res.status(200).json({ success: false, message: 'Не хватает обязательных полей (имя, телефон, дата, время).' });
+  }
+
+  // 26.09.2026: see MAX_PLAUSIBLE_PRICE's comment above — a sanity bound
+  // only, not a tier match. An empty price (cleanPrice === '') is left
+  // alone, same as always.
+  if (cleanPrice) {
+    const priceNum = Number(cleanPrice);
+    if (!Number.isFinite(priceNum) || priceNum <= 0 || priceNum > MAX_PLAUSIBLE_PRICE) {
+      return res.status(200).json({ success: false, message: 'Некорректная цена.' });
+    }
   }
 
   // 22.09.2026: matches the site's own hour-before cutoff (see

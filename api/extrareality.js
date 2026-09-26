@@ -146,10 +146,20 @@ import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from './_telegram.js';
+import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 
 const DAYS_AHEAD = 45; // was 14 (2 weeks) — extended to ~1.5 months, 22.09.2026
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
 const HISTORY_TTL_SECONDS = 60 * 60 * 24 * 95; // matches api/admin/bookings.js
+
+// 26.09.2026: same reasoning as api/mirkvestov.js's identical constants —
+// this endpoint (both booking and cancel) had no rate limiting at all.
+// Kept generous since this is ExtraReality's own SERVER relaying every one
+// of THEIR customers' real bookings/cancellations for this venue, not one
+// visitor per IP.
+const AGGREGATOR_RATE_MAX = 60;
+const AGGREGATOR_RATE_WINDOW_SECONDS = 10 * 60;
+const MAX_PLAUSIBLE_PRICE = 1000;
 
 const REVIEWS_CACHE_KEY = 'extrareality:reviewsCache';
 const REVIEWS_MIN_REFRESH_SECONDS = 30 * 60; // ExtraReality's own guidance: "не чаще раза в 30 минут"
@@ -244,6 +254,13 @@ function splitDateTime(raw) {
 }
 
 async function handleBook(req, res) {
+  // 26.09.2026: see AGGREGATOR_RATE_MAX's comment above.
+  const clientIp = getClientIp(req);
+  const bookRate = await checkAndBumpRateLimit('extrarealityattempts', clientIp, AGGREGATOR_RATE_MAX, AGGREGATOR_RATE_WINDOW_SECONDS);
+  if (bookRate.limited) {
+    return res.status(200).json({ success: false, message: 'Слишком много запросов подряд, попробуйте чуть позже.' });
+  }
+
   const body = parseBody(req);
 
   const cleanName = typeof body.name === 'string' ? body.name.trim().slice(0, 100) : '';
@@ -257,6 +274,16 @@ async function handleBook(req, res) {
 
   if (!cleanName || !cleanPhone || !cleanDateISO || !cleanTime) {
     return res.status(200).json({ success: false, message: 'Не хватает обязательных полей (имя, телефон, дата и время).' });
+  }
+
+  // 26.09.2026: see MAX_PLAUSIBLE_PRICE's comment above — a sanity bound
+  // only, not a tier match. An empty price (cleanPrice === '') is left
+  // alone, same as always.
+  if (cleanPrice) {
+    const priceNum = Number(cleanPrice);
+    if (!Number.isFinite(priceNum) || priceNum <= 0 || priceNum > MAX_PLAUSIBLE_PRICE) {
+      return res.status(200).json({ success: false, message: 'Некорректная цена.' });
+    }
   }
 
   // Matches the site's own hour-before cutoff (see api/_time.js) — closes
@@ -368,6 +395,15 @@ function verifyExtraRealitySignature(rawDatetime, providedSignature) {
 }
 
 async function handleCancel(req, res) {
+  // 26.09.2026: see AGGREGATOR_RATE_MAX's comment above — shares the same
+  // counter as handleBook() (one combined "am I being flooded" gauge per
+  // caller for this whole file).
+  const clientIp = getClientIp(req);
+  const cancelRate = await checkAndBumpRateLimit('extrarealityattempts', clientIp, AGGREGATOR_RATE_MAX, AGGREGATOR_RATE_WINDOW_SECONDS);
+  if (cancelRate.limited) {
+    return res.status(200).json({ success: false, message: 'Слишком много запросов подряд, попробуйте чуть позже.' });
+  }
+
   const body = parseBody(req);
 
   const rawDatetime = typeof body.datetime === 'string' ? body.datetime.trim() : '';
