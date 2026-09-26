@@ -69,7 +69,7 @@ export default async function handler(req, res) {
   }
   body = body || {};
 
-  const { name, phone, players, date, dateISO, time, price, website, comment, animator } = body;
+  const { name, phone, players, date, dateISO, time, price, website, comment, animator, attribution } = body;
 
   // Honeypot: real visitors never fill a field hidden with CSS. If it's
   // filled, silently pretend success so bots don't learn anything.
@@ -103,6 +103,30 @@ export default async function handler(req, res) {
   const cleanDateLabel = typeof date === 'string' ? date.trim().slice(0, 60) : '';
   const cleanPlayers = players != null ? String(players).slice(0, 40) : '';
   const cleanAnimator = animator === true || animator === 'true';
+
+  // 26.09.2026: captures which ad (if any) sent this visitor here — see the
+  // matching getAdAttribution() in index.html. Purely additive: never
+  // required, never validated against anything, just stored so the owner
+  // can eventually see in Telegram/the admin panel whether a booking came
+  // from a paid campaign instead of only guessing after the fact. No ad
+  // pixel is wired up by this — that still needs the owner's own Meta/
+  // Google/etc. account IDs — this only keeps what's already in the URL
+  // from being thrown away.
+  const rawAttribution = attribution && typeof attribution === 'object' ? attribution : {};
+  const cleanAttribution = {
+    utmSource: typeof rawAttribution.utm_source === 'string' ? rawAttribution.utm_source.trim().slice(0, 100) : '',
+    utmMedium: typeof rawAttribution.utm_medium === 'string' ? rawAttribution.utm_medium.trim().slice(0, 100) : '',
+    utmCampaign: typeof rawAttribution.utm_campaign === 'string' ? rawAttribution.utm_campaign.trim().slice(0, 150) : '',
+    gclid: typeof rawAttribution.gclid === 'string' ? rawAttribution.gclid.trim().slice(0, 150) : '',
+    fbclid: typeof rawAttribution.fbclid === 'string' ? rawAttribution.fbclid.trim().slice(0, 150) : '',
+  };
+  function attributionLabel(a) {
+    const parts = [a.utmSource, a.utmMedium, a.utmCampaign].filter(Boolean);
+    if (parts.length) return parts.join(' / ');
+    if (a.gclid) return 'клик по рекламе Google (gclid)';
+    if (a.fbclid) return 'клик по рекламе Meta (fbclid)';
+    return '';
+  }
 
   if (!cleanName || !cleanPhone) {
     return res.status(400).json({ error: 'Укажите имя и телефон.' });
@@ -200,6 +224,7 @@ export default async function handler(req, res) {
     handledByAdmin: '',
     comment: cleanComment,
     animator: cleanAnimator, // customer requested the "Аниматор" add-on (+30 Br) at booking time
+    attribution: cleanAttribution, // utm/gclid/fbclid captured at booking time, see above — {} when none present
     dateISO: cleanDateISO,
     dateLabel: cleanDateLabel,
     time: cleanTime,
@@ -249,6 +274,7 @@ export default async function handler(req, res) {
     cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
     cleanAnimator ? `Аниматор: да (+30 Br)` : null,
     cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
+    attributionLabel(cleanAttribution) ? `Источник: ${escapeTgHtml(attributionLabel(cleanAttribution))}` : null,
   ].filter((line) => line !== null).join('\n');
 
   // 23.09.2026: title line always CAPS (owner's request).

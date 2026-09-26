@@ -8,7 +8,7 @@
 //      least once — there is no way to send by @username alone). Records
 //      { username → chat id } in the "actors" hash — see api/_reminders.js.
 //
-//   2. Runs the "shift closeout" conversation: once api/telegram-closeout.js
+//   2. Runs the "shift closeout" conversation: once api/internal-jobs.js (?job=closeout)
 //      sends an actor their end-of-shift check-in, this is what handles
 //      the "✅ Верно" / "✏️ Исправить" button taps (Telegram calls these
 //      "callback queries") and the free-text replies that follow —
@@ -56,7 +56,7 @@
 //                              Telegram and not somebody guessing the URL.
 
 import { kv } from './_kv.js';
-import { getPendingActorReply, setPendingActorReply, clearPendingActorReply } from './_closeout.js';
+import { getPendingActorReply, setPendingActorReply, clearPendingActorReply, BOT_CLOSEOUT_ENABLED } from './_closeout.js';
 import { getShiftsForDate, getActorsMap, SHIFT_SLOTS } from './_reminders.js';
 
 // Which booking field ("Кто отыграл") a confirming actor's reply should
@@ -492,7 +492,7 @@ async function applyPayment(token, chatId, dateISO, time, actorUsername, amounts
 }
 
 // A button tap on one of the "✅ Верно" / "✏️ Исправить" messages
-// api/telegram-closeout.js sends. Wrapped in try/catch so that ANY
+// api/internal-jobs.js (?job=closeout) sends. Wrapped in try/catch so that ANY
 // unexpected error (a bug, a KV hiccup, whatever) still answers the
 // callback query — otherwise the tap just shows Telegram's loading
 // spinner forever with no visible error anywhere, which is exactly the
@@ -587,6 +587,28 @@ async function handleCallbackQueryInner(token, cq) {
   try { record = JSON.parse(raw); } catch { record = null; }
   if (!record) {
     await tg(token, 'answerCallbackQuery', { callback_query_id: cq.id });
+    return;
+  }
+
+  // 26.09.2026: bot-driven sverka is disabled in production (see
+  // BOT_CLOSEOUT_ENABLED in api/_closeout.js) — closeout now happens through
+  // staff.html's own "Провести сверку" button instead. Telegram never
+  // expires an inline keyboard on its own, so without this check a tap on an
+  // OLD "🎬 Сверка игры" message (from before the switch) would still walk
+  // through the full players/price/payment flow below and silently
+  // overwrite the booking's real data, bypassing the manualCloseout audit
+  // trail entirely. Answer the tap so the button stops spinning, explain
+  // where sverka lives now, and remove the stale buttons so this can't be
+  // tapped again.
+  if (!BOT_CLOSEOUT_ENABLED) {
+    await tg(token, 'answerCallbackQuery', {
+      callback_query_id: cq.id,
+      text: 'Сверка через бота больше не используется — отметьте игру в панели сотрудника, кнопка «Провести сверку».',
+      show_alert: true,
+    });
+    if (messageId) {
+      await tg(token, 'editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
+    }
     return;
   }
 
@@ -808,6 +830,18 @@ async function handleActorReplyInner(token, chatId, pending, text) {
   try { record = JSON.parse(raw); } catch { record = null; }
   if (!record) {
     await clearPendingActorReply(chatId);
+    return;
+  }
+
+  // Same 26.09.2026 guard as handleCallbackQueryInner() above — a reply left
+  // pending from before bot-sverka was disabled must not still finalize an
+  // edit through the old flow.
+  if (!BOT_CLOSEOUT_ENABLED) {
+    await clearPendingActorReply(chatId);
+    await tg(token, 'sendMessage', {
+      chat_id: chatId,
+      text: 'Сверка через бота больше не используется — отметьте игру в панели сотрудника, кнопка «Провести сверку».',
+    });
     return;
   }
 

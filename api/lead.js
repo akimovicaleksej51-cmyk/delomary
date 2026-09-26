@@ -133,11 +133,30 @@ export default async function handler(req, res) {
   }
   body = body || {};
 
-  const { email, website } = body;
+  const { email, website, attribution } = body;
 
   // Honeypot: real visitors never fill a field hidden with CSS.
   if (website) {
     return res.status(200).json({ ok: true });
+  }
+
+  // 26.09.2026: same ad-attribution capture as api/book.js — see that
+  // file's comment and index.html's getAdAttribution(). Only used for the
+  // optional Telegram line below; nothing here is required or validated.
+  const rawAttribution = attribution && typeof attribution === 'object' ? attribution : {};
+  const cleanAttribution = {
+    utmSource: typeof rawAttribution.utm_source === 'string' ? rawAttribution.utm_source.trim().slice(0, 100) : '',
+    utmMedium: typeof rawAttribution.utm_medium === 'string' ? rawAttribution.utm_medium.trim().slice(0, 100) : '',
+    utmCampaign: typeof rawAttribution.utm_campaign === 'string' ? rawAttribution.utm_campaign.trim().slice(0, 150) : '',
+    gclid: typeof rawAttribution.gclid === 'string' ? rawAttribution.gclid.trim().slice(0, 150) : '',
+    fbclid: typeof rawAttribution.fbclid === 'string' ? rawAttribution.fbclid.trim().slice(0, 150) : '',
+  };
+  function attributionLabel(a) {
+    const parts = [a.utmSource, a.utmMedium, a.utmCampaign].filter(Boolean);
+    if (parts.length) return parts.join(' / ');
+    if (a.gclid) return 'клик по рекламе Google (gclid)';
+    if (a.fbclid) return 'клик по рекламе Meta (fbclid)';
+    return '';
   }
 
   const cleanEmail = typeof email === 'string' ? email.trim().slice(0, 200) : '';
@@ -164,7 +183,9 @@ export default async function handler(req, res) {
   // address commonly contains "." and sometimes "-", both MarkdownV2-
   // reserved, so this one was affected too.
   const escapeMd = (s) => String(s);
-  const text = `🏠 Loony Room — заявка на предзаказ\n\n📧 Email: ${escapeMd(cleanEmail)}`;
+  const sourceLabel = attributionLabel(cleanAttribution);
+  const text = `🏠 Loony Room — заявка на предзаказ\n\n📧 Email: ${escapeMd(cleanEmail)}`
+    + (sourceLabel ? `\n📣 Источник: ${escapeMd(sourceLabel)}` : '');
 
   try {
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

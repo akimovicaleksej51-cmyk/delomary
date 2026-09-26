@@ -2187,7 +2187,15 @@
   const SVERKA_PLAYERS_OPTIONS = ['1–2', '3', '4', '5', '6'];
   sverkaPlayersSelect.innerHTML = SVERKA_PLAYERS_OPTIONS.map(v => `<option value="${v}">${v}</option>`).join('');
   function sverkaPlayersValueFor(players){
-    const n = parseInt(String(players == null ? '' : players).replace(/\D+/g, ''), 10);
+    // 23.09.2026 fix (ported from staff.html 26.09.2026 — same bug, same
+    // function, just never copied over here): was replace(/\D+/g,'') —
+    // stripping every non-digit and CONCATENATING what's left, so a
+    // hand-typed range like "1-2" became "12" (parsed as 12, which is >= 6,
+    // so it wrongly preselected "6" instead of "1–2") and "3-4 человека"
+    // became "34" (also wrongly "6"). Taking just the first number found in
+    // the text is what the rest of this function's own tier logic expects.
+    const match = String(players == null ? '' : players).match(/\d+/);
+    const n = match ? parseInt(match[0], 10) : NaN;
     if (!Number.isFinite(n) || n <= 2) return '1–2';
     if (n >= 6) return '6';
     return String(n);

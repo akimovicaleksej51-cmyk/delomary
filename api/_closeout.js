@@ -125,7 +125,18 @@ import { getShiftsForDate, getActorsMap, resolveActorUsernamesForSlot, resolveAc
 // выбрасывать регрессионные тесты старого бот-механизма — вдруг он ещё
 // понадобится): в проде эта переменная нигде не задаётся, поэтому там
 // сверка через бота всегда выключена.
-const BOT_CLOSEOUT_ENABLED = process.env.BOT_CLOSEOUT_ENABLED_FOR_TESTS === '1';
+// 26.09.2026: exported (was a local const) so api/telegram-webhook.js can
+// check it too — see the guard added there. Before this, the flag only
+// actually gated scheduleGameCloseout()/runCloseoutForBooking() below; the
+// callback-button and free-text-reply handlers in telegram-webhook.js never
+// checked it at all, so an actor with an OLD, still-unanswered "🎬 Сверка
+// игры" message (Telegram inline keyboards never expire on their own) could
+// still tap "✏️ Исправить" and overwrite a booking's price/players/payment
+// fields through the disabled bot flow — completely bypassing the new
+// manualCloseout audit trail this flag was meant to replace it with. This is
+// exactly the gap the comment above describes fixing ("Один флаг гасит обе
+// стороны бот-сверки разом") — it just hadn't actually reached that file.
+export const BOT_CLOSEOUT_ENABLED = process.env.BOT_CLOSEOUT_ENABLED_FOR_TESTS === '1';
 
 const CLOSEOUT_LEAD_MINUTES = 60; // ровно 1 час ПОСЛЕ начала игры (бронь в 13:30 → сверка в 14:30)
 const PENDING_REPLY_TTL_SECONDS = 60 * 60 * 6; // long enough for an actor to reply the same evening

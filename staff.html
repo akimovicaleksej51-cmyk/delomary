@@ -810,6 +810,7 @@
   let allBookings = [];
   let activeBooking = null; // the booking currently open in the detail modal
   let pendingConfirmAction = 'cancel'; // which action the shared confirm dialog (below) performs on "Да"
+  let pendingDeleteCashoutTarget = null; // {dateISO, id, label, amount} — only set when pendingConfirmAction is 'deleteCashout'
   let searchQuery = '';
   let filterDateISO = ''; // '' = show every date; otherwise show only this one day
 
@@ -989,6 +990,19 @@
         panel.style.display = 'none';
         loginScreen.style.display = 'flex';
         loginErr.textContent = 'Сессия истекла — войдите снова.';
+        return;
+      }
+      // 23.09.2026 fix (ported from admin.html — same bug there, never
+      // copied over here): any OTHER non-2xx status (500, a Vercel
+      // cold-start error page, a brief upstream hiccup — not just the
+      // already-handled 401) used to fall straight through to the two lines
+      // below, which parse whatever body came back as JSON (or {} if that
+      // failed) and treat a missing `bookings` array as simply "zero
+      // bookings". That silently emptied the whole panel instead of showing
+      // an error — an actor seeing an apparently empty schedule during a
+      // transient error could easily think all bookings were gone.
+      if (!res.ok){
+        listContainer.innerHTML = '<div class="empty-note">Не удалось загрузить брони (ошибка сервера). Проверьте соединение и нажмите «Обновить» — старый список брони специально НЕ очищен, чтобы не показать пустое расписание вместо ошибки.</div>';
         return;
       }
       const out = await res.json().catch(() => ({}));
@@ -1753,6 +1767,14 @@
   confirmOverlay.addEventListener('click', e => { if (e.target === confirmOverlay) confirmOverlay.classList.remove('show'); });
 
   document.getElementById('confirmYes').addEventListener('click', async () => {
+    if (pendingConfirmAction === 'deleteCashout') {
+      const target = pendingDeleteCashoutTarget;
+      confirmOverlay.classList.remove('show');
+      pendingDeleteCashoutTarget = null;
+      if (!target) return;
+      await deleteCashout(target);
+      return;
+    }
     if (!activeBooking) return;
     const action = pendingConfirmAction;
     const bookingId = activeBooking.id;
@@ -2106,8 +2128,26 @@
         <button type="button" class="fr-del" title="Удалить">✕</button>
       </div>
     `).join('');
+    // 26.09.2026: used to call deleteCashout(row) straight from this click
+    // with zero confirmation — admin.html was already fixed for this exact
+    // one-click-permanent-deletion hazard on 23.09.2026 (a misclick here
+    // permanently deletes a financial record, e.g. a recorded payroll
+    // payout, with no undo), but the fix was never ported to this copy of
+    // the panel. Now it opens the same shared confirm dialog every other
+    // destructive action here already uses (cancel booking, reset sverka).
     financeList.querySelectorAll('.fr-del').forEach(btn => {
-      btn.addEventListener('click', () => deleteCashout(btn.closest('.finance-row')));
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.finance-row');
+        if (!row) return;
+        pendingConfirmAction = 'deleteCashout';
+        pendingDeleteCashoutTarget = { dateISO: row.dataset.date, id: row.dataset.id };
+        const label = row.querySelector('.fr-label');
+        const amount = row.querySelector('.fr-amount');
+        document.getElementById('confirmTitle').textContent = 'Удалить запись?';
+        document.getElementById('confirmText').textContent =
+          `${(label && label.textContent) || 'Без названия'} — ${(amount && amount.textContent) || ''} (${row.dataset.date}). Это действие нельзя отменить.`;
+        confirmOverlay.classList.add('show');
+      });
     });
   }
 
@@ -2182,10 +2222,9 @@
     }
   });
 
-  async function deleteCashout(row){
-    if (!row) return;
-    const dateISO = row.dataset.date;
-    const id = row.dataset.id;
+  async function deleteCashout(target){
+    if (!target) return;
+    const { dateISO, id } = target;
     try{
       const res = await fetch('/api/admin/finance', {
         method:'POST', headers: authHeaders(),

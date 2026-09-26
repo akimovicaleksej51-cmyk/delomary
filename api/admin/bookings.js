@@ -897,6 +897,27 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Требуется подтверждение.' });
       }
 
+      // 26.09.2026: the comment above (and the one just above checkAuth())
+      // both assumed "knows the admin panel password" means "is the owner" —
+      // but admin.html and staff.html share the exact same ADMIN_PASSWORD
+      // (see checkAuth() above and api/admin/login.js), so EVERY actor who
+      // can use staff.html already passes that check too. The confirm-phrase
+      // check above is real protection against an accidental double-click,
+      // but it's typed straight into this request's own body, so it's no
+      // protection at all against anyone (owner or actor) who knows they can
+      // send it deliberately. A second, SEPARATE secret — one nothing in
+      // staff.html ever sends — closes that gap. Fails CLOSED by design: if
+      // ADMIN_RESET_SECRET isn't set in Vercel, this action refuses to run
+      // for anyone, including the owner, rather than silently staying as
+      // open as it was before this fix. See ЧТО_ИЗМЕНИЛОСЬ.txt for how to
+      // set it and use it — this is not meant to be a button in the UI.
+      const resetSecret = process.env.ADMIN_RESET_SECRET;
+      if (!resetSecret || typeof body.resetSecret !== 'string' || !safeEqual(body.resetSecret, resetSecret)) {
+        return res.status(403).json({
+          error: 'Нужен отдельный код подтверждения (ADMIN_RESET_SECRET). Без него это действие теперь недоступно вообще никому.',
+        });
+      }
+
       async function scanAllKeys(pattern) {
         let cursor = '0';
         const keys = [];

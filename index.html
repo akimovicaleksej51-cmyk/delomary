@@ -1429,6 +1429,43 @@
     }
   })();
 
+  // 26.09.2026: захватываем метки рекламных переходов (utm_source и т.п.,
+  // плюс клик-id от Google/Meta) прямо из ссылки, по которой пришёл
+  // посетитель, и кладём в sessionStorage — до сих пор сайт вообще никак
+  // не запоминал, ПОЧЕМУ человек зашёл (с рекламы в Instagram, из Google
+  // Ads или просто так), поэтому в брони/заявке этого не было видно и
+  // отдачу от платной рекламы нельзя было измерить иначе как вручную
+  // спрашивая клиента. Сама реклама и пиксели (Meta/Google/TikTok/Яндекс)
+  // сюда пока НЕ подключены — для них нужны настоящие ID рекламных
+  // кабинетов от владельца — но эта часть не требует ничьих ID: просто
+  // сохраняет то, что уже есть в адресной строке, если оно там есть.
+  // sessionStorage (не localStorage) — метка должна пережить переход по
+  // разделам той же страницы и её перезагрузку в рамках одного визита, но
+  // не переживать закрытие вкладки и не путаться с меткой уже другого,
+  // более раннего визита того же человека.
+  function getAdAttribution(){
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'gclid', 'fbclid'];
+      const fromUrl = {};
+      let hasAny = false;
+      keys.forEach((k) => {
+        const v = params.get(k);
+        if (v) { fromUrl[k] = v.slice(0, 200); hasAny = true; }
+      });
+      if (hasAny) {
+        sessionStorage.setItem('adAttribution', JSON.stringify(fromUrl));
+        return fromUrl;
+      }
+      const saved = sessionStorage.getItem('adAttribution');
+      return saved ? JSON.parse(saved) : {};
+    } catch (err) {
+      // Приватный режим браузера, отключённый sessionStorage и т.п. — просто
+      // не запоминаем источник, бронь всё равно должна пройти как обычно.
+      return {};
+    }
+  }
+
   // Живые отзывы с ExtraReality — 22.09.2026. Подтягивает свежие отзывы с
   // сервера (кэшируется там же не чаще раза в 30 минут, как просит сама
   // ExtraReality) и подменяет три статичные карточки ниже свежими тремя.
@@ -2110,6 +2147,7 @@
           comment,
           animator: wantsAnimator,
           website: websiteField.value,
+          attribution: getAdAttribution(),
         }),
       });
       let out = {};
@@ -2171,7 +2209,7 @@
       const res = await fetch('/api/lead', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: value, website: loonyWebsite ? loonyWebsite.value : '' }),
+        body: JSON.stringify({ email: value, website: loonyWebsite ? loonyWebsite.value : '', attribution: getAdAttribution() }),
       });
       let out = {};
       try{ out = await res.json(); } catch {}
