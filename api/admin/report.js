@@ -26,10 +26,32 @@
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
 import { toAmount } from '../_finance.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
-import { todayISO } from '../_time.js';
+import { todayISO, businessDateTime } from '../_time.js';
+import { getActorsMap, resolveActorUsernamesForSlotSync } from '../_reminders.js';
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 92;
+
+// 26.09.2026: по просьбе владельца — "сколько игр провёл" считается не
+// только по вручную заполненному полю "Кто отыграл" (workedActor/
+// workedActress), а ЖИВЬЁМ доводится до готовности сама, как только игра
+// реально закончилась — без ожидания, пока кто-то вручную впишет имя, и
+// без привязки к полуночи/новому дню (раньше казалось, что счётчик
+// "обновляется после 00" — на самом деле имя просто ещё не было вписано
+// вручную). "Игра закончилась" = прошло 90 минут с её начала — это ровно
+// интервал между соседними слотами в расписании (см. SLOTS в
+// api/_pricing.js: 14:00 → 15:30, 15:30 → 17:00 и т.д.), то есть к моменту
+// начала следующего слота предыдущая игра гарантированно завершена.
+const GAME_FINISHED_BUFFER_MINUTES = 90;
+
+function gameHasFinished(dateISO, timeStr, now = new Date()) {
+  const parts = String(timeStr).split(':');
+  const hh = Number(parts[0]);
+  const mm = Number(parts[1]);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return false;
+  const startAt = businessDateTime(dateISO, hh, mm);
+  return now.getTime() >= startAt.getTime() + GAME_FINISHED_BUFFER_MINUTES * 60000;
+}
 
 // 22.09.2026: two bugs found together via a real "Источники броней" screenshot
 // (Сайт 12, Мир Квестов 0, ExtraReality 1, Всего 14 — 12+0+1 ≠ 14, and a real
@@ -128,11 +150,30 @@ export default async function handler(req, res) {
     dates.push(isoDate(d));
   }
 
-  const [bookingResults, historyResults, cashoutResults] = await Promise.all([
+  // 26.09.2026: shiftsResults + actorsMap below feed the "игра уже
+  // закончилась, но никто вручную не вписал Кто отыграл" fallback in
+  // ingestRecord() further down — see GAME_FINISHED_BUFFER_MINUTES's
+  // comment above. Fetched once per request (not per booking) via the same
+  // pipeline pattern as the three fetches already here.
+  const [bookingResults, historyResults, cashoutResults, shiftsResults, actorsMap] = await Promise.all([
     kvPipeline(dates.map((iso) => ['HGETALL', `bookings:${iso}`])),
     kvPipeline(dates.map((iso) => ['HGETALL', `history:${iso}`])),
     kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`])),
+    kvPipeline(dates.map((iso) => ['GET', `shifts:${iso}`])),
+    getActorsMap(),
   ]);
+
+  const shiftsByDate = {};
+  dates.forEach((iso, i) => {
+    const raw = shiftsResults && shiftsResults[i] && shiftsResults[i].result;
+    if (!raw) { shiftsByDate[iso] = {}; return; }
+    try {
+      const obj = JSON.parse(raw);
+      shiftsByDate[iso] = obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+    } catch {
+      shiftsByDate[iso] = {};
+    }
+  });
 
   const byDay = {};
   dates.forEach((iso) => {
@@ -215,10 +256,29 @@ export default async function handler(req, res) {
     channelTotals[channel].count += 1;
     channelTotals[channel].total += toAmount(record.price);
 
-    [record.workedActor, record.workedActress].filter(Boolean).forEach((name) => {
-      if (!actorTotals[name]) actorTotals[name] = 0;
-      actorTotals[name] += 1;
-    });
+    const manuallyAssigned = [record.workedActor, record.workedActress].filter(Boolean);
+    if (manuallyAssigned.length) {
+      manuallyAssigned.forEach((name) => {
+        if (!actorTotals[name]) actorTotals[name] = 0;
+        actorTotals[name] += 1;
+      });
+    } else if (record.time && gameHasFinished(dateISO, record.time)) {
+      // 26.09.2026: nobody has typed a "Кто отыграл" name onto this booking
+      // yet, but the game is already over (see GAME_FINISHED_BUFFER_MINUTES
+      // above) — fall back to whoever the shift schedule (see
+      // api/admin/shifts.js / api/_reminders.js) says was actually on shift
+      // for this exact date/time, so the count reflects reality right away
+      // instead of waiting on a manual edit that may never happen. A booking
+      // where staff DID type in even one of the two fields is left alone —
+      // that's treated as a deliberate, possibly-different-from-schedule
+      // answer, not something to second-guess.
+      const shiftsMap = shiftsByDate[dateISO] || {};
+      resolveActorUsernamesForSlotSync(shiftsMap, record.time).forEach((username) => {
+        const name = (actorsMap[username] && actorsMap[username].displayName) || username;
+        if (!actorTotals[name]) actorTotals[name] = 0;
+        actorTotals[name] += 1;
+      });
+    }
   }
 
   (bookingResults || []).forEach((entry, i) => {

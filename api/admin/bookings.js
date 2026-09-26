@@ -231,7 +231,11 @@ async function notifyTelegram(record) {
 
 async function notifyTelegramCancel(record) {
   const dtBlock = record.dateISO ? dateTimeBlock(record.dateISO, record.time || '') : [];
-  const lead = record.dateISO ? urgencyLead(record.dateISO, record.time || '') : '';
+  // 26.09.2026: NO urgency lead here (owner's explicit request) — the
+  // "ДО ИГРЫ..." note is about a booking that's about to happen and needs
+  // attention; a cancellation is just a cancellation, nothing to hurry for.
+  // The note stays exactly as-is for NEW same-day bookings (notifyTelegram()
+  // above) — only the cancel notification dropped it.
   const fields = [
     ...dtBlock,
     record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
@@ -239,7 +243,7 @@ async function notifyTelegramCancel(record) {
   ].filter((line) => line !== null).join('\n');
   // 23.09.2026: title line always CAPS (owner's request).
   const kind = (record.type === 'customer' ? 'Бронь отменена' : 'Техническая бронь снята').toUpperCase();
-  await sendTelegram(`${lead}${kind}\n\n${fields}`, 'admin cancel');
+  await sendTelegram(`${kind}\n\n${fields}`, 'admin cancel');
 }
 
 async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO, toTime) {
