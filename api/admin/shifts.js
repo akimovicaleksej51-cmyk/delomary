@@ -189,8 +189,21 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, shifts: shiftsMap });
       }
 
-      if (!cleanStart || !cleanEnd || !cleanActor) {
-        return res.status(400).json({ error: 'Заполните время начала, конца и username — или очистите все три поля, чтобы убрать смену.' });
+      // 29.09.2026: actorUsername used to be REQUIRED alongside start/end —
+      // the only way to remove a person already assigned to a slot was to
+      // wipe the whole slot (start+end too), losing the time range the
+      // owner had already set up for it. That made "this actor can't make
+      // it, find someone else for the same window" impossible without
+      // retyping the times from scratch. actorUsername is now optional: a
+      // slot can be "vacant" (start+end set, nobody assigned yet). Every
+      // consumer of shift data already only acts on a slot when
+      // s.actorUsername is truthy (resolveActorUsernamesForSlotSync in
+      // api/_reminders.js, resolveWorkedField in api/telegram-webhook.js,
+      // canRunNow in admin.html hiding the sverka buttons for an empty
+      // slot) — so a vacant slot safely sends no reminders/sverka and
+      // credits no one's game count, without needing any other change.
+      if (!cleanStart || !cleanEnd) {
+        return res.status(400).json({ error: 'Укажите время начала и конца — или очистите все поля (включая username), чтобы убрать смену целиком.' });
       }
       if (cleanEnd <= cleanStart) {
         return res.status(400).json({ error: 'Время окончания должно быть позже начала.' });

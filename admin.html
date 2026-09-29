@@ -3899,8 +3899,9 @@
     }
   }
 
-  // Saves (or, if all three fields are left blank, clears) one of the 4
-  // fixed slots for a day.
+  // Saves one of the 4 fixed slots for a day — leaving the username blank
+  // (with start/end still filled) saves it as a VACANT slot, and leaving
+  // all three fields blank clears the slot entirely.
   async function saveShiftSlot(btn){
     const row = btn.closest('.shift-slot-row');
     const dateISO = row.dataset.date;
@@ -3910,8 +3911,15 @@
     const actorUsername = row.querySelector('.shift-slot-actor').value.trim().replace(/^@/, '');
 
     const allBlank = !start && !end && !actorUsername;
-    if (!allBlank && (!start || !end || !actorUsername)){
-      shiftsMsg.textContent = 'Заполните время начала, конца и username — или очистите все три поля, чтобы убрать смену.';
+    // 29.09.2026: actorUsername is now optional as long as start+end are
+    // both set — so clearing just the username field (leaving the shift's
+    // time range as-is) is a valid way to unassign a person without also
+    // wiping the slot. Previously all three fields were required together,
+    // which meant the only way to remove someone already put into a shift
+    // was to delete the time range too. See api/admin/shifts.js for the
+    // matching server-side change and why it's safe.
+    if (!allBlank && (!start || !end)){
+      shiftsMsg.textContent = 'Укажите время начала и конца — или очистите все поля (включая username), чтобы убрать смену целиком.';
       shiftsMsg.className = 'modal-msg err';
       return;
     }

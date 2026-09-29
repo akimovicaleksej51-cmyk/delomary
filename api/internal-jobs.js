@@ -39,7 +39,7 @@
 // per job) have the full story.
 
 import { kv, kvPipeline, pairsToObject } from './_kv.js';
-import { scheduleReminder } from './_reminders.js';
+import { scheduleReminder, resolveActorUsernamesForSlotSync } from './_reminders.js';
 import { scheduleGameCloseout, sweepMissedCloseouts, runCloseoutForBooking } from './_closeout.js';
 import { businessToday } from './_time.js';
 
@@ -156,6 +156,45 @@ function formatDateLabel(iso) {
   return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]}, ${WEEKDAY_NAMES[date.getDay()]}`;
 }
 
+// 29.09.2026: a reminder is scheduled in QStash ahead of time with the
+// performer's chat id baked in — so if the owner later REMOVES that person
+// from the shift (now possible without wiping the slot's times, see
+// api/admin/shifts.js) or swaps in someone else, the old job would still
+// fire and tell the removed person "через 1.5 часа у вас игра". The
+// replacement gets their own reminder via backfillScheduling() on save;
+// this re-checks, at the moment of sending, that this chat id is STILL one
+// of the performers covering that date/time in the CURRENT shift schedule.
+// Fails OPEN on any KV uncertainty (returns true → send as before): an
+// unneeded reminder is a minor annoyance, a missed one is a no-show.
+async function isStillOnShift(chatId, dateISO, time) {
+  if (!dateISO || !time) return true; // legacy job without a date — can't check
+  const key = `shifts:${dateISO}`;
+  const raw = await kv('get', key);
+  let shiftsMap;
+  if (raw == null) {
+    // GET returns null both for "no such key" and for a KV failure — EXISTS
+    // tells them apart (0 = really no shifts for that day at all).
+    const exists = await kv('exists', key);
+    if (exists !== 0) return true;
+    shiftsMap = {};
+  } else {
+    try { shiftsMap = JSON.parse(raw); } catch { return true; }
+    if (!shiftsMap || typeof shiftsMap !== 'object' || Array.isArray(shiftsMap)) return true;
+  }
+  const usernames = resolveActorUsernamesForSlotSync(shiftsMap, time);
+  if (!usernames.length) return false;
+  const actorsRaw = await kv('hgetall', 'actors');
+  if (!Array.isArray(actorsRaw)) return true;
+  for (let i = 0; i < actorsRaw.length - 1; i += 2) {
+    if (!usernames.includes(actorsRaw[i])) continue;
+    try {
+      const info = JSON.parse(actorsRaw[i + 1]);
+      if (info && info.chatId != null && String(info.chatId) === String(chatId)) return true;
+    } catch { /* skip malformed entry */ }
+  }
+  return false;
+}
+
 async function handleReminder(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -183,6 +222,12 @@ async function handleReminder(req, res) {
   if (!token) {
     console.error('internal-jobs (reminder): missing TELEGRAM_BOT_TOKEN');
     return res.status(500).json({ error: 'Bot not configured' });
+  }
+
+  // 200 (not an error) on purpose — QStash retries non-2xx responses, and
+  // there's nothing to retry here: the person simply isn't on shift anymore.
+  if (!(await isStillOnShift(chatId, dateISO, time))) {
+    return res.status(200).json({ ok: true, skipped: 'no-longer-on-shift' });
   }
 
   const dateLabel = dateISO ? formatDateLabel(dateISO) : '';
