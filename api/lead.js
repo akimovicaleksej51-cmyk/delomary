@@ -30,6 +30,10 @@
 // to change the wording — nothing else needs to change.
 
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
+import {
+  getRoomAvailability, validateRoomRequest, reserveRoomHours, releaseRoomHours,
+  roomBookingTelegramText, sendRoomTelegram,
+} from './_rooms.js';
 
 const EMAIL_SUBJECT = 'Вы в списке — Loony Room скоро откроется';
 
@@ -107,10 +111,83 @@ async function sendConfirmationEmail(toEmail) {
   }
 }
 
+// 03.10.2026: Loony Room hourly booking (loonyroom.html) is served from
+// THIS function rather than a new one — the project is at Vercel's 12-
+// function Hobby limit. All the room logic lives in api/_rooms.js; this just
+// dispatches:
+//   GET  /api/lead?action=roomAvailability      -> taken hours, next 60 days
+//   POST /api/lead { action:'roomBook', ... }   -> new room booking
+//   POST /api/lead { email, ... }  (no action)  -> the old e-mail pre-order,
+//                                                  unchanged
+async function handleRoomAvailability(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  const data = await getRoomAvailability();
+  return res.status(200).json({ ok: true, ...data });
+}
+
+async function handleRoomBook(req, res, body) {
+  // Honeypot — silently pretend success, same as every other form here.
+  if (body.website) return res.status(200).json({ ok: true });
+
+  const clientIp = getClientIp(req);
+  const rate = await checkAndBumpRateLimit('roombookattempts', clientIp, 20, 10 * 60);
+  if (rate.limited) {
+    return res.status(429).json({ error: 'Слишком много заявок подряд. Попробуйте через несколько минут или позвоните нам: +375 (44) 780-30-00.' });
+  }
+
+  const checked = validateRoomRequest(body);
+  if (!checked.ok) {
+    return res.status(checked.status).json({ error: checked.error, conflict: !!checked.conflict });
+  }
+  const { record } = checked;
+
+  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+    console.error('Loony Room: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID');
+    return res.status(500).json({ error: 'Бронь временно не работает. Пожалуйста, позвоните нам: +375 (44) 780-30-00.' });
+  }
+
+  const reserved = await reserveRoomHours(record);
+  if (!reserved.ok) {
+    return res.status(reserved.status).json({ error: reserved.error, conflict: !!reserved.conflict });
+  }
+
+  // Same rule as api/book.js: Telegram IS how the owner learns about the
+  // booking, so if it can't be delivered the hours are released again and
+  // the visitor is told to call instead of getting a silent "success".
+  const sent = await sendRoomTelegram(roomBookingTelegramText(record));
+  if (!sent.ok) {
+    if (!reserved.unreserved) await releaseRoomHours(record);
+    return res.status(502).json({ error: 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +375 (44) 780-30-00.' });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    booking: {
+      dateISO: record.dateISO, startTime: record.startTime, endTime: record.endTime,
+      hours: record.hours, price: record.price, hostGameLabel: record.hostGameLabel,
+    },
+  });
+}
+
 export default async function handler(req, res) {
+  const action = (req.query && req.query.action) || '';
+  if (req.method === 'GET' && action === 'roomAvailability') {
+    return handleRoomAvailability(req, res);
+  }
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  {
+    let peek = req.body;
+    if (typeof peek === 'string') {
+      try { peek = JSON.parse(peek); } catch { peek = {}; }
+    }
+    if (peek && peek.action === 'roomBook') {
+      return handleRoomBook(req, res, peek);
+    }
   }
 
   // 26.09.2026: this form has a Telegram notification AND sends a real

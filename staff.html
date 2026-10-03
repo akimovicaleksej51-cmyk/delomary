@@ -470,6 +470,12 @@
   .finance-row .fr-amount{font-weight:800; color:var(--paper); font-size:13.5px; flex-shrink:0;}
   .finance-row .fr-del{background:none; border:none; color:var(--muted); font-size:16px; padding:4px 6px; flex-shrink:0;}
   .finance-row .fr-del:hover{color:var(--danger-bright);}
+  .finance-row[role="button"]{cursor:pointer; transition:border-color .15s, background .15s;}
+  .finance-row[role="button"]:hover, .finance-row[role="button"]:focus-visible{border-color:var(--ochre-deep); background:#1e1e1e; outline:none;}
+  .cashout-detail-amount{font-family:var(--display); font-weight:400; font-size:32px; color:var(--ochre-bright); margin:2px 0 14px;}
+  .cashout-detail-grid{display:grid; grid-template-columns:max-content 1fr; gap:10px 16px; margin:0;}
+  .cashout-detail-grid dt{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding-top:2px;}
+  .cashout-detail-grid dd{margin:0; font-size:14.5px; color:var(--paper); line-height:1.45; word-break:break-word; white-space:pre-wrap;}
 
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
@@ -731,6 +737,19 @@
     <div class="modal-actions">
       <button class="btn-danger" id="confirmYes">Да, отменить</button>
       <button class="btn-secondary" id="confirmNo">Нет</button>
+    </div>
+  </div>
+</div>
+
+<!-- 03.10.2026: подробности одной записи кассы (расход / ЗП) — открывается
+     кликом по строке в "Кассе". z-index выше financeOverlay. -->
+<div class="modal-overlay" id="cashoutDetailOverlay" style="z-index:60;">
+  <div class="modal-box" style="max-width:420px;">
+    <h2 style="font-size:17px;" id="cashoutDetailTitle">Запись кассы</h2>
+    <div class="cashout-detail-amount" id="cashoutDetailAmount"></div>
+    <dl class="cashout-detail-grid" id="cashoutDetailGrid"></dl>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="cashoutDetailClose">Закрыть</button>
     </div>
   </div>
 </div>
@@ -2120,7 +2139,7 @@
       return;
     }
     financeList.innerHTML = list.map(c => `
-      <div class="finance-row" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}">
+      <div class="finance-row" role="button" tabindex="0" title="Подробнее" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}">
         <div class="fr-date">${escapeHtml(c.dateISO)}</div>
         <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${c.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'}</div>
         <div class="fr-label">${escapeHtml(c.label)}</div>
@@ -2128,6 +2147,18 @@
         <button type="button" class="fr-del" title="Удалить">✕</button>
       </div>
     `).join('');
+    // 03.10.2026: клик по записи открывает подробности — полный текст "за
+    // что" (в строке он обрезается многоточием), сумму, дату и когда
+    // именно запись внесли. Клик по ✕ по-прежнему только удаляет.
+    const byKey = {};
+    list.forEach(c => { byKey[`${c.dateISO}|${c.id}`] = c; });
+    financeList.querySelectorAll('.finance-row').forEach(row => {
+      const open = () => openCashoutDetail(byKey[`${row.dataset.date}|${row.dataset.id}`]);
+      row.addEventListener('click', e => { if (!e.target.closest('.fr-del')) open(); });
+      row.addEventListener('keydown', e => {
+        if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.fr-del')) { e.preventDefault(); open(); }
+      });
+    });
     // 26.09.2026: used to call deleteCashout(row) straight from this click
     // with zero confirmation — admin.html was already fixed for this exact
     // one-click-permanent-deletion hazard on 23.09.2026 (a misclick here
@@ -2150,6 +2181,37 @@
       });
     });
   }
+
+  // 03.10.2026: окно подробностей записи кассы. Время "внесено" берётся из
+  // createdAt, который сервер ставит в момент добавления (api/admin/
+  // finance.js), и всегда показывается по минскому времени — независимо от
+  // часового пояса на телефоне/компьютере.
+  const cashoutDetailOverlay = document.getElementById('cashoutDetailOverlay');
+  function formatMinskMoment(iso){
+    const d = new Date(iso);
+    if (!iso || Number.isNaN(d.getTime())) return '';
+    try {
+      const date = d.toLocaleDateString('ru-RU', { timeZone:'Europe/Minsk', day:'numeric', month:'long', year:'numeric' });
+      const time = d.toLocaleTimeString('ru-RU', { timeZone:'Europe/Minsk', hour:'2-digit', minute:'2-digit' });
+      return `${date} в ${time}`;
+    } catch { return d.toLocaleString('ru-RU'); }
+  }
+  function openCashoutDetail(c){
+    if (!c) return;
+    const isPayroll = c.kind === 'payroll';
+    document.getElementById('cashoutDetailTitle').textContent = isPayroll ? 'Выплата ЗП / инкассация' : 'Расход';
+    document.getElementById('cashoutDetailAmount').textContent = `−${Math.round(Number(c.amount) || 0)} Br`;
+    const rows = [
+      ['За что', c.label || 'Без описания'],
+      ['Дата', c.dateISO ? formatDateHeading(c.dateISO) : '—'],
+      ['Внесено', formatMinskMoment(c.createdAt) || 'нет данных (запись старая)'],
+    ];
+    document.getElementById('cashoutDetailGrid').innerHTML =
+      rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('');
+    cashoutDetailOverlay.classList.add('show');
+  }
+  document.getElementById('cashoutDetailClose').addEventListener('click', () => cashoutDetailOverlay.classList.remove('show'));
+  cashoutDetailOverlay.addEventListener('click', e => { if (e.target === cashoutDetailOverlay) cashoutDetailOverlay.classList.remove('show'); });
 
   async function loadFinance(){
     financeList.innerHTML = '<div class="load-note">Загрузка…</div>';

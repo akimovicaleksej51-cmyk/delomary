@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/loonyroom", "destination": "/loonyroom.html" }
+  ],
   "crons": [
     {
       "path": "/api/internal-jobs?job=sweep",

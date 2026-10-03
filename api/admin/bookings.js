@@ -108,6 +108,7 @@ import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManua
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime } from '../_time.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
+import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText } from '../_rooms.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -223,7 +224,10 @@ async function notifyTelegram(record) {
       ...dtBlock,
       record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
     ].filter((line) => line !== null).join('\n');
-    text = `${lead}${'Техническая бронь — из админки'.toUpperCase()}\n\n${fields}`;
+    // 03.10.2026: NO urgency lead for a technical booking (owner's request) —
+    // it's the owner/staff blocking a slot themselves, nobody needs to be
+    // hurried about it. Customer bookings above keep the "‼️ ДО ИГРЫ..." lead.
+    text = `${'Техническая бронь — из админки'.toUpperCase()}\n\n${fields}`;
   }
 
   await sendTelegram(text, 'admin create');
@@ -345,6 +349,24 @@ export default async function handler(req, res) {
     body = body || {};
 
     const { action } = body;
+
+    // 03.10.2026: Loony Room hourly rentals (loonyroom.html). Kept entirely
+    // separate from the quest's own bookings:* data — see api/_rooms.js —
+    // so these two actions never touch a quest booking, Касса or stats.
+    if (action === 'listRoomBookings') {
+      const roomBookings = await listRoomBookings();
+      return res.status(200).json({ ok: true, roomBookings });
+    }
+
+    if (action === 'cancelRoomBooking') {
+      const record = await cancelRoomBooking(body.dateISO, body.bookingId);
+      if (!record) {
+        return res.status(404).json({ error: 'Бронь не найдена — возможно, её уже отменили.' });
+      }
+      await sendTelegram(roomCancelTelegramText(record), 'room cancel');
+      const roomBookings = await listRoomBookings();
+      return res.status(200).json({ ok: true, roomBookings });
+    }
 
     if (action === 'create') {
       const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';

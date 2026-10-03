@@ -636,6 +636,11 @@
   .notify-row input::placeholder{color:var(--muted);}
   .notify-row button{font-family:var(--sans); font-weight:800; font-size:14px; padding:16px 24px; background:var(--ochre-bright); border:none; color:#151004; cursor:pointer; border-radius:14px;}
   .notify-row button:disabled{opacity:.6; cursor:not-allowed;}
+  /* 03.10.2026: карточка Loony Room — целиком ссылка на /loonyroom */
+  .room-promo{display:block; text-decoration:none; color:inherit; transition:border-color .25s, transform .25s, box-shadow .25s;}
+  .room-promo:hover{border-color:var(--ochre); transform:translateY(-4px); box-shadow:0 24px 60px -24px rgba(245,197,24,.25);}
+  .room-promo:hover .room-promo-btn{background:#ffd84d;}
+  .room-promo .room-feats div{color:var(--paper);}
 
   /* ===== LOCATION ===== */
   .loc-grid{display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:center;}
@@ -1076,7 +1081,7 @@
         <a href="#gallery">Кадры</a>
         <a href="#booking">Бронь</a>
         <a href="#reviews">Отзывы</a>
-        <a href="#loonyroom">Loony Room</a>
+        <a href="/loonyroom">Loony Room</a>
         <a href="#location">Адрес</a>
       </nav>
       <a class="nav-phone" href="tel:+375447803000">+375 (44) 780-30-00</a>
@@ -1094,7 +1099,7 @@
     <a href="#gallery">Кадры</a>
     <a href="#booking">Бронь</a>
     <a href="#reviews">Отзывы</a>
-    <a href="#loonyroom">Loony Room</a>
+    <a href="/loonyroom">Loony Room</a>
     <a href="#location">Адрес</a>
     <a class="mobile-social" href="tel:+375447803000">📞 +375 (44) 780-30-00</a>
     <a class="mobile-social" href="https://www.instagram.com/loonygames.minsk" target="_blank" rel="noopener noreferrer">
@@ -1341,22 +1346,21 @@
 
 <section id="loonyroom" class="reveal">
   <div class="wrap">
-    <div class="classified">
-      <span class="tape">скоро</span>
+    <!-- 03.10.2026: Loony Room теперь открыт для брони — у комнаты своя
+         отдельная страница (/loonyroom), вся карточка ведёт туда. Старая
+         заглушка «скоро» с подпиской на e-mail убрана. -->
+    <a class="classified room-promo" href="/loonyroom">
+      <span class="tape">новое · бронь открыта</span>
       <h3>Loony Room — комната отдыха в аренду</h3>
-      <p>После квеста дело не обязательно закрывать сразу. Мы готовим отдельное пространство для дня рождения, корпоратива или посиделок с командой — детали ещё дорабатываются и появятся здесь совсем скоро.</p>
+      <p>После квеста дело не обязательно закрывать сразу. Отдельная комната для дня рождения, корпоратива или посиделок с командой: караоке, проектор, две PlayStation 4 Pro, Just Dance, сцена и стол для застолья.</p>
       <div class="room-feats">
-        <div>Формат аренды и вместимость — уточняется</div>
-        <div>Программа и décor — на финальной доработке</div>
-        <div>Цены и слоты бронирования — скоро на этой странице</div>
+        <div>Караоке и проектор</div>
+        <div>2 × PlayStation 4 Pro · Just Dance</div>
+        <div>Мафия или Бункер с ведущим</div>
+        <div>от 70 Br в час</div>
       </div>
-      <input type="text" id="loonyWebsite" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <div class="notify-row">
-        <input type="email" id="loonyEmail" placeholder="Ваш e-mail" aria-label="Ваш e-mail">
-        <button id="loonyNotifyBtn">Сообщить мне первому</button>
-      </div>
-      <div class="confirm-msg" id="loonyMsg"></div>
-    </div>
+      <span class="btn btn-solid room-promo-btn">Смотреть комнату и забронировать →</span>
+    </a>
   </div>
 </section>
 
@@ -1406,7 +1410,7 @@
   <div class="foot-links">
     <a href="#booking">Бронирование</a>
     <a href="#reviews">Отзывы</a>
-    <a href="#loonyroom">Loony Room</a>
+    <a href="/loonyroom">Loony Room</a>
     <a href="#location">Адрес</a>
     <a href="tel:+375447803000">+375 (44) 780-30-00</a>
   </div>
@@ -2179,56 +2183,8 @@
     }
   });
 
-  /* ---- loony room email capture ---- */
-  const loonyEmail = document.getElementById('loonyEmail');
-  const loonyBtn = document.getElementById('loonyNotifyBtn');
-  const loonyMsg = document.getElementById('loonyMsg');
-  const loonyWebsite = document.getElementById('loonyWebsite');
-  const loonyBtnDefaultText = loonyBtn.textContent;
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-  function setLoonyMsg(text, isErr){
-    loonyMsg.textContent = text;
-    loonyMsg.classList.toggle('err', !!isErr);
-    loonyMsg.classList.add('show');
-  }
-
-  async function submitLoonyEmail(){
-    const value = loonyEmail.value.trim();
-    if(!emailPattern.test(value)){
-      setLoonyMsg('Проверьте адрес — что-то не похоже на e-mail.', true);
-      loonyEmail.focus();
-      return;
-    }
-
-    loonyBtn.disabled = true;
-    loonyBtn.textContent = 'Отправляем…';
-    loonyMsg.classList.remove('show', 'err');
-
-    try{
-      const res = await fetch('/api/lead', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: value, website: loonyWebsite ? loonyWebsite.value : '', attribution: getAdAttribution() }),
-      });
-      let out = {};
-      try{ out = await res.json(); } catch {}
-
-      if(res.ok && out.ok){
-        setLoonyMsg('Записали ' + value + ' — сообщим вам первому, когда Loony Room откроется.', false);
-        loonyEmail.value = '';
-      } else {
-        setLoonyMsg(out.error || 'Не удалось отправить. Попробуйте ещё раз чуть позже.', true);
-      }
-    } catch(err){
-      setLoonyMsg('Нет связи с сервером. Попробуйте ещё раз чуть позже.', true);
-    } finally {
-      loonyBtn.disabled = false;
-      loonyBtn.textContent = loonyBtnDefaultText;
-    }
-  }
-  loonyBtn.addEventListener('click', submitLoonyEmail);
-  loonyEmail.addEventListener('keydown', (e) => { if(e.key === 'Enter') submitLoonyEmail(); });
+  /* 03.10.2026: e-mail-подписка «сообщить первому» про Loony Room убрана —
+     комната уже бронируется на своей странице /loonyroom. */
 
   document.querySelectorAll('.faq-item').forEach(item=>{
     const q = item.querySelector('.faq-q');

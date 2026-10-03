@@ -367,6 +367,23 @@
   .modal-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:20px;}
   .modal-actions .btn, .modal-actions .btn-secondary, .modal-actions .btn-danger{width:auto; flex:1 1 auto;}
   .modal-msg{font-size:13.5px; margin-top:12px; min-height:1em;}
+  /* 03.10.2026: Loony Room */
+  .room-tabs{display:flex; gap:8px; margin-bottom:14px;}
+  .room-tab{flex:1; padding:10px 12px; border-radius:10px; border:1px solid #2a2a2a; background:var(--black-3); color:var(--muted); font-weight:700; font-size:13px; cursor:pointer;}
+  .room-tab.active{border-color:var(--ochre-bright); color:var(--ochre-bright); background:rgba(245,197,24,.08);}
+  .room-day{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--ochre-bright); margin:16px 0 8px;}
+  .room-day:first-child{margin-top:0;}
+  .room-card{background:var(--black-3); border:1px solid #262626; border-radius:12px; padding:12px 14px; margin-bottom:8px;}
+  .room-card.past{opacity:.6;}
+  .room-card-top{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;}
+  .room-time{font-family:var(--display); font-size:20px; color:var(--paper); letter-spacing:.02em;}
+  .room-price{font-weight:800; color:var(--ochre-bright); font-size:14px;}
+  .room-who{font-size:14px; margin-top:4px;}
+  .room-who a{color:var(--paper);}
+  .room-meta{font-size:12.5px; color:var(--muted); margin-top:4px; white-space:pre-wrap; word-break:break-word;}
+  .room-game{display:inline-block; margin-top:6px; font-size:11px; font-weight:800; text-transform:uppercase; padding:3px 9px; border-radius:999px; background:rgba(245,197,24,.14); color:var(--ochre-bright);}
+  .room-cancel{margin-top:10px; padding:8px 12px; font-size:12.5px; border-color:var(--danger-bright) !important; color:var(--danger-bright) !important;}
+  .room-cancel.armed{background:var(--danger) !important; color:#fff !important;}
   .modal-msg.err{color:var(--danger-bright);}
   .modal-msg.ok{color:var(--ochre-bright);}
 
@@ -613,6 +630,12 @@
   .finance-row .fr-amount{font-weight:800; color:var(--paper); font-size:13.5px; flex-shrink:0;}
   .finance-row .fr-del{background:none; border:none; color:var(--muted); font-size:16px; padding:4px 6px; flex-shrink:0;}
   .finance-row .fr-del:hover{color:var(--danger-bright);}
+  .finance-row[role="button"]{cursor:pointer; transition:border-color .15s, background .15s;}
+  .finance-row[role="button"]:hover, .finance-row[role="button"]:focus-visible{border-color:var(--ochre-deep); background:#1e1e1e; outline:none;}
+  .cashout-detail-amount{font-family:var(--display); font-weight:400; font-size:32px; color:var(--ochre-bright); margin:2px 0 14px;}
+  .cashout-detail-grid{display:grid; grid-template-columns:max-content 1fr; gap:10px 16px; margin:0;}
+  .cashout-detail-grid dt{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding-top:2px;}
+  .cashout-detail-grid dd{margin:0; font-size:14.5px; color:var(--paper); line-height:1.45; word-break:break-word; white-space:pre-wrap;}
 
   @media (max-width:480px){
     .modal-box{padding:20px 16px;}
@@ -673,6 +696,7 @@
         <button class="btn-secondary" id="closeDayBtn">Закрыть день</button>
         <button class="btn-secondary" id="shiftsBtn">Смены и напоминания</button>
         <button class="btn-secondary" id="financeBtn">Касса</button>
+        <button class="btn-secondary" id="roomBookingsBtn">Loony Room</button>
         <div class="more-menu" id="moreMenu">
           <button type="button" class="btn-secondary more-menu-btn" id="moreMenuBtn" aria-haspopup="true" aria-expanded="false">Ещё ▾</button>
           <div class="more-menu-list" id="moreMenuList" role="menu">
@@ -886,6 +910,18 @@
   </div>
 </div>
 
+<!-- 03.10.2026: подробности одной записи кассы (расход / ЗП). -->
+<div class="modal-overlay" id="cashoutDetailOverlay" style="z-index:60;">
+  <div class="modal-box" style="max-width:420px;">
+    <h2 style="font-size:17px;" id="cashoutDetailTitle">Запись кассы</h2>
+    <div class="cashout-detail-amount" id="cashoutDetailAmount"></div>
+    <dl class="cashout-detail-grid" id="cashoutDetailGrid"></dl>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="cashoutDetailClose">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <!-- Прозвон клиента: выбор статуса звонка прямо из общего списка броней,
      без открытия полной карточки. Проставляет менеджер (по просьбе
      владельца, 17.09.2026). -->
@@ -1087,6 +1123,22 @@
 
 <!-- Cash register ("Касса") — running cash balance, replaces the manual
      running-total column from the owner's old spreadsheet -->
+<!-- 03.10.2026: брони комнаты Loony Room (страница /loonyroom). Отдельно от
+     броней квеста — в общий список, Кассу и статистику они не попадают. -->
+<div class="modal-overlay" id="roomBookingsOverlay">
+  <div class="modal-box" style="max-width:620px;">
+    <button class="modal-close-x" data-close="roomBookings">✕</button>
+    <h2>Loony Room — брони комнаты</h2>
+    <p style="color:var(--muted); font-size:13px; margin:-6px 0 16px;">Почасовые брони с сайта. «Отменить» освобождает часы для новых броней и присылает уведомление в Telegram.</p>
+    <div class="room-tabs">
+      <button type="button" class="room-tab active" data-room-tab="upcoming">Предстоящие <span id="roomCountUpcoming"></span></button>
+      <button type="button" class="room-tab" data-room-tab="past">Прошедшие (7 дней)</button>
+    </div>
+    <div id="roomBookingsList"><div class="load-note">Загрузка…</div></div>
+    <div class="modal-msg" id="roomBookingsMsg"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="financeOverlay">
   <div class="modal-box" style="max-width:560px;">
     <button class="modal-close-x" data-close="finance">✕</button>
@@ -3983,6 +4035,101 @@
     } catch(err){ /* best-effort only */ }
   }
 
+  // ---------- Loony Room (03.10.2026) ----------
+  // Брони комнаты хранятся отдельно (roombookings:<дата>, см. api/_rooms.js),
+  // поэтому здесь свой список и своя отмена через те же /api/admin/bookings.
+  const roomBookingsOverlay = document.getElementById('roomBookingsOverlay');
+  const roomBookingsList = document.getElementById('roomBookingsList');
+  const roomBookingsMsg = document.getElementById('roomBookingsMsg');
+  let roomBookingsData = [];
+  let roomTab = 'upcoming';
+
+  function roomHoursWord(n){
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return n + ' час';
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' часа';
+    return n + ' часов';
+  }
+  function renderRoomBookings(){
+    const today = todayISO();
+    const upcoming = roomBookingsData.filter(b => b.dateISO >= today);
+    const past = roomBookingsData.filter(b => b.dateISO < today).reverse();
+    document.getElementById('roomCountUpcoming').textContent = upcoming.length ? `(${upcoming.length})` : '';
+    const list = roomTab === 'upcoming' ? upcoming : past;
+    if (!list.length){
+      roomBookingsList.innerHTML = `<div class="empty-note">${roomTab === 'upcoming' ? 'Предстоящих броней комнаты нет.' : 'За последнюю неделю броней не было.'}</div>`;
+      return;
+    }
+    let html = '', lastDay = '';
+    list.forEach(b => {
+      if (b.dateISO !== lastDay){ html += `<div class="room-day">${escapeHtml(formatDateHeading(b.dateISO))}</div>`; lastDay = b.dateISO; }
+      const tel = String(b.phone || '').replace(/[^\d+]/g, '');
+      html += `<div class="room-card${roomTab === 'past' ? ' past' : ''}">
+        <div class="room-card-top">
+          <span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span>
+          <span class="room-price">${Number(b.price) || 0} Br · ${roomHoursWord(Number(b.hours) || 0)}</span>
+        </div>
+        <div class="room-who">${escapeHtml(b.name || 'Без имени')} · <a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone || '')}</a></div>
+        ${b.hostGameLabel ? `<span class="room-game">${escapeHtml(b.hostGameLabel)} — цену уточнить</span>` : ''}
+        ${b.comment ? `<div class="room-meta">${escapeHtml(b.comment)}</div>` : ''}
+        ${roomTab === 'upcoming' ? `<button type="button" class="btn-secondary room-cancel" data-date="${escapeHtml(b.dateISO)}" data-id="${escapeHtml(b.bookingId)}">Отменить бронь</button>` : ''}
+      </div>`;
+    });
+    roomBookingsList.innerHTML = html;
+    // Двухшаговое подтверждение прямо на кнопке: первый клик "взводит",
+    // второй (в течение 4 секунд) отменяет — случайно не нажмёшь.
+    roomBookingsList.querySelectorAll('.room-cancel').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!btn.classList.contains('armed')){
+          btn.classList.add('armed'); btn.textContent = 'Точно отменить? Нажмите ещё раз';
+          setTimeout(() => { if (btn.isConnected && btn.classList.contains('armed')){ btn.classList.remove('armed'); btn.textContent = 'Отменить бронь'; } }, 4000);
+          return;
+        }
+        btn.disabled = true; btn.textContent = 'Отменяю…';
+        roomBookingsMsg.textContent = ''; roomBookingsMsg.className = 'modal-msg';
+        try{
+          const res = await fetch('/api/admin/bookings', {
+            method:'POST', headers: authHeaders(),
+            body: JSON.stringify({ action:'cancelRoomBooking', dateISO: btn.dataset.date, bookingId: btn.dataset.id })
+          });
+          const out = await res.json().catch(() => ({}));
+          if (!res.ok){
+            roomBookingsMsg.textContent = out.error || 'Не удалось отменить.'; roomBookingsMsg.className = 'modal-msg err';
+            btn.disabled = false; btn.classList.remove('armed'); btn.textContent = 'Отменить бронь';
+            return;
+          }
+          roomBookingsData = out.roomBookings || [];
+          roomBookingsMsg.textContent = 'Бронь отменена, часы снова свободны.'; roomBookingsMsg.className = 'modal-msg ok';
+          renderRoomBookings();
+        } catch(err){
+          roomBookingsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; roomBookingsMsg.className = 'modal-msg err';
+          btn.disabled = false; btn.classList.remove('armed'); btn.textContent = 'Отменить бронь';
+        }
+      });
+    });
+  }
+  async function loadRoomBookings(){
+    roomBookingsList.innerHTML = '<div class="load-note">Загрузка…</div>';
+    roomBookingsMsg.textContent = ''; roomBookingsMsg.className = 'modal-msg';
+    try{
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'listRoomBookings' }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ roomBookingsList.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить брони комнаты.')}</div>`; return; }
+      roomBookingsData = out.roomBookings || [];
+      renderRoomBookings();
+    } catch(err){
+      roomBookingsList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
+  document.getElementById('roomBookingsBtn').addEventListener('click', () => { roomBookingsOverlay.classList.add('show'); loadRoomBookings(); });
+  document.querySelectorAll('[data-close="roomBookings"]').forEach(b => b.addEventListener('click', () => roomBookingsOverlay.classList.remove('show')));
+  roomBookingsOverlay.addEventListener('click', e => { if (e.target === roomBookingsOverlay) roomBookingsOverlay.classList.remove('show'); });
+  document.querySelectorAll('[data-room-tab]').forEach(t => t.addEventListener('click', () => {
+    roomTab = t.dataset.roomTab;
+    document.querySelectorAll('[data-room-tab]').forEach(x => x.classList.toggle('active', x === t));
+    renderRoomBookings();
+  }));
+
   // ---------- cash register ("Касса") ----------
   const financeOverlay = document.getElementById('financeOverlay');
   const financeBalance = document.getElementById('financeBalance');
@@ -4015,7 +4162,7 @@
       return;
     }
     financeList.innerHTML = list.map(c => `
-      <div class="finance-row" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}" data-label="${escapeHtml(c.label)}" data-amount="${Math.round(c.amount)}">
+      <div class="finance-row" role="button" tabindex="0" title="Подробнее" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}" data-label="${escapeHtml(c.label)}" data-amount="${Math.round(c.amount)}">
         <div class="fr-date">${escapeHtml(c.dateISO)}</div>
         <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${c.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'}</div>
         <div class="fr-label">${escapeHtml(c.label)}</div>
@@ -4023,6 +4170,17 @@
         <button type="button" class="fr-del" title="Удалить">✕</button>
       </div>
     `).join('');
+    // 03.10.2026: клик по записи открывает подробности (полный текст "за
+    // что", сумма, дата, когда внесено) — та же функция, что в staff.html.
+    const byKey = {};
+    list.forEach(c => { byKey[`${c.dateISO}|${c.id}`] = c; });
+    financeList.querySelectorAll('.finance-row').forEach(row => {
+      const open = () => openCashoutDetail(byKey[`${row.dataset.date}|${row.dataset.id}`]);
+      row.addEventListener('click', e => { if (!e.target.closest('.fr-del')) open(); });
+      row.addEventListener('keydown', e => {
+        if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.fr-del')) { e.preventDefault(); open(); }
+      });
+    });
     // 23.09.2026: used to call deleteCashout(row) straight from this click
     // with zero confirmation — the only destructive action in the whole
     // panel that didn't go through the shared confirmOverlay dialog (cancel
@@ -4044,6 +4202,34 @@
       });
     });
   }
+
+  // 03.10.2026: окно подробностей записи кассы (копия из staff.html).
+  const cashoutDetailOverlay = document.getElementById('cashoutDetailOverlay');
+  function formatMinskMoment(iso){
+    const d = new Date(iso);
+    if (!iso || Number.isNaN(d.getTime())) return '';
+    try {
+      const date = d.toLocaleDateString('ru-RU', { timeZone:'Europe/Minsk', day:'numeric', month:'long', year:'numeric' });
+      const time = d.toLocaleTimeString('ru-RU', { timeZone:'Europe/Minsk', hour:'2-digit', minute:'2-digit' });
+      return `${date} в ${time}`;
+    } catch { return d.toLocaleString('ru-RU'); }
+  }
+  function openCashoutDetail(c){
+    if (!c) return;
+    const isPayroll = c.kind === 'payroll';
+    document.getElementById('cashoutDetailTitle').textContent = isPayroll ? 'Выплата ЗП / инкассация' : 'Расход';
+    document.getElementById('cashoutDetailAmount').textContent = `−${Math.round(Number(c.amount) || 0)} Br`;
+    const rows = [
+      ['За что', c.label || 'Без описания'],
+      ['Дата', c.dateISO ? formatDateHeading(c.dateISO) : '—'],
+      ['Внесено', formatMinskMoment(c.createdAt) || 'нет данных (запись старая)'],
+    ];
+    document.getElementById('cashoutDetailGrid').innerHTML =
+      rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('');
+    cashoutDetailOverlay.classList.add('show');
+  }
+  document.getElementById('cashoutDetailClose').addEventListener('click', () => cashoutDetailOverlay.classList.remove('show'));
+  cashoutDetailOverlay.addEventListener('click', e => { if (e.target === cashoutDetailOverlay) cashoutDetailOverlay.classList.remove('show'); });
 
   async function loadFinance(){
     financeList.innerHTML = '<div class="load-note">Загрузка…</div>';
