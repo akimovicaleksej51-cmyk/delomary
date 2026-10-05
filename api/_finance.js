@@ -210,6 +210,19 @@ export async function computeCashRegister(toISO) {
 
   const balance = opening.balance + cashIn - cashOut;
 
+  // 05.10.2026: "на начало смены" / "на конец смены" (owner's request). A
+  // shift here = one business day. Start of shift = what was in the drawer
+  // when today began = end of the previous shift, already net of any
+  // инкассация/расход dated on an earlier day. End of shift = the running
+  // balance right now, including everything recorded for today so far.
+  // Only meaningful once toISO is inside the tracked range; if the anchor
+  // ("точка отсчёта") was set for today itself, start of shift is just the
+  // anchor amount.
+  const [shiftIn, shiftOut, shiftCounts] = dates.includes(toISO)
+    ? await Promise.all([sumCashInForDates([toISO]), sumCashOutForDates([toISO]), getCashCounts(toISO)])
+    : [0, 0, await getCashCounts(toISO)];
+  const shiftStart = balance - shiftIn + shiftOut;
+
   // Recent cashouts for the admin list — a separate, shorter window so the
   // panel doesn't have to render months of history every time it opens.
   const today = parseISO(toISO);
@@ -243,5 +256,226 @@ export async function computeCashRegister(toISO) {
     cashIn,
     cashOut,
     recentCashouts: recentCashouts.slice(0, 50),
+    shift: {
+      dateISO: toISO,
+      start: shiftStart,
+      cashIn: shiftIn,
+      cashOut: shiftOut,
+      end: balance,
+      counts: shiftCounts,
+    },
   };
+}
+
+// ============================================================================
+// 05.10.2026: "куда делись 180 Br" — shift start/end, cash counts, and a
+// day-by-day ledger (owner's request).
+//
+// Data model additions:
+//   cashcount:<ISO date>    STRING, JSON array of physical cash counts done
+//                            that day: [{ id, amount, expected, at, note }]
+//                            `expected` is what Касса computed at the moment
+//                            of counting, so the difference stays exactly
+//                            what the person saw, even if records are edited
+//                            later.
+//   cashRegisterOpeningLog  STRING, JSON array (newest last, capped) of every
+//                            "точка отсчёта" change: { at, sinceDateISO,
+//                            balance, computedBefore } — `computedBefore` is
+//                            what the register said the drawer held at the
+//                            start of that day just BEFORE it was overwritten.
+//                            Re-setting the anchor used to leave no trace at
+//                            all, which is exactly the kind of thing that makes
+//                            a shortfall impossible to find afterwards.
+// ============================================================================
+
+const CASHCOUNT_TTL_SECONDS = 60 * 60 * 24 * 400;
+const OPENING_LOG_KEY = 'cashRegisterOpeningLog';
+const OPENING_LOG_MAX = 100;
+const LEDGER_MAX_DAYS = 62;
+
+export async function getCashCounts(dateISO) {
+  const raw = await kv('get', `cashcount:${dateISO}`);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveCashCounts(dateISO, list) {
+  const key = `cashcount:${dateISO}`;
+  if (!list.length) {
+    await kv('del', key);
+    return;
+  }
+  await kv('set', key, JSON.stringify(list));
+  await kv('expire', key, CASHCOUNT_TTL_SECONDS);
+}
+
+export async function getOpeningLog() {
+  const raw = await kv('get', OPENING_LOG_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function appendOpeningLog(entry) {
+  const list = await getOpeningLog();
+  list.push(entry);
+  await kv('set', OPENING_LOG_KEY, JSON.stringify(list.slice(-OPENING_LOG_MAX)));
+}
+
+function prevISO(iso) {
+  const d = parseISO(iso);
+  d.setDate(d.getDate() - 1);
+  return isoDate(d);
+}
+
+// What the register says was in the drawer at the START of dateISO, under the
+// CURRENT anchor — or null if that day is before the tracked range.
+export async function balanceAtStartOf(dateISO) {
+  const opening = await getOpeningBalance();
+  if (dateISO < opening.sinceDateISO) return null;
+  if (dateISO === opening.sinceDateISO) return opening.balance;
+  const state = await computeCashRegister(prevISO(dateISO));
+  return state.balance;
+}
+
+function cashInEntry(record, timeKey, where) {
+  const amount = toAmount(record.payCash);
+  if (!amount) return null; // negative = a refund typed in as minus — still counted, like the register does
+  if (record.type !== 'customer' || record.status === 'rescheduled') return null;
+  const cancelled = record.status === 'cancelled';
+  return {
+    time: record.time || String(timeKey).split('@')[0],
+    name: record.name || '',
+    phone: record.phone || '',
+    amount,
+    price: toAmount(record.price),
+    payCard: toAmount(record.payCard),
+    payErip: toAmount(record.payErip),
+    channel: record.channel || '',
+    status: cancelled ? 'cancelled' : 'active',
+    where,
+    key: String(timeKey), // hash field — lets Бухгалтерия fix a cancelled booking's cash
+    // A cancelled booking still counts in Касса on purpose (cash already
+    // taken isn't un-collected by a cancel) — but if the money was handed
+    // back, or the same client was simply re-booked as a NEW booking with
+    // the cash entered again, the register now expects money that isn't in
+    // the drawer. The single most likely cause of an unexplained shortfall,
+    // so it's flagged loudly in the ledger.
+    warning: cancelled ? 'cancelled-with-cash' : '',
+  };
+}
+
+// Day-by-day ledger for [fromISO, toISO] (clamped to today and to
+// LEDGER_MAX_DAYS), using EXACTLY the same rules as computeCashRegister so the
+// last day's closing always equals the Касса balance.
+export async function buildCashLedger(fromISO, toISO, todayISOValue) {
+  const lastISO = toISO > todayISOValue ? todayISOValue : toISO;
+  if (fromISO > lastISO) return { days: [], anchor: await getOpeningBalance(), openingLog: await getOpeningLog() };
+
+  const range = [];
+  {
+    const end = parseISO(lastISO);
+    const start = parseISO(fromISO);
+    const total = Math.round((end - start) / 86400000) + 1;
+    const n = Math.min(total, LEDGER_MAX_DAYS);
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(end);
+      d.setDate(d.getDate() - i);
+      range.push(isoDate(d));
+    }
+  }
+
+  const [opening, openingLog] = await Promise.all([getOpeningBalance(), getOpeningLog()]);
+  // The set of days the register actually sums over, computed exactly like
+  // computeCashRegister(today) does.
+  const regDates = datesFromAnchor(opening.sinceDateISO, todayISOValue);
+  const regStart = regDates.length ? regDates[0] : todayISOValue;
+  const tracked = (iso) => iso >= regStart && iso <= todayISOValue;
+
+  // Balance at the start of the first tracked day in range.
+  const firstTracked = range.find(tracked);
+  let running = null;
+  if (firstTracked) {
+    const before = regDates.filter((iso) => iso < firstTracked);
+    const [inBefore, outBefore] = await Promise.all([sumCashInForDates(before), sumCashOutForDates(before)]);
+    running = opening.balance + inBefore - outBefore;
+  }
+
+  const [bookingRes, historyRes, cashoutRes, countRes] = await Promise.all([
+    kvPipeline(range.map((iso) => ['HGETALL', `bookings:${iso}`])),
+    kvPipeline(range.map((iso) => ['HGETALL', `history:${iso}`])),
+    kvPipeline(range.map((iso) => ['GET', `cashouts:${iso}`])),
+    kvPipeline(range.map((iso) => ['GET', `cashcount:${iso}`])),
+  ]);
+
+  const days = range.map((iso, i) => {
+    const ins = [];
+    [[bookingRes, 'bookings'], [historyRes, 'history']].forEach(([resArr, where]) => {
+      const obj = pairsToObject(resArr && resArr[i] && resArr[i].result);
+      Object.entries(obj).forEach(([key, raw]) => {
+        try {
+          const e = cashInEntry(JSON.parse(raw), key, where);
+          if (e) ins.push(e);
+        } catch { /* skip malformed */ }
+      });
+    });
+    ins.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
+    let outs = [];
+    try {
+      const raw = cashoutRes && cashoutRes[i] && cashoutRes[i].result;
+      const arr = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(arr)) {
+        outs = arr.map((c) => ({
+          id: c.id, kind: c.kind === 'payroll' ? 'payroll' : 'expense', label: c.label || '',
+          amount: toAmount(c.amount), createdAt: c.createdAt || '',
+        }));
+      }
+    } catch { /* skip */ }
+    outs.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+
+    let counts = [];
+    try {
+      const raw = countRes && countRes[i] && countRes[i].result;
+      const arr = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(arr)) counts = arr;
+    } catch { /* skip */ }
+
+    const cashIn = ins.reduce((sum, e) => sum + e.amount, 0);
+    const cashOut = outs.reduce((sum, e) => sum + e.amount, 0);
+    const isTracked = tracked(iso);
+    const anchorEvents = openingLog.filter((l) => l.sinceDateISO === iso);
+    let openingBal = null;
+    let closingBal = null;
+    if (isTracked && running != null) {
+      openingBal = running;
+      closingBal = running + cashIn - cashOut;
+      running = closingBal;
+    }
+    return {
+      dateISO: iso,
+      tracked: isTracked,
+      isAnchorDay: iso === opening.sinceDateISO,
+      opening: openingBal,
+      closing: closingBal,
+      cashIn,
+      cashOut,
+      ins,
+      outs,
+      counts,
+      anchorEvents,
+      warnings: ins.filter((e) => e.warning).length,
+    };
+  });
+
+  return { days, anchor: opening, regStart, openingLog };
 }

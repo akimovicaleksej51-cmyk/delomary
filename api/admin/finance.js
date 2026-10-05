@@ -15,6 +15,17 @@
 //       Logs a cash outflow on that date. kind is 'expense' or 'payroll'.
 //   { action:'deleteCashout', dateISO, id }
 //       Removes one previously-logged cashout.
+// 05.10.2026 additions (owner's request — "потерялись 180 Br"):
+//   GET ?ledger=1&from=<ISO>&to=<ISO>
+//       Day-by-day cash ledger for Бухгалтерия: start/end of every shift,
+//       every booking's cash and every расход/ЗП/инкассация behind those
+//       numbers, physical counts, "точка отсчёта" changes. See
+//       buildCashLedger() in ../_finance.js.
+//   { action:'addCashCount', amount, note }
+//       Records a physical count of the drawer right now, together with what
+//       Касса expected at that moment.
+//   { action:'deleteCashCount', dateISO, id }
+//
 //   { action:'setOpening', balance, sinceDateISO }
 //       Re-anchors the running balance: "as of this date, the register had
 //       this much cash" — everything up to and including sinceDateISO is
@@ -29,7 +40,13 @@ import {
   setOpeningBalance,
   computeCashRegister,
   toAmount,
+  getCashCounts,
+  saveCashCounts,
+  buildCashLedger,
+  balanceAtStartOf,
+  appendOpeningLog,
 } from '../_finance.js';
+import { kv } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
 
@@ -62,6 +79,15 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Неверный пароль.' });
   }
   await clearAttempts(ip);
+
+  if (req.method === 'GET' && req.query && String(req.query.ledger) === '1') {
+    const today = todayISO();
+    const toISO = isValidDateISO(req.query.to) ? req.query.to : today;
+    const fromISO = isValidDateISO(req.query.from) ? req.query.from : toISO;
+    if (fromISO > toISO) return res.status(400).json({ error: 'Некорректный период.' });
+    const ledger = await buildCashLedger(fromISO, toISO, today);
+    return res.status(200).json({ ok: true, today, ...ledger });
+  }
 
   if (req.method === 'GET') {
     const toISO = isValidDateISO(req.query && req.query.to) ? req.query.to : todayISO();
@@ -104,12 +130,91 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, ...state });
     }
 
+    if (body.action === 'addCashCount') {
+      const raw = body.amount;
+      const amount = toAmount(raw);
+      if (raw == null || String(raw).trim() === '' || !/\d/.test(String(raw)) || amount < 0) {
+        return res.status(400).json({ error: 'Укажите, сколько денег фактически в кассе.' });
+      }
+      const today = todayISO();
+      const before = await computeCashRegister(today);
+      const list = await getCashCounts(today);
+      list.push({
+        id: genId(),
+        amount,
+        expected: before.balance,
+        at: new Date().toISOString(),
+        note: typeof body.note === 'string' ? body.note.trim().slice(0, 200) : '',
+      });
+      await saveCashCounts(today, list);
+      const state = await computeCashRegister(today);
+      return res.status(200).json({ ok: true, ...state });
+    }
+
+    if (body.action === 'deleteCashCount') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const id = typeof body.id === 'string' ? body.id : '';
+      if (!cleanDateISO || !id) {
+        return res.status(400).json({ error: 'Некорректный запрос.' });
+      }
+      const list = await getCashCounts(cleanDateISO);
+      await saveCashCounts(cleanDateISO, list.filter((c) => c.id !== id));
+      const state = await computeCashRegister(todayISO());
+      return res.status(200).json({ ok: true, ...state });
+    }
+
+    // 05.10.2026: a CANCELLED booking keeps its payCash in history:<date>, and
+    // Касса keeps counting it (on purpose — cancelling doesn't un-collect
+    // cash). But if the money was actually handed back, or the client was
+    // re-booked as a new booking with the cash entered again, there was no
+    // way at all to correct it: the booking edit form only works on ACTIVE
+    // bookings. So the register kept expecting money that isn't in the
+    // drawer, forever. This removes the cash from that one cancelled record
+    // (keeping the old amount on it for the record) — Бухгалтерия shows a
+    // button for it next to every flagged entry.
+    if (body.action === 'clearCancelledCash') {
+      const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const key = typeof body.key === 'string' ? body.key.slice(0, 80) : '';
+      if (!cleanDateISO || !key) return res.status(400).json({ error: 'Некорректный запрос.' });
+      const hashKey = `history:${cleanDateISO}`;
+      const raw = await kv('hget', hashKey, key);
+      let record = null;
+      try { record = raw ? JSON.parse(raw) : null; } catch { record = null; }
+      if (!record || record.type !== 'customer' || record.status !== 'cancelled') {
+        return res.status(404).json({ error: 'Отменённая бронь не найдена.' });
+      }
+      if (!toAmount(record.payCash)) {
+        return res.status(200).json({ ok: true, alreadyClear: true });
+      }
+      const updated = {
+        ...record,
+        payCashRemoved: record.payCash,
+        payCashRemovedAt: new Date().toISOString(),
+        payCash: '',
+      };
+      await kv('hset', hashKey, key, JSON.stringify(updated));
+      const state = await computeCashRegister(todayISO());
+      return res.status(200).json({ ok: true, ...state });
+    }
+
     if (body.action === 'setOpening') {
       const cleanDateISO = isValidDateISO(body.sinceDateISO) ? body.sinceDateISO : '';
       if (!cleanDateISO) {
         return res.status(400).json({ error: 'Укажите дату для точки отсчёта.' });
       }
+      // 05.10.2026: remember what the register said right before the anchor
+      // is overwritten, so Бухгалтерия can show "здесь точку отсчёта
+      // переставили: по расчёту было X, поставили Y" instead of the old
+      // history silently vanishing.
+      let computedBefore = null;
+      try { computedBefore = await balanceAtStartOf(cleanDateISO); } catch { computedBefore = null; }
       await setOpeningBalance(body.balance, cleanDateISO);
+      await appendOpeningLog({
+        at: new Date().toISOString(),
+        sinceDateISO: cleanDateISO,
+        balance: toAmount(body.balance),
+        computedBefore,
+      });
       const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });
     }
