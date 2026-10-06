@@ -488,6 +488,7 @@
   .finance-row .fr-date{font-size:12px; color:var(--muted); flex:0 0 70px;}
   .finance-row .fr-kind{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:3px 8px; border-radius:999px; flex-shrink:0;}
   .finance-row .fr-kind.expense{background:rgba(229,72,77,.18); color:var(--danger-bright);}
+  .finance-kind-hint{font-size:12px; opacity:.65; margin-top:8px; line-height:1.4;}
   .finance-row .fr-kind.payroll{background:rgba(91,155,213,.18); color:var(--info-bright);}
   .finance-row .fr-label{flex:1; min-width:0; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .finance-row .fr-amount{font-weight:800; color:var(--paper); font-size:13.5px; flex-shrink:0;}
@@ -788,8 +789,8 @@
 </div>
 
 <!-- 06.10.2026: актёр сам видит свои игры, за какие ещё не получил ЗП, и
-     отмечает, за какие забирает деньги. Запись уходит в Кассу как ЗП, в
-     Бухгалтерию менеджерам и сообщением в Телеграм. -->
+     отмечает, за какие забирает деньги. Запись уходит в Кассу как ЗП и в
+     Бухгалтерию менеджерам (06.10.2026, обн. 91: без сообщения в Телеграм). -->
 <div class="modal-overlay" id="myPayOverlay">
   <div class="modal-box" style="max-width:560px;">
     <button class="modal-close-x" data-close="myPay">✕</button>
@@ -873,14 +874,15 @@
       <button class="btn-secondary" id="financeOpeningSave" style="margin-top:10px;">Сохранить точку отсчёта</button>
     </details>
 
-    <h3 style="font-size:14px; margin:22px 0 12px;">Добавить расход или выплату</h3>
+    <h3 style="font-size:14px; margin:22px 0 12px;">Добавить расход или инкассацию</h3>
     <div class="type-toggle" id="financeKindToggle">
       <button type="button" class="type-toggle-btn active" data-kind="expense">Расход</button>
-      <button type="button" class="type-toggle-btn" data-kind="payroll">Зарплата / инкассация</button>
+      <button type="button" class="type-toggle-btn" data-kind="payroll">Инкассация</button>
     </div>
+    <div class="finance-kind-hint">Зарплату здесь больше не записываем — её отмечают через кнопку «Мои игры и ЗП».</div>
     <div class="pay-split" style="margin-top:12px;">
       <div class="pay-split-item" style="flex:0 0 140px;"><span>Дата</span><input type="date" id="financeCashoutDate"></div>
-      <div class="pay-split-item" style="flex:1;"><span>Описание</span><input type="text" id="financeCashoutLabel" placeholder="Например: реквизит, ЗП Ивану"></div>
+      <div class="pay-split-item" style="flex:1;"><span>Описание</span><input type="text" id="financeCashoutLabel" placeholder="Например: вода, стаканчики, реквизит"></div>
       <div class="pay-split-item" style="flex:0 0 110px;"><span>Сумма, Br</span><input type="text" id="financeCashoutAmount" inputmode="numeric" placeholder="0"></div>
     </div>
     <button class="btn" id="financeCashoutAdd" style="margin-top:10px;">Записать</button>
@@ -2199,11 +2201,22 @@
   const financeBalanceSub = document.getElementById('financeBalanceSub');
   const financeList = document.getElementById('financeList');
   const financeMsg = document.getElementById('financeMsg');
+  // 06.10.2026 (update 91): в Кассе вручную пишутся только расходы и
+  // инкассации; ЗП отмечается через «Мои игры и ЗП» / Бухгалтерию (там она
+  // привязана к человеку и играм). Старые ручные записи «ЗП Ивану» без
+  // привязки по-прежнему показываются как ЗП.
+  function cashKindLabel(c){
+    if (!c || c.kind !== 'payroll') return 'Расход';
+    if (c.actor || /^\s*(зп|з\/п|зарплат)/i.test(c.label || '')) return 'ЗП';
+    return 'Инкассация';
+  }
   let financeKind = 'expense';
 
   document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       financeKind = btn.dataset.kind;
+      const lblInput = document.getElementById('financeCashoutLabel');
+      if (lblInput) lblInput.placeholder = financeKind === 'payroll' ? 'Например: инкассация владельцу' : 'Например: вода, стаканчики, реквизит';
       document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
     });
   });
@@ -2233,7 +2246,7 @@
     financeList.innerHTML = list.map(c => `
       <div class="finance-row" role="button" tabindex="0" title="Подробнее" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}">
         <div class="fr-date">${escapeHtml(c.dateISO)}</div>
-        <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${c.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'}</div>
+        <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${cashKindLabel(c)}</div>
         <div class="fr-label">${escapeHtml(c.label)}</div>
         <div class="fr-amount">−${Math.round(c.amount)} Br</div>
         <button type="button" class="fr-del" title="Удалить">✕</button>
@@ -2291,7 +2304,7 @@
   function openCashoutDetail(c){
     if (!c) return;
     const isPayroll = c.kind === 'payroll';
-    document.getElementById('cashoutDetailTitle').textContent = isPayroll ? 'Выплата ЗП / инкассация' : 'Расход';
+    document.getElementById('cashoutDetailTitle').textContent = !isPayroll ? 'Расход' : cashKindLabel(c) === 'ЗП' ? `Выплата ЗП${c.actor ? ' · ' + c.actor : ''}` : 'Инкассация';
     document.getElementById('cashoutDetailAmount').textContent = `−${Math.round(Number(c.amount) || 0)} Br`;
     const rows = [
       ['За что', c.label || 'Без описания'],
@@ -2373,7 +2386,7 @@
   // у менеджеров (имя в брони или, если не вписано, расписание смен), за
   // последние 60 дней. Выплата записывается в Кассу как ЗП, привязанная к
   // конкретным играм, с пометкой "отметил сам" — её видно менеджерам в
-  // Бухгалтерии, и им приходит сообщение в Телеграм.
+  // Бухгалтерии (сообщение в Телеграм убрано 06.10.2026, обн. 91).
   const myPayOverlay = document.getElementById('myPayOverlay');
   const myPayName = document.getElementById('myPayName');
   const myPayBody = document.getElementById('myPayBody');
@@ -2422,7 +2435,7 @@
     const dayRows = days.map(d => {
       const gs = byDay[d];
       const unpaidKeys = gs.filter(g => !paidBy[`${d}|${g.time}`]).map(g => `${d}|${g.time}`);
-      const paidDates = [...new Set(gs.filter(g => paidBy[`${d}|${g.time}`]).map(g => paidBy[`${d}|${g.time}`].dateISO))].map(mpShort).join(', ');
+      const paidDates = [...new Set(gs.filter(g => paidBy[`${d}|${g.time}`]).map(g => { const p = paidBy[`${d}|${g.time}`]; return p.settled ? 'ранее' : mpShort(p.dateISO); }))].join(', ');
       const status = !unpaidKeys.length ? `<span class="mp-paid">✓ получено ${escapeHtml(paidDates)}</span>`
         : unpaidKeys.length < gs.length ? `<span class="mp-unpaid">не получено ${unpaidKeys.length} из ${gs.length}</span>`
         : '<span class="mp-unpaid">не получено</span>';
@@ -2434,6 +2447,7 @@
     }).join('');
     const payRows = pays.length ? pays.map(p => {
       const ds = [...new Set((p.paidGames || []).map(k => k.split('|')[0]))].sort();
+      if (p.settled) return `<div class="mp-payout"><b>Получено ранее</b> — ${mpGames((p.paidGames || []).length)} за ${escapeHtml(ds.length > 6 ? `${mpShort(ds[0])} – ${mpShort(ds[ds.length - 1])}` : ds.map(mpShort).join(', '))}</div>`;
       return `<div class="mp-payout">${escapeHtml(mpShort(p.dateISO))}: <b>${mpAmt(p.amount)} Br</b> — за ${ds.length ? escapeHtml(ds.map(mpShort).join(', ')) : '—'} (${mpGames((p.paidGames || []).length)})${p.selfReported ? '<span class="mp-self">отметили сами</span>' : ''}</div>`;
     }).join('') : '<div class="mp-hint">Выплат с отметкой дней пока не было.</div>';
 
@@ -2449,7 +2463,7 @@
           <div class="pay-split-item" style="flex:1;"><span>Сколько забираете из кассы, Br</span><input type="text" id="myPayAmount" inputmode="decimal" placeholder="0"></div>
         </div>
         <button type="button" class="btn" id="myPaySubmit">Забираю ЗП за отмеченные</button>
-        <div class="mp-hint">Отметьте галочками игры, за которые берёте деньги, и впишите сумму. Запись появится в Кассе как «ЗП», менеджеры увидят её в Бухгалтерии и получат сообщение в Телеграм. Ошиблись — попросите менеджера удалить запись.</div>
+        <div class="mp-hint">Отметьте галочками игры, за которые берёте деньги, и впишите сумму. Запись появится в Кассе как «ЗП», менеджеры увидят её в Бухгалтерии. Ошиблись — попросите менеджера удалить запись.</div>
         <div class="modal-msg" id="myPayMsg"></div>
       </div>` : (games.length ? '<div class="mp-hint" style="margin-top:12px;">Все игры за последние 60 дней уже оплачены ✓</div>' : '')}
       <div class="mp-sect">Мои выплаты</div>${payRows}
@@ -2491,7 +2505,7 @@
         const m = document.getElementById('myPayMsg') || null;
         const note = document.createElement('div');
         note.className = 'modal-msg ok';
-        note.textContent = `Записано: ${mpAmt(amount)} Br за ${mpGames(keys.length)}. Менеджеры получили уведомление.`;
+        note.textContent = `Записано: ${mpAmt(amount)} Br за ${mpGames(keys.length)}. Запись видна в Кассе и в Бухгалтерии.`;
         myPayBody.prepend(note);
         if (m) m.textContent = '';
       } catch(err){

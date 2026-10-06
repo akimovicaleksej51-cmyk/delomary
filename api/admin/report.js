@@ -24,7 +24,7 @@
 //   server instead.
 
 import { kv, kvPipeline, pairsToObject } from '../_kv.js';
-import { toAmount } from '../_finance.js';
+import { toAmount, getSettledMarkers } from '../_finance.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO, businessDateTime } from '../_time.js';
 import { getActorsMap, resolveActorUsernamesForSlotSync } from '../_reminders.js';
@@ -353,7 +353,19 @@ export default async function handler(req, res) {
           selfReported: !!c.selfReported,
         };
         if (c.actor) (payoutsOut[c.actor] = payoutsOut[c.actor] || []).push(item);
-        else unlinkedPayroll.push(item);
+        // Update 91: инкассации (payroll without a person, not named "ЗП…")
+        // aren't salaries — keep them out of "ЗП без привязки к дням".
+        else if (/(^|[\s(«"])(зп|з\/п|зарплат)/i.test(item.label)) unlinkedPayroll.push(item);
+      });
+    });
+    // 06.10.2026 (update 91): games marked "уже выплачено ранее" — no money
+    // moved, the register isn't affected.
+    (await getSettledMarkers()).forEach((m) => {
+      if (!m || !m.actor || !Array.isArray(m.paidGames)) return;
+      (payoutsOut[m.actor] = payoutsOut[m.actor] || []).push({
+        id: m.id, dateISO: m.dateISO || String(m.createdAt || '').slice(0, 10) || today, amount: 0,
+        label: m.label || 'Отмечено как выплаченное ранее', createdAt: m.createdAt || '',
+        paidGames: m.paidGames, selfReported: false, settled: true,
       });
     });
   }

@@ -12,7 +12,8 @@
 //                          collection ("инкассация") payout, both of which
 //                          remove physical cash from the register:
 //                          [{ id, kind:'expense'|'payroll', label, amount,
-//                             createdAt }]
+//                             createdAt, actor?, paidGames?, selfReported? }]
+//                          kind 'payroll' = ЗП (with actor) or инкассация.
 //                          `amount` is always a positive number — `kind`
 //                          just says whether it was an expense or a payout;
 //                          the register only cares that cash left.
@@ -437,7 +438,7 @@ export async function buildCashLedger(fromISO, toISO, todayISOValue) {
       if (Array.isArray(arr)) {
         outs = arr.map((c) => ({
           id: c.id, kind: c.kind === 'payroll' ? 'payroll' : 'expense', label: c.label || '',
-          amount: toAmount(c.amount), createdAt: c.createdAt || '',
+          amount: toAmount(c.amount), createdAt: c.createdAt || '', actor: c.actor || '',
         }));
       }
     } catch { /* skip */ }
@@ -484,6 +485,34 @@ export async function buildCashLedger(fromISO, toISO, todayISOValue) {
 // for this person, looking back `days` days from todayISOValue. Used to stop
 // the same games being paid twice — e.g. an actor marks "забрал ЗП" in
 // staff.html while a manager pays the same days from admin.html.
+// 06.10.2026 (update 91): "все деньги уже забирали" — games that were paid
+// out BEFORE payouts were tracked per game. They're marked as paid WITHOUT
+// touching the register (the cash left long ago and is already reflected in
+// the balance), so they live in their own key instead of cashouts:<date>:
+//   payrollSettled  STRING, JSON array of
+//                   [{ id, actor, paidGames:["YYYY-MM-DD|HH:MM",...], createdAt, label }]
+const SETTLED_KEY = 'payrollSettled';
+
+export async function getSettledMarkers() {
+  const raw = await kv('get', SETTLED_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveSettledMarkers(list) {
+  if (!list.length) {
+    await kv('del', SETTLED_KEY);
+    return;
+  }
+  const res = await kv('set', SETTLED_KEY, JSON.stringify(list));
+  if (res == null) throw new Error('KV write failed');
+}
+
 export async function getPaidGamesForActor(actor, todayISOValue, days = 120) {
   const dates = [];
   const end = parseISO(todayISOValue);
@@ -505,6 +534,9 @@ export async function getPaidGamesForActor(actor, todayISOValue, days = 120) {
         });
       }
     } catch { /* skip */ }
+  });
+  (await getSettledMarkers()).forEach((m) => {
+    if (m && m.actor === actor && Array.isArray(m.paidGames)) m.paidGames.forEach((k) => paid.add(k));
   });
   return paid;
 }

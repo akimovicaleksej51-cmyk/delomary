@@ -471,6 +471,14 @@
   .ap-payform .btn{width:auto;}
   .ap-note{font-size:12px; color:var(--muted); margin-top:8px;}
   .ap-payout{font-size:13px; padding:4px 0;}
+  .ap-settleall{display:flex; flex-direction:column; gap:10px; padding:14px 16px; margin-bottom:14px; border-radius:14px; border:1px dashed rgba(245,197,24,.35); background:rgba(245,197,24,.05); font-size:13px; line-height:1.45;}
+  .ap-settleall .btn-secondary{align-self:flex-start;}
+  .ap-settleall .btn-secondary.armed, .ap-settlebtn.armed{border-color:var(--ochre-bright); color:var(--ochre-bright);}
+  .ap-settlebtn{margin-top:8px; background:none; border:1px solid rgba(255,255,255,.14); color:inherit; border-radius:10px; padding:7px 12px; font:inherit; font-size:12.5px; cursor:pointer; opacity:.85;}
+  .ap-settlebtn:hover{opacity:1;}
+  .ap-settled{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:2px 7px; border-radius:999px; background:rgba(120,200,140,.14); color:#8fd6a2;}
+  .ap-unsettle{margin-left:6px; background:none; border:1px solid rgba(255,255,255,.14); color:inherit; opacity:.7; border-radius:8px; padding:1px 7px; font:inherit; font-size:11.5px; cursor:pointer;}
+  .ap-unsettle.armed{opacity:1; border-color:#e07a6a; color:#e07a6a;}
   .ap-self{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:2px 7px; border-radius:999px; background:rgba(245,197,24,.14); color:var(--ochre-bright);}
   .ap-payout.muted{color:var(--muted);}
   .ap-unlinked{margin-top:10px; font-size:13px; color:var(--muted);}
@@ -730,6 +738,7 @@
   .finance-row .fr-date{font-size:12px; color:var(--muted); flex:0 0 70px;}
   .finance-row .fr-kind{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:3px 8px; border-radius:999px; flex-shrink:0;}
   .finance-row .fr-kind.expense{background:rgba(229,72,77,.18); color:var(--danger-bright);}
+  .finance-kind-hint{font-size:12px; opacity:.65; margin-top:8px; line-height:1.4;}
   .finance-row .fr-kind.payroll{background:rgba(91,155,213,.18); color:var(--info-bright);}
   .finance-row .fr-label{flex:1; min-width:0; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .finance-row .fr-amount{font-weight:800; color:var(--paper); font-size:13.5px; flex-shrink:0;}
@@ -1305,14 +1314,15 @@
       <button class="btn-secondary" id="financeOpeningSave" style="margin-top:10px;">Сохранить точку отсчёта</button>
     </details>
 
-    <h3 style="font-size:14px; margin:22px 0 12px;">Добавить расход или выплату</h3>
+    <h3 style="font-size:14px; margin:22px 0 12px;">Добавить расход или инкассацию</h3>
     <div class="type-toggle" id="financeKindToggle">
       <button type="button" class="type-toggle-btn active" data-kind="expense">Расход</button>
-      <button type="button" class="type-toggle-btn" data-kind="payroll">Зарплата / инкассация</button>
+      <button type="button" class="type-toggle-btn" data-kind="payroll">Инкассация</button>
     </div>
+    <div class="finance-kind-hint">Зарплату здесь больше не записываем: её отмечают сами актёры в «Мои игры и ЗП» или вы — в Бухгалтерии, в блоке «Кто сколько отыграл».</div>
     <div class="pay-split" style="margin-top:12px;">
       <div class="pay-split-item" style="flex:0 0 140px;"><span>Дата</span><input type="date" id="financeCashoutDate"></div>
-      <div class="pay-split-item" style="flex:1;"><span>Описание</span><input type="text" id="financeCashoutLabel" placeholder="Например: реквизит, ЗП Ивану"></div>
+      <div class="pay-split-item" style="flex:1;"><span>Описание</span><input type="text" id="financeCashoutLabel" placeholder="Например: вода, стаканчики, реквизит"></div>
       <div class="pay-split-item" style="flex:0 0 110px;"><span>Сумма, Br</span><input type="text" id="financeCashoutAmount" inputmode="numeric" placeholder="0"></div>
     </div>
     <button class="btn" id="financeCashoutAdd" style="margin-top:10px;">Записать</button>
@@ -3588,13 +3598,72 @@
 
   // ---------- 06.10.2026: кто сколько отыграл — по дням, и за какие дни уже выплачено ----------
   const actorPayOpen = new Set();
+  // 06.10.2026 (update 91): "все деньги уже забирали" — one button marks every
+  // unpaid game of every person (last ~3 months up to today) as "выплачено
+  // ранее" without touching Касса. Two clicks: the first one counts what
+  // would be marked and asks to confirm.
+  let settleAllPlan = null;
+  function bindSettleAll(){
+    const btn = document.getElementById('apSettleAllBtn');
+    const msg = document.getElementById('apSettleAllMsg');
+    if (!btn) return;
+    settleAllPlan = null;
+    const gw = (n) => { const m10 = n % 10, m100 = n % 100; return n + (m10 === 1 && m100 !== 11 ? ' игра' : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? ' игры' : ' игр'); };
+    btn.addEventListener('click', async () => {
+      msg.className = 'modal-msg'; msg.textContent = '';
+      if (!settleAllPlan){
+        btn.disabled = true; btn.textContent = 'Считаю…';
+        try{
+          const res = await fetch(`/api/admin/report?to=${todayISO()}&days=92&actorDetails=1`, { headers: authHeaders() });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'Не удалось загрузить игры.');
+          const today = todayISO();
+          const items = [];
+          Object.entries(data.actorGames || {}).forEach(([actor, list]) => {
+            const paid = new Set();
+            ((data.actorPayouts || {})[actor] || []).forEach(p => (p.paidGames || []).forEach(k => paid.add(k)));
+            const games = [...new Set(list.map(g => `${g.dateISO}|${g.time}`))].filter(k => k.slice(0, 10) <= today && !paid.has(k));
+            if (games.length) items.push({ actor, games });
+          });
+          const total = items.reduce((sum, it) => sum + it.games.length, 0);
+          btn.disabled = false;
+          if (!total){ btn.textContent = 'Отметить всё прошлое как выплаченное'; msg.textContent = 'Невыплаченных игр нет — всё уже отмечено.'; msg.className = 'modal-msg ok'; return; }
+          settleAllPlan = items;
+          btn.textContent = `Подтвердить: ${gw(total)} у ${items.length} чел.`;
+          btn.classList.add('armed');
+          msg.textContent = items.map(it => `${it.actor} — ${gw(it.games.length)}`).join(' · ');
+        } catch(err){
+          btn.disabled = false; btn.textContent = 'Отметить всё прошлое как выплаченное';
+          msg.textContent = err.message || 'Ошибка сети.'; msg.className = 'modal-msg err';
+        }
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Сохраняю…';
+      try{
+        const res = await fetch('/api/admin/finance', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'settleUnpaid', items: settleAllPlan }) });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(out.error || 'Не удалось сохранить.');
+        await loadReport();
+        const m2 = document.getElementById('apSettleAllMsg');
+        if (m2){ m2.textContent = `Готово: ${gw(out.settledGames || 0)} отмечено как выплаченные ранее. Касса не менялась.`; m2.className = 'modal-msg ok'; }
+      } catch(err){
+        settleAllPlan = null; btn.disabled = false; btn.classList.remove('armed'); btn.textContent = 'Отметить всё прошлое как выплаченное';
+        msg.textContent = err.message || 'Ошибка сети.'; msg.className = 'modal-msg err';
+      }
+    });
+  }
   function renderActorPay(data){
     const box = document.getElementById('actorPayBox');
     if (!box) return;
     const games = data.actorGames || {};
     const payouts = data.actorPayouts || {};
     const names = Object.keys(data.actors || {}).sort((a, b) => (data.actors[b] || 0) - (data.actors[a] || 0));
-    if (!names.length){ box.innerHTML = '<div class="stats-empty">Нет данных</div>'; return; }
+    const settleAllHtml = `<div class="ap-settleall">
+        <div><b>Все прошлые ЗП уже выданы?</b> Одной кнопкой отметить все невыплаченные игры всех людей (за последние 3 месяца, по сегодня) как «выплачено ранее». Касса при этом не меняется.</div>
+        <button type="button" class="btn-secondary" id="apSettleAllBtn">Отметить всё прошлое как выплаченное</button>
+        <div class="modal-msg" id="apSettleAllMsg"></div>
+      </div>`;
+    if (!names.length){ box.innerHTML = settleAllHtml + '<div class="stats-empty">Нет данных</div>'; bindSettleAll(); return; }
     const amt = (v) => { const n = Math.round(Number(v) * 100) / 100; return Number.isInteger(n) ? String(n) : n.toFixed(2); };
     const shortDate = (iso) => { const d = parseISO(iso); return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`; };
     const gamesWord = (n) => { const m10 = n % 10, m100 = n % 100; return n + (m10 === 1 && m100 !== 11 ? ' игра' : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? ' игры' : ' игр'); };
@@ -3613,7 +3682,7 @@
       const dayRows = daysSorted.map(d => {
         const gs = byDay[d];
         const gsPaid = gs.filter(g => paidBy[`${d}|${g.time}`]);
-        const whenPaid = [...new Set(gsPaid.map(g => paidBy[`${d}|${g.time}`].dateISO))].map(shortDate).join(', ');
+        const whenPaid = [...new Set(gsPaid.map(g => { const p = paidBy[`${d}|${g.time}`]; return p.settled ? 'ранее' : shortDate(p.dateISO); }))].join(', ');
         let status;
         if (gsPaid.length === gs.length) status = `<span class="ap-paid">✓ выплачено ${escapeHtml(whenPaid)}</span>`;
         else if (gsPaid.length) status = `<span class="ap-part">частично: ${gsPaid.length} из ${gs.length} (выплачено ${escapeHtml(whenPaid)})</span>`;
@@ -3629,6 +3698,9 @@
       }).join('');
       const payRows = pays.length ? pays.map(p => {
         const ds = [...new Set((p.paidGames || []).map(k => k.split('|')[0]))].sort();
+        if (p.settled) {
+          return `<div class="ap-payout"><span class="ap-settled">выплачено ранее</span> ${gamesWord((p.paidGames || []).length)} за ${escapeHtml(ds.length > 6 ? `${shortDate(ds[0])} – ${shortDate(ds[ds.length - 1])}` : ds.map(shortDate).join(', '))} <span class="muted">· отмечено ${escapeHtml(shortDate(p.dateISO))}, касса не менялась</span> <button type="button" class="ap-unsettle" data-id="${escapeHtml(p.id)}" title="Снять отметку">✕</button></div>`;
+        }
         return `<div class="ap-payout">${escapeHtml(shortDate(p.dateISO))}: <b>${amt(p.amount)} Br</b> — за ${ds.length ? escapeHtml(ds.map(shortDate).join(', ')) : 'дни не указаны'} (${gamesWord((p.paidGames || []).length)})${p.selfReported ? ' <span class="ap-self">отметил(а) сам(а)</span>' : ''}</div>`;
       }).join('') : '<div class="ap-payout muted">Выплат с привязкой к дням ещё не было.</div>';
       return `<div class="ap-person${open ? ' open' : ''}" data-name="${escapeHtml(name)}">
@@ -3644,7 +3716,8 @@
               <div class="pay-split-item" style="flex:0 0 130px;"><span>Сумма, Br</span><input type="text" class="ap-amount" inputmode="decimal" placeholder="0"></div>
               <div class="pay-split-item" style="flex:1 1 200px; justify-content:flex-end;"><button type="button" class="btn ap-paybtn">Записать выплату за отмеченные</button></div>
             </div>
-            <div class="ap-note">Выплата запишется в Кассу как «ЗП/инкассация» сегодняшним числом, а отмеченные дни станут «выплачено».</div>
+            <div class="ap-note">Выплата запишется в Кассу как «ЗП» сегодняшним числом, а отмеченные дни станут «выплачено».</div>
+            <button type="button" class="ap-settlebtn">Уже выплачено раньше — отметить без кассы</button>
             <div class="modal-msg ap-msg"></div>
           </div>` : ''}
           <div class="ld-sect" style="margin-top:12px;">Выплаты</div>
@@ -3659,7 +3732,33 @@
         ${unlinked.map(p => `<div class="ap-payout">${escapeHtml(shortDate(p.dateISO))}: <b>${amt(p.amount)} Br</b> — ${escapeHtml(p.label || 'без описания')}</div>`).join('')}
       </details>`;
     }
-    box.innerHTML = html;
+    box.innerHTML = settleAllHtml + html;
+    bindSettleAll();
+
+    box.querySelectorAll('.ap-unsettle').forEach(b => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Снять отметку?'; b.classList.add('armed'); return; }
+      b.disabled = true;
+      try{
+        const res = await fetch('/api/admin/finance', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'deleteSettled', id: b.dataset.id }) });
+        if (res.ok) await loadReport(); else { b.disabled = false; b.textContent = 'Ошибка'; }
+      } catch(err){ b.disabled = false; b.textContent = 'Ошибка сети'; }
+    }));
+    box.querySelectorAll('.ap-settlebtn').forEach(b => b.addEventListener('click', async () => {
+      const el = b.closest('.ap-person');
+      const msg = el.querySelector('.ap-msg');
+      const keys = [...el.querySelectorAll('.ap-pick:checked')].flatMap(c => c.dataset.keys.split(','));
+      if (!keys.length){ msg.textContent = 'Отметьте дни.'; msg.className = 'modal-msg ap-msg err'; return; }
+      if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = `Подтвердить: ${gamesWord(keys.length)} — выплачено раньше, без кассы`; b.classList.add('armed'); return; }
+      b.disabled = true;
+      try{
+        const res = await fetch('/api/admin/finance', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'settleUnpaid', items:[{ actor: el.dataset.name, games: keys }] }) });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok){ msg.textContent = out.error || 'Не удалось сохранить.'; msg.className = 'modal-msg ap-msg err'; b.disabled = false; return; }
+        actorPayOpen.add(el.dataset.name);
+        await loadReport();
+      } catch(err){ msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg ap-msg err'; b.disabled = false; }
+    }));
 
     box.querySelectorAll('.ap-head').forEach(btn => btn.addEventListener('click', () => {
       const el = btn.closest('.ap-person');
@@ -3921,7 +4020,7 @@
         </div>`).join('') : '<div class="ld-empty">Нет оплат наличными</div>';
       const outsHtml = d.outs.length ? d.outs.map(o => `
         <div class="ld-item${isHit(o.amount) ? ' hit' : ''}">
-          <span>${o.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'} · ${escapeHtml(o.label || 'без описания')}${o.createdAt ? ` <span class="muted">внесено ${escapeHtml(ledgerDateTime(o.createdAt))}</span>` : ''}</span>
+          <span>${cashKindLabel(o)} · ${escapeHtml(o.label || 'без описания')}${o.createdAt ? ` <span class="muted">внесено ${escapeHtml(ledgerDateTime(o.createdAt))}</span>` : ''}</span>
           <span class="amt out">−${ledgerAmt(o.amount)}</span>
         </div>`).join('') : '<div class="ld-empty">Расходов и выплат нет</div>';
       const countsHtml = d.counts.length ? `<div class="ld-sect">Пересчёты кассы</div>` + d.counts.map(c => `
@@ -4639,11 +4738,22 @@
   const financeBalanceSub = document.getElementById('financeBalanceSub');
   const financeList = document.getElementById('financeList');
   const financeMsg = document.getElementById('financeMsg');
+  // 06.10.2026 (update 91): в Кассе вручную пишутся только расходы и
+  // инкассации; ЗП отмечается через «Мои игры и ЗП» / Бухгалтерию (там она
+  // привязана к человеку и играм). Старые ручные записи «ЗП Ивану» без
+  // привязки по-прежнему показываются как ЗП.
+  function cashKindLabel(c){
+    if (!c || c.kind !== 'payroll') return 'Расход';
+    if (c.actor || /^\s*(зп|з\/п|зарплат)/i.test(c.label || '')) return 'ЗП';
+    return 'Инкассация';
+  }
   let financeKind = 'expense';
 
   document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       financeKind = btn.dataset.kind;
+      const lblInput = document.getElementById('financeCashoutLabel');
+      if (lblInput) lblInput.placeholder = financeKind === 'payroll' ? 'Например: инкассация владельцу' : 'Например: вода, стаканчики, реквизит';
       document.querySelectorAll('#financeKindToggle .type-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
     });
   });
@@ -4668,7 +4778,7 @@
     financeList.innerHTML = list.map(c => `
       <div class="finance-row" role="button" tabindex="0" title="Подробнее" data-date="${escapeHtml(c.dateISO)}" data-id="${escapeHtml(c.id)}" data-label="${escapeHtml(c.label)}" data-amount="${Math.round(c.amount)}">
         <div class="fr-date">${escapeHtml(c.dateISO)}</div>
-        <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${c.kind === 'payroll' ? 'ЗП/инкасс.' : 'Расход'}</div>
+        <div class="fr-kind ${c.kind === 'payroll' ? 'payroll' : 'expense'}">${cashKindLabel(c)}</div>
         <div class="fr-label">${escapeHtml(c.label)}</div>
         <div class="fr-amount">−${Math.round(c.amount)} Br</div>
         <button type="button" class="fr-del" title="Удалить">✕</button>
@@ -4721,7 +4831,7 @@
   function openCashoutDetail(c){
     if (!c) return;
     const isPayroll = c.kind === 'payroll';
-    document.getElementById('cashoutDetailTitle').textContent = isPayroll ? 'Выплата ЗП / инкассация' : 'Расход';
+    document.getElementById('cashoutDetailTitle').textContent = !isPayroll ? 'Расход' : cashKindLabel(c) === 'ЗП' ? `Выплата ЗП${c.actor ? ' · ' + c.actor : ''}` : 'Инкассация';
     document.getElementById('cashoutDetailAmount').textContent = `−${Math.round(Number(c.amount) || 0)} Br`;
     const rows = [
       ['За что', c.label || 'Без описания'],

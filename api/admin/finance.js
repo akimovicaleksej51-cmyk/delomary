@@ -26,6 +26,11 @@
 //       Касса expected at that moment.
 //   { action:'deleteCashCount', dateISO, id }
 //
+//   { action:'settleUnpaid', items:[{ actor, games:['YYYY-MM-DD|HH:MM'] }] }
+//       06.10.2026: marks games as already paid out WITHOUT changing the
+//       register (stored in payrollSettled, see ../_finance.js).
+//   { action:'deleteSettled', id }
+//
 //   { action:'setOpening', balance, sinceDateISO }
 //       Re-anchors the running balance: "as of this date, the register had
 //       this much cash" — everything up to and including sinceDateISO is
@@ -46,8 +51,10 @@ import {
   balanceAtStartOf,
   appendOpeningLog,
   getPaidGamesForActor,
+  getSettledMarkers,
+  saveSettledMarkers,
 } from '../_finance.js';
-import { escapeTgHtml, formatDateRu } from '../_telegram.js';
+import { formatDateRu } from '../_telegram.js';
 import { kv } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
@@ -60,30 +67,6 @@ function checkAuth(req) {
 
 function isValidDateISO(s) {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-
-async function notifySelfPayout(entry, dateISO) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  const days = [...new Set((entry.paidGames || []).map((k) => k.split('|')[0]))].sort();
-  const n = (entry.paidGames || []).length;
-  const text = [
-    `${'ЗП из кассы — отметил(а) сам(а)'.toUpperCase()}`,
-    '',
-    `Кто: <b>${escapeTgHtml(entry.actor)}</b>`,
-    `Сумма: <b>${escapeTgHtml(String(entry.amount))} Br</b>`,
-    `За игры: ${n} — ${days.map((d) => escapeTgHtml(formatDateRu(d))).join(', ')}`,
-    `Записано: ${escapeTgHtml(formatDateRu(dateISO))}`,
-  ].join('\n');
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-    });
-  } catch (err) {
-    console.error('finance: self payout Telegram notify failed:', err);
-  }
 }
 
 function genId() {
@@ -157,14 +140,13 @@ export default async function handler(req, res) {
           }
         }
         // 06.10.2026: an actor can record "забрал ЗП" themselves from
-        // staff.html — the entry is marked as such, shows up in admin.html's
-        // Бухгалтерия and Касса like any payout, and managers get a Telegram
-        // message so nothing happens behind their backs.
+        // staff.html — the entry is marked as such and shows up in
+        // admin.html's Бухгалтерия and Касса like any payout. (Update 91:
+        // no Telegram message any more — owner's request.)
         if (body.selfReported === true) entry.selfReported = true;
       }
       list.push(entry);
       await saveCashoutsForDate(cleanDateISO, list);
-      if (entry.selfReported) await notifySelfPayout(entry, cleanDateISO);
       const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });
     }
@@ -180,6 +162,55 @@ export default async function handler(req, res) {
       await saveCashoutsForDate(cleanDateISO, next);
       const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });
+    }
+
+    // 06.10.2026 (update 91): "все деньги уже забирали" — mark games as paid
+    // WITHOUT taking cash out of the register (it was handed out earlier and
+    // is already part of the balance). Body: { items:[{ actor, games:[key] }] }.
+    // Games that are already paid, or in the future, are skipped silently.
+    if (body.action === 'settleUnpaid') {
+      const today = todayISO();
+      const items = Array.isArray(body.items) ? body.items.slice(0, 100) : [];
+      const markers = await getSettledMarkers();
+      const createdAt = new Date().toISOString();
+      let games = 0;
+      const people = [];
+      for (const it of items) {
+        const actor = it && typeof it.actor === 'string' ? it.actor.trim().slice(0, 60) : '';
+        if (!actor) continue;
+        const keys = [...new Set((Array.isArray(it.games) ? it.games : [])
+          .filter((g) => typeof g === 'string' && /^\d{4}-\d{2}-\d{2}\|.{1,20}$/.test(g) && g.slice(0, 10) <= today))]
+          .slice(0, 2000);
+        if (!keys.length) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const already = await getPaidGamesForActor(actor, today);
+        markers.forEach((m) => { if (m.actor === actor) (m.paidGames || []).forEach((k) => already.add(k)); });
+        const fresh = keys.filter((k) => !already.has(k)).sort();
+        if (!fresh.length) continue;
+        markers.push({ id: genId(), actor, paidGames: fresh, dateISO: today, createdAt, label: 'Отмечено как выплаченное ранее' });
+        games += fresh.length;
+        people.push(actor);
+      }
+      if (games) {
+        try {
+          await saveSettledMarkers(markers);
+        } catch {
+          return res.status(503).json({ error: 'Не удалось сохранить. Попробуйте ещё раз.' });
+        }
+      }
+      return res.status(200).json({ ok: true, settledGames: games, people });
+    }
+
+    if (body.action === 'deleteSettled') {
+      const id = typeof body.id === 'string' ? body.id : '';
+      if (!id) return res.status(400).json({ error: 'Некорректный запрос.' });
+      const markers = await getSettledMarkers();
+      try {
+        await saveSettledMarkers(markers.filter((m) => m.id !== id));
+      } catch {
+        return res.status(503).json({ error: 'Не удалось сохранить. Попробуйте ещё раз.' });
+      }
+      return res.status(200).json({ ok: true });
     }
 
     if (body.action === 'addCashCount') {
