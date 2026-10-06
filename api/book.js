@@ -91,7 +91,7 @@ export default async function handler(req, res) {
   const bookingRate = await checkAndBumpRateLimit('bookattempts', clientIp, 20, 10 * 60);
   if (bookingRate.limited) {
     return res.status(429).json({
-      error: 'Слишком много заявок подряд с этого устройства. Попробуйте через несколько минут или позвоните нам: +375 (44) 780-30-00.',
+      error: 'Слишком много заявок подряд с этого устройства. Попробуйте через несколько минут или позвоните нам: +375 (29) 176-19-84.',
     });
   }
 
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
   if (isSlotClosingSoon(cleanDateISO, cleanTime)) {
     return res.status(409).json({
       conflict: true,
-      error: 'Онлайн-бронь этого времени уже закрыта — до сеанса меньше часа. Позвоните нам: +375 (44) 780-30-00.',
+      error: 'Онлайн-бронь этого времени уже закрыта — до сеанса меньше часа. Позвоните нам: +375 (29) 176-19-84.',
     });
   }
 

@@ -143,7 +143,7 @@ export function validateRoomRequest(body) {
   if (!name || !phone) return { ok: false, status: 400, error: 'Укажите имя и телефон.' };
   if ((phone.match(/\d/g) || []).length < 9) return { ok: false, status: 400, error: 'Проверьте номер телефона.' };
   if (!isRealCalendarDate(dateISO)) return { ok: false, status: 400, error: 'Некорректная дата.' };
-  if (dateISO > lastBookableISO()) return { ok: false, status: 400, error: 'На эту дату онлайн-бронь ещё не открыта — позвоните нам: +375 (44) 780-30-00.' };
+  if (dateISO > lastBookableISO()) return { ok: false, status: 400, error: 'На эту дату онлайн-бронь ещё не открыта — позвоните нам: +375 (29) 176-19-84.' };
 
   const startIdx = ROOM_SLOTS.indexOf(startTime);
   if (startIdx === -1) return { ok: false, status: 400, error: 'Некорректное время.' };
@@ -157,7 +157,7 @@ export function validateRoomRequest(body) {
   if (isSlotClosingSoon(dateISO, times[0])) {
     return {
       ok: false, status: 409, conflict: true,
-      error: 'Онлайн-бронь этого времени уже закрыта — до начала меньше часа. Позвоните нам: +375 (44) 780-30-00.',
+      error: 'Онлайн-бронь этого времени уже закрыта — до начала меньше часа. Позвоните нам: +375 (29) 176-19-84.',
     };
   }
 

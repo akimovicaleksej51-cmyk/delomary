@@ -132,7 +132,7 @@ async function handleRoomBook(req, res, body) {
   const clientIp = getClientIp(req);
   const rate = await checkAndBumpRateLimit('roombookattempts', clientIp, 20, 10 * 60);
   if (rate.limited) {
-    return res.status(429).json({ error: 'Слишком много заявок подряд. Попробуйте через несколько минут или позвоните нам: +375 (44) 780-30-00.' });
+    return res.status(429).json({ error: 'Слишком много заявок подряд. Попробуйте через несколько минут или позвоните нам: +375 (29) 176-19-84.' });
   }
 
   const checked = validateRoomRequest(body);
@@ -143,7 +143,7 @@ async function handleRoomBook(req, res, body) {
 
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
     console.error('Loony Room: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID');
-    return res.status(500).json({ error: 'Бронь временно не работает. Пожалуйста, позвоните нам: +375 (44) 780-30-00.' });
+    return res.status(500).json({ error: 'Бронь временно не работает. Пожалуйста, позвоните нам: +375 (29) 176-19-84.' });
   }
 
   const reserved = await reserveRoomHours(record);
@@ -157,7 +157,7 @@ async function handleRoomBook(req, res, body) {
   const sent = await sendRoomTelegram(roomBookingTelegramText(record));
   if (!sent.ok) {
     if (!reserved.unreserved) await releaseRoomHours(record);
-    return res.status(502).json({ error: 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +375 (44) 780-30-00.' });
+    return res.status(502).json({ error: 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +375 (29) 176-19-84.' });
   }
 
   return res.status(200).json({

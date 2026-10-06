@@ -102,7 +102,7 @@ export async function sendBookingConfirmationSms(record) {
     if (record.players) details.push(String(record.players));
     if (record.price) details.push(`${record.price} Br`);
     if (details.length) text += ' (' + details.join(', ') + ')';
-    text += '. Скоро позвоним для подтверждения. Тел.: +375 (44) 780-30-00';
+    text += '. Скоро позвоним для подтверждения. Тел.: +375 (29) 176-19-84';
 
     const passwordHash = crypto.createHash('md5').update(password).digest('hex');
     const params = new URLSearchParams({ username: login, password: passwordHash, phone, text });
