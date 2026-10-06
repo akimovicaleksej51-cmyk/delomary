@@ -2384,13 +2384,13 @@
   // ---------- 06.10.2026: мои игры и ЗП ----------
   // Игры берутся из того же отчёта, что "Кто сколько отыграл" в Бухгалтерии
   // у менеджеров (имя в брони или, если не вписано, расписание смен), за
-  // последние 60 дней. Выплата записывается в Кассу как ЗП, привязанная к
+  // последние 2 недели (до 06.10.2026 было 60 дней). Выплата записывается в Кассу как ЗП, привязанная к
   // конкретным играм, с пометкой "отметил сам" — её видно менеджерам в
   // Бухгалтерии (сообщение в Телеграм убрано 06.10.2026, обн. 91).
   const myPayOverlay = document.getElementById('myPayOverlay');
   const myPayName = document.getElementById('myPayName');
   const myPayBody = document.getElementById('myPayBody');
-  const MY_PAY_DAYS = 60;
+  const MY_PAY_DAYS = 14;
   let myPayData = null;
   function mpGames(n){ const m10 = n % 10, m100 = n % 100; return n + (m10 === 1 && m100 !== 11 ? ' игра' : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? ' игры' : ' игр'); }
   function mpShort(iso){ const d = parseISO(iso); return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`; }
@@ -2406,6 +2406,8 @@
       let saved = '';
       try { saved = localStorage.getItem('myPayName') || ''; } catch(e) {}
       const current = myPayName.value || saved;
+      // Нет игр за 2 недели — имя всё равно остаётся выбранным.
+      if (current && !names.includes(current)) names.push(current);
       myPayName.innerHTML = '<option value="">— выберите себя —</option>' + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
       if (names.includes(current)) myPayName.value = current;
       renderMyPay();
@@ -2420,7 +2422,7 @@
     if (!name){
       myPayBody.innerHTML = Object.keys(data.actors || {}).length
         ? '<div class="load-note">Выберите своё имя в списке выше.</div>'
-        : '<div class="load-note">За последние 60 дней игр ни у кого нет.</div>';
+        : '<div class="load-note">За последние 2 недели игр ни у кого нет.</div>';
       return;
     }
     const games = (data.actorGames || {})[name] || [];
@@ -2453,11 +2455,11 @@
 
     myPayBody.innerHTML = `
       <div class="mp-tiles">
-        <div class="mp-tile"><div class="v">${games.length}</div><div class="l">игр за ${MY_PAY_DAYS} дн.</div></div>
+        <div class="mp-tile"><div class="v">${games.length}</div><div class="l">игр за 2 недели</div></div>
         <div class="mp-tile"><div class="v">${paidCount}</div><div class="l">получено</div></div>
         <div class="mp-tile due"><div class="v">${unpaid}</div><div class="l">не получено</div></div>
       </div>
-      ${days.length ? `<div class="mp-sect">Мои игры по дням</div>${dayRows}` : '<div class="load-note">Игр за последние 60 дней нет.</div>'}
+      ${days.length ? `<div class="mp-sect">Мои игры по дням</div>${dayRows}` : '<div class="load-note">Игр за последние 2 недели нет.</div>'}
       ${unpaid ? `<div class="mp-form">
         <div class="pay-split">
           <div class="pay-split-item" style="flex:1;"><span>Сколько забираете из кассы, Br</span><input type="text" id="myPayAmount" inputmode="decimal" placeholder="0"></div>
@@ -2465,7 +2467,7 @@
         <button type="button" class="btn" id="myPaySubmit">Забираю ЗП за отмеченные</button>
         <div class="mp-hint">Отметьте галочками игры, за которые берёте деньги, и впишите сумму. Запись появится в Кассе как «ЗП», менеджеры увидят её в Бухгалтерии. Ошиблись — попросите менеджера удалить запись.</div>
         <div class="modal-msg" id="myPayMsg"></div>
-      </div>` : (games.length ? '<div class="mp-hint" style="margin-top:12px;">Все игры за последние 60 дней уже оплачены ✓</div>' : '')}
+      </div>` : (games.length ? '<div class="mp-hint" style="margin-top:12px;">Все игры за последние 2 недели уже оплачены ✓</div>' : '')}
       <div class="mp-sect">Мои выплаты</div>${payRows}
     `;
 
