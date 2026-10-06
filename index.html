@@ -1064,14 +1064,14 @@
   .fx h2 .w > span{transform:translateY(110%);}
   .btn{min-height:56px; padding:0 30px; display:inline-flex; align-items:center; justify-content:center; gap:10px; font-size:16px; font-weight:800; position:relative; overflow:hidden;}
   /* shimmer-кнопка (Kokonut UI) — блик пробегает по жёлтой кнопке */
-  .btn-solid::after, .nav-cta::after, .submit-btn::after, .m-cta-bar a::after{
+  .btn-solid::after, .nav-cta::after, .submit-btn::after{
     content:""; position:absolute; top:0; bottom:0; left:-60%; width:45%; pointer-events:none;
     background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
     transform:skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;
   }
   .nav-cta, .submit-btn{position:relative; overflow:hidden;}
   @keyframes btnShine{0%,62%{left:-60%;} 82%,100%{left:130%;}}
-  @media (prefers-reduced-motion: reduce){ .btn-solid::after, .nav-cta::after, .submit-btn::after, .m-cta-bar a::after{animation:none; display:none;} }
+  @media (prefers-reduced-motion: reduce){ .btn-solid::after, .nav-cta::after, .submit-btn::after{animation:none; display:none;} }
 
   /* ---------- шапка + меню-«шторка» ---------- */
   .nav-toggle{width:48px; height:48px; border-radius:14px; position:relative;}
@@ -1151,8 +1151,6 @@
   .field-label .num{width:30px; height:30px; font-size:14px;}
   .cal-month{font-size:22px;}
   .cal-nav{width:48px; height:48px; border-radius:14px; font-size:22px;}
-  .day{font-family:var(--display); font-weight:400; font-size:28px; border-radius:16px; gap:4px;}
-  .day small{font-family:var(--sans); font-size:12px; font-weight:800;}
   .slot{min-height:72px; font-size:19px; border-radius:16px;}
   .slot .slot-price{font-size:12.5px;}
   .booking-modal-box{border-radius:var(--r-lg); border-color:var(--soft);}
@@ -1206,8 +1204,32 @@
   .foot-links{font-size:15.5px;}
   .foot-fine, .foot-unp{font-size:13.5px;}
 
-  /* ---------- нижняя плашка «Забронировать» (телефон) ---------- */
-  .m-cta-bar{display:none;}
+
+  /* ---------- календарь брони: месяц сеткой, «кружки» (06.10.2026, v2) ---------- */
+  #booking .field-block{max-width:640px; margin-left:auto; margin-right:auto;}
+  .cal-head{margin-bottom:20px;}
+  .cal-month{font-family:var(--display-heading); font-size:24px; letter-spacing:.02em;}
+  .cal-weekdays{gap:6px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid var(--soft);}
+  .cal-weekdays span{font-size:13px; font-weight:800; letter-spacing:.06em;}
+  .cal-weekdays span:nth-child(n+6){color:var(--ochre-bright);}
+  .cal-grid{gap:10px 6px;}
+  .day{position:relative; justify-self:center; width:100%; max-width:62px; aspect-ratio:1/1; border-radius:50%; padding:0;
+    font-family:var(--sans); font-weight:800; font-size:19px; color:var(--paper);
+    background:rgba(255,255,255,.045); border:1.5px solid rgba(255,255,255,.07); transition:background .2s, border-color .2s, color .2s, box-shadow .25s;}
+  .day small{display:none;}
+  .day.weekend{color:var(--ochre-bright);}
+  .day:not(.disabled):not(.empty):not(.full):hover{border-color:var(--ochre-bright); background:rgba(245,197,24,.08);}
+  .day.today::after{content:""; position:absolute; left:50%; bottom:13%; width:5px; height:5px; margin-left:-2.5px; border-radius:50%; background:var(--ochre-bright);}
+  .day.active{background:var(--ochre-bright); border-color:var(--ochre-bright); color:#151004; box-shadow:0 0 0 5px rgba(245,197,24,.16), 0 10px 26px rgba(245,197,24,.32);}
+  .day.active.today::after{background:#151004;}
+  .day.full{opacity:.32; text-decoration:line-through; text-decoration-thickness:2px; background:transparent;}
+  .day.disabled{opacity:.16; background:transparent; border-color:transparent;}
+  .day.empty{background:none; border:none;}
+  .cal-legend{display:flex; flex-wrap:wrap; gap:10px 22px; margin-top:20px; padding-top:16px; border-top:1px solid var(--soft); font-size:14.5px; font-weight:600; color:var(--muted);}
+  .cal-legend span{display:inline-flex; align-items:center; gap:8px;}
+  .cal-legend i{width:6px; height:6px; border-radius:50%; background:var(--ochre-bright);}
+  .cal-legend b{color:var(--ochre-bright); font-weight:800;}
+  .cal-legend s{color:var(--paper); opacity:.5; text-decoration-thickness:2px;}
 
   /* ==================== ТЕЛЕФОН ==================== */
   @media (max-width:860px){
@@ -1272,16 +1294,16 @@
     .intake-head p{font-size:16.5px;}
     .field-label{font-size:15px;}
     .field-label .num{width:30px; height:30px; font-size:14px;}
-    .cal-head{margin-bottom:14px;}
+    .cal-head{margin-bottom:16px;}
     .cal-month{font-size:22px;}
     .cal-nav{width:48px; height:48px; font-size:22px; border-radius:14px;}
-    .cal-weekdays{display:none;}
-    .cal-grid{display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x proximity; margin:0 -16px; padding:2px 16px 14px; scroll-padding-left:16px; scrollbar-width:none;}
-    .cal-grid::-webkit-scrollbar{display:none;}
-    .day{flex:0 0 78px; aspect-ratio:auto; height:96px; scroll-snap-align:start; font-family:var(--display); font-weight:400; font-size:32px; gap:4px; border-radius:18px; background:var(--card-2); border:1.5px solid var(--soft);}
-    .day small{font-family:var(--sans); font-size:13px; font-weight:800; letter-spacing:.04em;}
-    .day.empty{display:none;}
+    .cal-weekdays{gap:4px;}
+    .cal-weekdays span{font-size:12.5px;}
+    .cal-grid{gap:8px 4px;}
+    .day{font-size:17px; max-width:48px; border-radius:50%; background:rgba(255,255,255,.045); border:1.5px solid rgba(255,255,255,.07);}
     .day.active{background:var(--ochre-bright); border-color:var(--ochre-bright);}
+    .day.disabled, .day.full{background:transparent; border-color:transparent;}
+    .cal-legend{font-size:14px; gap:8px 18px;}
 
     /* окно брони — шторка снизу (Kokonut smooth-drawer) */
     .booking-modal-overlay{padding:0; align-items:flex-end;}
@@ -1329,20 +1351,15 @@
     .map-col .btn{align-self:stretch;}
     .howto-video-note{font-size:16.5px;}
 
-    footer{padding:48px 16px calc(110px + env(safe-area-inset-bottom));}
+    footer{padding:48px 16px calc(36px + env(safe-area-inset-bottom));}
     .foot-links{display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:16px;}
     .foot-links a{padding:12px 8px; border-radius:12px; background:rgba(255,255,255,.03);}
     .foot-fine, .foot-unp{font-size:13.5px;}
 
-    .m-cta-bar{position:fixed; left:12px; right:12px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:80; display:flex; transform:translateY(160%); transition:transform .45s cubic-bezier(.2,.9,.25,1);}
-    .m-cta-bar.show{transform:translateY(0);}
-    .m-cta-bar a{flex:1; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:62px; padding:0 22px; border-radius:18px; background:var(--ochre-bright); color:#151004; text-decoration:none; font-weight:800; font-size:17px; box-shadow:0 18px 40px rgba(0,0,0,.65);}
-    .m-cta-bar a b{font-family:var(--display); font-weight:400; font-size:22px;}
   }
   @media (max-width:380px){
     .hero h1{font-size:48px;}
     .stat b{font-size:22px;}
-    .day{flex-basis:72px;}
   }
   @media (prefers-reduced-motion: reduce){
     .fx h2 .w > span{transform:none;}
@@ -1387,7 +1404,7 @@
         <a href="#gallery">Кадры</a>
         <a href="#booking">Бронь</a>
         <a href="#reviews">Отзывы</a>
-        <a href="/loonyroom">Loony Room</a>
+        <a href="/loonyroom">Комната отдыха</a>
         <a href="#location">Адрес</a>
       </nav>
       <a class="nav-phone" href="tel:+375291761984">+375 (29) 176-19-84</a>
@@ -1405,7 +1422,7 @@
     <a href="#gallery">Кадры</a>
     <a href="#booking">Бронь</a>
     <a href="#reviews">Отзывы</a>
-    <a href="/loonyroom">Loony Room</a>
+    <a href="/loonyroom">Комната отдыха</a>
     <a href="#location">Адрес</a>
     <a class="mobile-social" href="tel:+375291761984">📞 +375 (29) 176-19-84</a>
     <a class="mobile-social" href="https://www.instagram.com/loonygames.minsk" target="_blank" rel="noopener noreferrer">
@@ -1559,6 +1576,7 @@
           <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
         </div>
         <div class="cal-grid" id="dayRow"></div>
+        <div class="cal-legend"><span><i></i>сегодня</span><span><b>12</b> выходные</span><span><s>12</s> всё занято</span></div>
       </div>
     </div>
   </div>
@@ -1726,14 +1744,12 @@
   </div>
 </section>
 
-<div class="m-cta-bar" id="mCtaBar"><a href="#booking"><span>Забронировать сеанс</span><b>от 140 Br</b></a></div>
-
 <footer>
   <a class="brand" href="#top"><picture><source srcset="assets/logo.webp" type="image/webp"><img src="assets/logo.jpg" alt="Loony Games"></picture></a>
   <div class="foot-links">
     <a href="#booking">Бронирование</a>
     <a href="#reviews">Отзывы</a>
-    <a href="/loonyroom">Loony Room</a>
+    <a href="/loonyroom">Комната отдыха</a>
     <a href="#location">Адрес</a>
     <a href="tel:+375291761984">+375 (29) 176-19-84</a>
   </div>
@@ -2209,7 +2225,7 @@
       const showAsFull = isFull && !isToday;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (showAsFull ? ' full':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
+      btn.className = 'day' + (weekend ? ' weekend':'') + (!bookable ? ' disabled':'') + (showAsFull ? ' full':'') + (isToday ? ' today':'') + (bookable && selectedDate && sameDate(d, selectedDate) ? ' active':'');
       btn.innerHTML = '<small>'+dayNames[mondayIdx(d)]+'</small>'+dnum;
       if(!bookable || showAsFull){
         btn.disabled = true;
@@ -2716,31 +2732,7 @@
     $$('a', mobileMenu).forEach((a) => a.addEventListener('click', () => setTimeout(syncMenu, 0)));
   }
 
-  // ---- нижняя плашка «Забронировать» на телефоне ----
-  const bar = $('#mCtaBar');
-  const hero = $('.hero'), booking = $('#booking'), modal = $('#bookingModalOverlay');
-  let pastHero = false, bookingVisible = false;
-  function syncBar(){
-    if (!bar) return;
-    const modalOpen = modal && modal.classList.contains('show');
-    bar.classList.toggle('show', pastHero && !bookingVisible && !modalOpen && !(mobileMenu && mobileMenu.classList.contains('open')));
-  }
-  if ('IntersectionObserver' in window && bar){
-    new IntersectionObserver((e) => { pastHero = !e[0].isIntersecting; syncBar(); }, { threshold: 0.05 }).observe(hero);
-    new IntersectionObserver((e) => { bookingVisible = e[0].isIntersecting; syncBar(); }, { threshold: 0.15 }).observe(booking);
-    if (modal) new MutationObserver(syncBar).observe(modal, { attributes: true, attributeFilter: ['class'] });
-    if (mobileMenu) new MutationObserver(syncBar).observe(mobileMenu, { attributes: true, attributeFilter: ['class'] });
-  }
-
-  // ---- выбранный день в ленте календаря — прокрутить в видимую часть ----
-  const dayRow = $('#dayRow');
-  if (dayRow){
-    dayRow.addEventListener('click', (e) => {
-      const b = e.target.closest('.day'); if (!b || !isMobile()) return;
-      const r = b.getBoundingClientRect(), box = dayRow.getBoundingClientRect();
-      if (r.left < box.left || r.right > box.right) dayRow.scrollBy({ left: r.left - box.left - 16, behavior: 'smooth' });
-    });
-  }
+  const hero = $('.hero');
 
   // ---- всё, что дальше — только анимации ----
   let gaugeDone = false;
@@ -2805,7 +2797,7 @@
     }
 
     // Нажатия: пружинящий отклик на кнопках, днях и слотах (Motion press)
-    const PRESS = '.btn, .nav-cta, .day, .slot, .gal-btn, .m-cta-bar a, .faq-q, .submit-btn';
+    const PRESS = '.btn, .nav-cta, .day, .slot, .gal-btn, .faq-q, .submit-btn';
     document.addEventListener('pointerdown', (e) => {
       const el = e.target.closest(PRESS); if (!el || el.disabled) return;
       animate(el, { scale: 0.95 }, { type: 'spring', stiffness: 600, damping: 30 });
