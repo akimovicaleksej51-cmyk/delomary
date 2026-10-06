@@ -479,3 +479,32 @@ export async function buildCashLedger(fromISO, toISO, todayISOValue) {
 
   return { days, anchor: opening, regStart, openingLog };
 }
+
+// 06.10.2026: every game ("YYYY-MM-DD|HH:MM") already covered by a ЗП payout
+// for this person, looking back `days` days from todayISOValue. Used to stop
+// the same games being paid twice — e.g. an actor marks "забрал ЗП" in
+// staff.html while a manager pays the same days from admin.html.
+export async function getPaidGamesForActor(actor, todayISOValue, days = 120) {
+  const dates = [];
+  const end = parseISO(todayISOValue);
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(end);
+    d.setDate(d.getDate() - i);
+    dates.push(isoDate(d));
+  }
+  const results = await kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`]));
+  const paid = new Set();
+  (results || []).forEach((entry) => {
+    const raw = entry && entry.result;
+    if (!raw) return;
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        arr.forEach((c) => {
+          if (c.kind === 'payroll' && c.actor === actor && Array.isArray(c.paidGames)) c.paidGames.forEach((k) => paid.add(k));
+        });
+      }
+    } catch { /* skip */ }
+  });
+  return paid;
+}

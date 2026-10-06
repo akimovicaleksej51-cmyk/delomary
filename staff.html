@@ -493,6 +493,28 @@
   .finance-row .fr-amount{font-weight:800; color:var(--paper); font-size:13.5px; flex-shrink:0;}
   .finance-row .fr-del{background:none; border:none; color:var(--muted); font-size:16px; padding:4px 6px; flex-shrink:0;}
   .finance-row .fr-del:hover{color:var(--danger-bright);}
+  /* 06.10.2026: мои игры и ЗП */
+  .mp-select{width:100%; font-family:var(--sans); font-size:15px; font-weight:700; padding:12px 14px; background:var(--black-3); border:1px solid #333; color:var(--paper); border-radius:10px;}
+  .mp-select:focus{outline:none; border-color:var(--ochre);}
+  .mp-tiles{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:6px 0 16px;}
+  .mp-tile{background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px; padding:12px 10px; text-align:center;}
+  .mp-tile.due{border-color:var(--ochre-deep); background:radial-gradient(circle at 100% 0%, rgba(245,197,24,.12), transparent 60%), var(--black-3);}
+  .mp-tile .v{font-family:var(--display); font-size:30px; line-height:1.1; color:var(--paper);}
+  .mp-tile.due .v{color:var(--ochre-bright);}
+  .mp-tile .l{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);}
+  .mp-sect{font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:16px 0 6px;}
+  .mp-day{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 0; border-bottom:1px solid #222; font-size:13.5px;}
+  .mp-day label{display:flex; align-items:center; gap:10px; cursor:pointer;}
+  .mp-day input{width:19px; height:19px; accent-color:var(--ochre-bright);}
+  .mp-gap{display:inline-block; width:19px;}
+  .mp-paid{color:#6fd39b; font-weight:700; font-size:12.5px;}
+  .mp-unpaid{color:var(--danger-bright); font-weight:700; font-size:12.5px;}
+  .mp-form{margin-top:14px; padding:14px; border:1px dashed #3a3a3a; border-radius:12px;}
+  .mp-form .btn{width:100%; margin-top:10px;}
+  .mp-form .btn.armed{background:var(--danger); color:#fff;}
+  .mp-hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.45;}
+  .mp-payout{font-size:13px; padding:5px 0; border-bottom:1px solid #1f1f1f;}
+  .mp-self{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:2px 7px; border-radius:999px; background:rgba(245,197,24,.14); color:var(--ochre-bright); margin-left:4px;}
   .finance-row[role="button"]{cursor:pointer; transition:border-color .15s, background .15s;}
   .finance-row[role="button"]:hover, .finance-row[role="button"]:focus-visible{border-color:var(--ochre-deep); background:#1e1e1e; outline:none;}
   .cashout-detail-amount{font-family:var(--display); font-weight:400; font-size:32px; color:var(--ochre-bright); margin:2px 0 14px;}
@@ -554,6 +576,7 @@
         <button class="btn-secondary" id="calendarBtn">Календарь</button>
         <button class="btn-secondary" id="shiftsViewBtn">Смена на неделю</button>
         <button class="btn-secondary" id="financeBtn">Касса</button>
+        <button class="btn-secondary" id="myPayBtn">Мои игры и ЗП</button>
         <button class="btn-secondary" id="logoutBtn">Выйти</button>
       </div>
     </div>
@@ -761,6 +784,21 @@
       <button class="btn-danger" id="confirmYes">Да, отменить</button>
       <button class="btn-secondary" id="confirmNo">Нет</button>
     </div>
+  </div>
+</div>
+
+<!-- 06.10.2026: актёр сам видит свои игры, за какие ещё не получил ЗП, и
+     отмечает, за какие забирает деньги. Запись уходит в Кассу как ЗП, в
+     Бухгалтерию менеджерам и сообщением в Телеграм. -->
+<div class="modal-overlay" id="myPayOverlay">
+  <div class="modal-box" style="max-width:560px;">
+    <button class="modal-close-x" data-close="myPay">✕</button>
+    <h2>Мои игры и ЗП</h2>
+    <div class="detail-field">
+      <label for="myPayName">Кто вы</label>
+      <select id="myPayName" class="mp-select"></select>
+    </div>
+    <div id="myPayBody"><div class="load-note">Загрузка…</div></div>
   </div>
 </div>
 
@@ -2329,6 +2367,145 @@
       btn.disabled = false;
     }
   });
+
+  // ---------- 06.10.2026: мои игры и ЗП ----------
+  // Игры берутся из того же отчёта, что "Кто сколько отыграл" в Бухгалтерии
+  // у менеджеров (имя в брони или, если не вписано, расписание смен), за
+  // последние 60 дней. Выплата записывается в Кассу как ЗП, привязанная к
+  // конкретным играм, с пометкой "отметил сам" — её видно менеджерам в
+  // Бухгалтерии, и им приходит сообщение в Телеграм.
+  const myPayOverlay = document.getElementById('myPayOverlay');
+  const myPayName = document.getElementById('myPayName');
+  const myPayBody = document.getElementById('myPayBody');
+  const MY_PAY_DAYS = 60;
+  let myPayData = null;
+  function mpGames(n){ const m10 = n % 10, m100 = n % 100; return n + (m10 === 1 && m100 !== 11 ? ' игра' : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? ' игры' : ' игр'); }
+  function mpShort(iso){ const d = parseISO(iso); return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`; }
+  function mpAmt(v){ const n = Math.round(Number(v) * 100) / 100; return Number.isInteger(n) ? String(n) : n.toFixed(2); }
+  async function loadMyPay(){
+    myPayBody.innerHTML = '<div class="load-note">Загрузка…</div>';
+    try{
+      const res = await fetch(`/api/admin/report?to=${todayISO()}&days=${MY_PAY_DAYS}&actorDetails=1`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ myPayBody.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить.')}</div>`; return; }
+      myPayData = out;
+      const names = Object.keys(out.actors || {}).sort((a, b) => a.localeCompare(b, 'ru'));
+      let saved = '';
+      try { saved = localStorage.getItem('myPayName') || ''; } catch(e) {}
+      const current = myPayName.value || saved;
+      myPayName.innerHTML = '<option value="">— выберите себя —</option>' + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+      if (names.includes(current)) myPayName.value = current;
+      renderMyPay();
+    } catch(err){
+      myPayBody.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
+    }
+  }
+  function renderMyPay(){
+    const data = myPayData;
+    const name = myPayName.value;
+    if (!data) return;
+    if (!name){
+      myPayBody.innerHTML = Object.keys(data.actors || {}).length
+        ? '<div class="load-note">Выберите своё имя в списке выше.</div>'
+        : '<div class="load-note">За последние 60 дней игр ни у кого нет.</div>';
+      return;
+    }
+    const games = (data.actorGames || {})[name] || [];
+    const pays = ((data.actorPayouts || {})[name] || []).slice().sort((a, b) => (b.dateISO + b.createdAt).localeCompare(a.dateISO + a.createdAt));
+    const paidBy = {};
+    pays.forEach(p => (p.paidGames || []).forEach(k => { if (!paidBy[k]) paidBy[k] = p; }));
+    const byDay = {};
+    games.forEach(g => { (byDay[g.dateISO] = byDay[g.dateISO] || []).push(g); });
+    const days = Object.keys(byDay).sort().reverse();
+    const paidCount = games.filter(g => paidBy[`${g.dateISO}|${g.time}`]).length;
+    const unpaid = games.length - paidCount;
+    const dayRows = days.map(d => {
+      const gs = byDay[d];
+      const unpaidKeys = gs.filter(g => !paidBy[`${d}|${g.time}`]).map(g => `${d}|${g.time}`);
+      const paidDates = [...new Set(gs.filter(g => paidBy[`${d}|${g.time}`]).map(g => paidBy[`${d}|${g.time}`].dateISO))].map(mpShort).join(', ');
+      const status = !unpaidKeys.length ? `<span class="mp-paid">✓ получено ${escapeHtml(paidDates)}</span>`
+        : unpaidKeys.length < gs.length ? `<span class="mp-unpaid">не получено ${unpaidKeys.length} из ${gs.length}</span>`
+        : '<span class="mp-unpaid">не получено</span>';
+      return `<div class="mp-day">
+        <label>${unpaidKeys.length ? `<input type="checkbox" class="mp-pick" data-keys="${escapeHtml(unpaidKeys.join(','))}" checked>` : '<span class="mp-gap"></span>'}
+          <span><b>${escapeHtml(formatDateHeading(d))}</b> — ${mpGames(gs.length)}: ${gs.map(g => escapeHtml(g.time)).join(', ')}</span></label>
+        ${status}
+      </div>`;
+    }).join('');
+    const payRows = pays.length ? pays.map(p => {
+      const ds = [...new Set((p.paidGames || []).map(k => k.split('|')[0]))].sort();
+      return `<div class="mp-payout">${escapeHtml(mpShort(p.dateISO))}: <b>${mpAmt(p.amount)} Br</b> — за ${ds.length ? escapeHtml(ds.map(mpShort).join(', ')) : '—'} (${mpGames((p.paidGames || []).length)})${p.selfReported ? '<span class="mp-self">отметили сами</span>' : ''}</div>`;
+    }).join('') : '<div class="mp-hint">Выплат с отметкой дней пока не было.</div>';
+
+    myPayBody.innerHTML = `
+      <div class="mp-tiles">
+        <div class="mp-tile"><div class="v">${games.length}</div><div class="l">игр за ${MY_PAY_DAYS} дн.</div></div>
+        <div class="mp-tile"><div class="v">${paidCount}</div><div class="l">получено</div></div>
+        <div class="mp-tile due"><div class="v">${unpaid}</div><div class="l">не получено</div></div>
+      </div>
+      ${days.length ? `<div class="mp-sect">Мои игры по дням</div>${dayRows}` : '<div class="load-note">Игр за последние 60 дней нет.</div>'}
+      ${unpaid ? `<div class="mp-form">
+        <div class="pay-split">
+          <div class="pay-split-item" style="flex:1;"><span>Сколько забираете из кассы, Br</span><input type="text" id="myPayAmount" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <button type="button" class="btn" id="myPaySubmit">Забираю ЗП за отмеченные</button>
+        <div class="mp-hint">Отметьте галочками игры, за которые берёте деньги, и впишите сумму. Запись появится в Кассе как «ЗП», менеджеры увидят её в Бухгалтерии и получат сообщение в Телеграм. Ошиблись — попросите менеджера удалить запись.</div>
+        <div class="modal-msg" id="myPayMsg"></div>
+      </div>` : (games.length ? '<div class="mp-hint" style="margin-top:12px;">Все игры за последние 60 дней уже оплачены ✓</div>' : '')}
+      <div class="mp-sect">Мои выплаты</div>${payRows}
+    `;
+
+    const btn = document.getElementById('myPaySubmit');
+    if (!btn) return;
+    const msg = document.getElementById('myPayMsg');
+    const picked = () => [...myPayBody.querySelectorAll('.mp-pick:checked')].flatMap(c => c.dataset.keys.split(','));
+    const sync = () => {
+      const n = picked().length;
+      btn.classList.remove('armed');
+      btn.disabled = !n;
+      btn.textContent = n ? `Забираю ЗП за отмеченные (${mpGames(n)})` : 'Отметьте игры';
+    };
+    myPayBody.querySelectorAll('.mp-pick').forEach(c => c.addEventListener('change', sync));
+    sync();
+    btn.addEventListener('click', async () => {
+      const keys = picked();
+      const amountRaw = document.getElementById('myPayAmount').value.trim();
+      const amount = parseFloat(amountRaw.replace(',', '.'));
+      if (!keys.length) return;
+      if (!(amount > 0)){ msg.textContent = 'Впишите сумму, которую забираете.'; msg.className = 'modal-msg err'; document.getElementById('myPayAmount').focus(); return; }
+      if (!btn.classList.contains('armed')){
+        btn.classList.add('armed');
+        btn.textContent = `Подтвердить: ${mpAmt(amount)} Br за ${mpGames(keys.length)}`;
+        setTimeout(() => { if (btn.isConnected && btn.classList.contains('armed')) sync(); }, 5000);
+        return;
+      }
+      const days = [...new Set(keys.map(k => k.split('|')[0]))].sort();
+      const label = `ЗП ${name} за ${days.map(mpShort).join(', ')} (${mpGames(keys.length)}) — отметил(а) сам(а)`.slice(0, 200);
+      btn.disabled = true; btn.textContent = 'Записываю…';
+      try{
+        const res = await fetch('/api/admin/finance', { method:'POST', headers: authHeaders(),
+          body: JSON.stringify({ action:'addCashout', dateISO: todayISO(), kind:'payroll', label, amount: amountRaw, actor: name, paidGames: keys, selfReported: true }) });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok){ msg.textContent = out.error || 'Не удалось записать.'; msg.className = 'modal-msg err'; sync(); if (res.status === 409) await loadMyPay(); return; }
+        await loadMyPay();
+        const m = document.getElementById('myPayMsg') || null;
+        const note = document.createElement('div');
+        note.className = 'modal-msg ok';
+        note.textContent = `Записано: ${mpAmt(amount)} Br за ${mpGames(keys.length)}. Менеджеры получили уведомление.`;
+        myPayBody.prepend(note);
+        if (m) m.textContent = '';
+      } catch(err){
+        msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg err'; sync();
+      }
+    });
+  }
+  myPayName.addEventListener('change', () => {
+    try { localStorage.setItem('myPayName', myPayName.value); } catch(e) {}
+    renderMyPay();
+  });
+  document.getElementById('myPayBtn').addEventListener('click', () => { myPayOverlay.classList.add('show'); loadMyPay(); });
+  document.querySelectorAll('[data-close="myPay"]').forEach(b => b.addEventListener('click', () => myPayOverlay.classList.remove('show')));
+  myPayOverlay.addEventListener('click', e => { if (e.target === myPayOverlay) myPayOverlay.classList.remove('show'); });
 
   async function loadFinance(){
     financeList.innerHTML = '<div class="load-note">Загрузка…</div>';

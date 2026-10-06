@@ -471,6 +471,7 @@
   .ap-payform .btn{width:auto;}
   .ap-note{font-size:12px; color:var(--muted); margin-top:8px;}
   .ap-payout{font-size:13px; padding:4px 0;}
+  .ap-self{font-size:10.5px; font-weight:800; text-transform:uppercase; padding:2px 7px; border-radius:999px; background:rgba(245,197,24,.14); color:var(--ochre-bright);}
   .ap-payout.muted{color:var(--muted);}
   .ap-unlinked{margin-top:10px; font-size:13px; color:var(--muted);}
   .ap-unlinked summary{cursor:pointer; padding:6px 0;}
@@ -3628,7 +3629,7 @@
       }).join('');
       const payRows = pays.length ? pays.map(p => {
         const ds = [...new Set((p.paidGames || []).map(k => k.split('|')[0]))].sort();
-        return `<div class="ap-payout">${escapeHtml(shortDate(p.dateISO))}: <b>${amt(p.amount)} Br</b> — за ${ds.length ? escapeHtml(ds.map(shortDate).join(', ')) : 'дни не указаны'} (${gamesWord((p.paidGames || []).length)})</div>`;
+        return `<div class="ap-payout">${escapeHtml(shortDate(p.dateISO))}: <b>${amt(p.amount)} Br</b> — за ${ds.length ? escapeHtml(ds.map(shortDate).join(', ')) : 'дни не указаны'} (${gamesWord((p.paidGames || []).length)})${p.selfReported ? ' <span class="ap-self">отметил(а) сам(а)</span>' : ''}</div>`;
       }).join('') : '<div class="ap-payout muted">Выплат с привязкой к дням ещё не было.</div>';
       return `<div class="ap-person${open ? ' open' : ''}" data-name="${escapeHtml(name)}">
         <button type="button" class="ap-head" aria-expanded="${open}">

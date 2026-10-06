@@ -45,7 +45,9 @@ import {
   buildCashLedger,
   balanceAtStartOf,
   appendOpeningLog,
+  getPaidGamesForActor,
 } from '../_finance.js';
+import { escapeTgHtml, formatDateRu } from '../_telegram.js';
 import { kv } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
@@ -58,6 +60,30 @@ function checkAuth(req) {
 
 function isValidDateISO(s) {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+async function notifySelfPayout(entry, dateISO) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  const days = [...new Set((entry.paidGames || []).map((k) => k.split('|')[0]))].sort();
+  const n = (entry.paidGames || []).length;
+  const text = [
+    `${'ЗП из кассы — отметил(а) сам(а)'.toUpperCase()}`,
+    '',
+    `Кто: <b>${escapeTgHtml(entry.actor)}</b>`,
+    `Сумма: <b>${escapeTgHtml(String(entry.amount))} Br</b>`,
+    `За игры: ${n} — ${days.map((d) => escapeTgHtml(formatDateRu(d))).join(', ')}`,
+    `Записано: ${escapeTgHtml(formatDateRu(dateISO))}`,
+  ].join('\n');
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    });
+  } catch (err) {
+    console.error('finance: self payout Telegram notify failed:', err);
+  }
 }
 
 function genId() {
@@ -117,12 +143,28 @@ export default async function handler(req, res) {
       // every actor which days are already paid and which aren't.
       if (kind === 'payroll' && typeof body.actor === 'string' && body.actor.trim()) {
         entry.actor = body.actor.trim().slice(0, 60);
-        entry.paidGames = (Array.isArray(body.paidGames) ? body.paidGames : [])
-          .filter((g) => typeof g === 'string' && /^\d{4}-\d{2}-\d{2}\|.{1,20}$/.test(g))
+        entry.paidGames = [...new Set((Array.isArray(body.paidGames) ? body.paidGames : [])
+          .filter((g) => typeof g === 'string' && /^\d{4}-\d{2}-\d{2}\|.{1,20}$/.test(g)))]
           .slice(0, 300);
+        // 06.10.2026: the same game can't be paid twice (an actor marking it
+        // themselves in staff.html AND a manager paying it in admin.html).
+        if (entry.paidGames.length) {
+          const already = await getPaidGamesForActor(entry.actor, todayISO());
+          const dup = entry.paidGames.filter((k) => already.has(k));
+          if (dup.length) {
+            const days = [...new Set(dup.map((k) => k.split('|')[0]))].sort().map(formatDateRu);
+            return res.status(409).json({ error: `Часть игр уже отмечена как выплаченная (${days.join(', ')}). Обновите список и отметьте заново.` });
+          }
+        }
+        // 06.10.2026: an actor can record "забрал ЗП" themselves from
+        // staff.html — the entry is marked as such, shows up in admin.html's
+        // Бухгалтерия and Касса like any payout, and managers get a Telegram
+        // message so nothing happens behind their backs.
+        if (body.selfReported === true) entry.selfReported = true;
       }
       list.push(entry);
       await saveCashoutsForDate(cleanDateISO, list);
+      if (entry.selfReported) await notifySelfPayout(entry, cleanDateISO);
       const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });
     }

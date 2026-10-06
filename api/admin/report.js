@@ -350,6 +350,7 @@ export default async function handler(req, res) {
         const item = {
           id: c.id, dateISO: scan[i], amount: toAmount(c.amount), label: c.label || '',
           createdAt: c.createdAt || '', paidGames: Array.isArray(c.paidGames) ? c.paidGames : [],
+          selfReported: !!c.selfReported,
         };
         if (c.actor) (payoutsOut[c.actor] = payoutsOut[c.actor] || []).push(item);
         else unlinkedPayroll.push(item);
