@@ -617,7 +617,7 @@
   .faq-a p{color:var(--muted); margin:0 0 22px; max-width:640px; font-size:15px;}
 
   /* ===== LOONY ROOM ===== */
-  #loonyroom{background:var(--black-2);}
+  #loonyroom{background:transparent;} /* 06.10.2026: теперь идёт сразу после брони (у неё свой фон) */
   .classified{
     position:relative; border:1px solid var(--line); padding:52px; border-radius:24px;
     background:radial-gradient(circle at 85% 15%, rgba(245,197,24,0.06), transparent 55%);
@@ -1231,6 +1231,10 @@
   .cal-legend b{color:var(--ochre-bright); font-weight:800;}
   .cal-legend s{color:var(--paper); opacity:.5; text-decoration-thickness:2px;}
 
+  /* рейтинг и отзывы идут одним блоком */
+  #rating{padding-bottom:40px;} #reviews{padding-top:40px;}
+  @media (max-width:860px){ #rating{padding-bottom:28px;} #reviews{padding-top:28px;} }
+
   /* ==================== ТЕЛЕФОН ==================== */
   @media (max-width:860px){
     body{font-size:17px;}
@@ -1417,8 +1421,8 @@
         <a href="#about">О квесте</a>
         <a href="#gallery">Кадры</a>
         <a href="#booking">Бронь</a>
-        <a href="#reviews">Отзывы</a>
         <a href="/loonyroom">Комната отдыха</a>
+        <a href="#reviews">Отзывы</a>
         <a href="#location">Адрес</a>
       </nav>
       <a class="nav-phone" href="tel:+375291761984">+375 (29) 176-19-84</a>
@@ -1435,8 +1439,8 @@
     <a href="#about">О квесте</a>
     <a href="#gallery">Кадры</a>
     <a href="#booking">Бронь</a>
-    <a href="#reviews">Отзывы</a>
     <a href="/loonyroom">Комната отдыха</a>
+    <a href="#reviews">Отзывы</a>
     <a href="#location">Адрес</a>
     <a class="mobile-social" href="tel:+375291761984">📞 +375 (29) 176-19-84</a>
     <a class="mobile-social" href="https://www.instagram.com/loonygames.minsk" target="_blank" rel="noopener noreferrer">
@@ -1541,32 +1545,6 @@
   </div>
 </section>
 
-<section id="rating" class="reveal">
-  <div class="wrap">
-    <div class="eyebrow">заключение экспертной комиссии</div>
-    <div class="badge-row">
-      <div class="badge">Супер-квест</div>
-      <div class="badge">Топ-5 квеструмов Минска</div>
-      <div class="badge">Топ-20 общего рейтинга</div>
-    </div>
-    <div class="rating-block">
-      <div class="rating-hero">
-        <div class="gauge" id="gauge">
-          <svg viewBox="0 0 300 220" aria-hidden="true"><defs><linearGradient id="gaugeGrad" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#8a6a15"/><stop offset="1" stop-color="#F5C518"/></linearGradient></defs><g id="gaugeNotches"></g></svg>
-          <div class="gauge-center"><b id="ratingNum">0.0</b><span>из 10 · средняя оценка<br>94 игрока</span></div>
-        </div>
-      </div>
-      <div class="rating-bars">
-        <div class="rbar-row"><span>Головоломки</span><div class="rbar-track"><div class="rbar-fill" data-w="98"></div></div><span>9.8</span></div>
-        <div class="rbar-row"><span>Антураж</span><div class="rbar-track"><div class="rbar-fill" data-w="99"></div></div><span>9.9</span></div>
-        <div class="rbar-row"><span>Сюжет</span><div class="rbar-track"><div class="rbar-fill" data-w="99"></div></div><span>9.9</span></div>
-        <div class="rbar-row"><span>Технологичность</span><div class="rbar-track"><div class="rbar-fill" data-w="99"></div></div><span>9.9</span></div>
-        <div class="rbar-row"><span>Обслуживание</span><div class="rbar-track"><div class="rbar-fill" data-w="100"></div></div><span>10</span></div>
-      </div>
-    </div>
-  </div>
-</section>
-
 <section id="booking" class="reveal">
   <div class="wrap">
     <div class="eyebrow">форма приёма</div>
@@ -1643,30 +1621,25 @@
   </div>
 </div>
 
-<section id="reviews" class="reveal">
+<section id="loonyroom" class="reveal">
   <div class="wrap">
-    <div class="eyebrow">показания свидетелей</div>
-    <h2>Что говорят те, кто уже был в Дредвуде</h2>
-    <div class="reviews-grid">
-      <div class="review">
-        <div class="rv-head"><span class="rv-ava">Е</span><div style="min-width:0"><div class="rv-name">Елизавета</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
-        <div class="rv-stars" aria-hidden="true">★★★★★</div>
-        <p>Очень атмосферно: загадки логичные, всё продумано до мелочей, а лёгкий холодок по спине только добавляет эмоций от игры.</p>
+    <!-- 03.10.2026: Loony Room теперь открыт для брони — у комнаты своя
+         отдельная страница (/loonyroom), вся карточка ведёт туда. Старая
+         заглушка «скоро» с подпиской на e-mail убрана. -->
+    <a class="classified room-promo" href="/loonyroom">
+      <div class="rp-text">
+      <span class="tape">новое · бронь открыта</span>
+      <h3>Loony Room — комната отдыха в аренду</h3>
+      <p>После квеста дело не обязательно закрывать сразу. Отдельная комната для дня рождения, корпоратива или посиделок с командой: караоке, проектор, две PlayStation 4, Just Dance, сцена и стол для застолья.</p>
       </div>
-      <div class="review">
-        <div class="rv-head"><span class="rv-ava">A</span><div style="min-width:0"><div class="rv-name">aleksandraserko</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
-        <div class="rv-stars" aria-hidden="true">★★★★★</div>
-        <p>Боялись, смеялись, разгадывали — эмоции через край. Атмосфера психиатрической клиники передана на все сто, актёры играют без права на ошибку.</p>
+      <div class="room-feats">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>Караоке и проектор</div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12a4 4 0 0 1 4 4v1a4 4 0 0 1-7 2.6L14 14h-4l-1 1.6A4 4 0 0 1 2 13v-1a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3"/></svg>2 × PlayStation 4 · Just Dance</div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.5c3.5 2.2 16.5 2.2 20 0"/><path d="M5.2 16 7 7.4c.3-1.3 1.7-1.8 2.8-1.1L12 7.7l2.2-1.4c1.1-.7 2.5-.2 2.8 1.1L18.8 16"/></svg>Мафия или Бункер с ведущим</div>
+        <div class="y"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>от 70 Br в час</div>
       </div>
-      <div class="review">
-        <div class="rv-head"><span class="rv-ava">K</span><div style="min-width:0"><div class="rv-name">Kristina</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
-        <div class="rv-stars" aria-hidden="true">★★★★★</div>
-        <p>Впечатлил антураж и полное погружение в игру актёров — а загадки логичны и вписаны в сюжет так, что не выбиваются из истории.</p>
-      </div>
-    </div>
-    <div class="reviews-more">
-      <a href="https://extrareality.by/quest/delo-meri-skazhi-im-chto-ya-zdes" class="btn btn-ghost" target="_blank" rel="noopener">Все отзывы →</a>
-    </div>
+      <span class="btn btn-solid room-promo-btn">Смотреть комнату →</span>
+    </a>
   </div>
 </section>
 
@@ -1695,25 +1668,56 @@
   </div>
 </section>
 
-<section id="loonyroom" class="reveal">
+<section id="rating" class="reveal">
   <div class="wrap">
-    <!-- 03.10.2026: Loony Room теперь открыт для брони — у комнаты своя
-         отдельная страница (/loonyroom), вся карточка ведёт туда. Старая
-         заглушка «скоро» с подпиской на e-mail убрана. -->
-    <a class="classified room-promo" href="/loonyroom">
-      <div class="rp-text">
-      <span class="tape">новое · бронь открыта</span>
-      <h3>Loony Room — комната отдыха в аренду</h3>
-      <p>После квеста дело не обязательно закрывать сразу. Отдельная комната для дня рождения, корпоратива или посиделок с командой: караоке, проектор, две PlayStation 4, Just Dance, сцена и стол для застолья.</p>
+    <div class="eyebrow">заключение экспертной комиссии</div>
+    <div class="badge-row">
+      <div class="badge">Супер-квест</div>
+      <div class="badge">Топ-5 квеструмов Минска</div>
+      <div class="badge">Топ-20 общего рейтинга</div>
+    </div>
+    <div class="rating-block">
+      <div class="rating-hero">
+        <div class="gauge" id="gauge">
+          <svg viewBox="0 0 300 220" aria-hidden="true"><defs><linearGradient id="gaugeGrad" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#8a6a15"/><stop offset="1" stop-color="#F5C518"/></linearGradient></defs><g id="gaugeNotches"></g></svg>
+          <div class="gauge-center"><b id="ratingNum">0.0</b><span>из 10 · средняя оценка<br>94 игрока</span></div>
+        </div>
       </div>
-      <div class="room-feats">
-        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>Караоке и проектор</div>
-        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12a4 4 0 0 1 4 4v1a4 4 0 0 1-7 2.6L14 14h-4l-1 1.6A4 4 0 0 1 2 13v-1a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3"/></svg>2 × PlayStation 4 · Just Dance</div>
-        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.5c3.5 2.2 16.5 2.2 20 0"/><path d="M5.2 16 7 7.4c.3-1.3 1.7-1.8 2.8-1.1L12 7.7l2.2-1.4c1.1-.7 2.5-.2 2.8 1.1L18.8 16"/></svg>Мафия или Бункер с ведущим</div>
-        <div class="y"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>от 70 Br в час</div>
+      <div class="rating-bars">
+        <div class="rbar-row"><span>Головоломки</span><div class="rbar-track"><div class="rbar-fill" data-w="98"></div></div><span>9.8</span></div>
+        <div class="rbar-row"><span>Антураж</span><div class="rbar-track"><div class="rbar-fill" data-w="99"></div></div><span>9.9</span></div>
+        <div class="rbar-row"><span>Сюжет</span><div class="rbar-track"><div class="rbar-fill" data-w="99"></div></div><span>9.9</span></div>
+        <div class="rbar-row"><span>Технологичность</span><div class="rbar-track"><div class="rbar-fill" data-w="99"></div></div><span>9.9</span></div>
+        <div class="rbar-row"><span>Обслуживание</span><div class="rbar-track"><div class="rbar-fill" data-w="100"></div></div><span>10</span></div>
       </div>
-      <span class="btn btn-solid room-promo-btn">Смотреть комнату →</span>
-    </a>
+    </div>
+  </div>
+</section>
+
+<section id="reviews" class="reveal">
+  <div class="wrap">
+    <div class="eyebrow">показания свидетелей</div>
+    <h2>Что говорят те, кто уже был в Дредвуде</h2>
+    <div class="reviews-grid">
+      <div class="review">
+        <div class="rv-head"><span class="rv-ava">Е</span><div style="min-width:0"><div class="rv-name">Елизавета</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
+        <div class="rv-stars" aria-hidden="true">★★★★★</div>
+        <p>Очень атмосферно: загадки логичные, всё продумано до мелочей, а лёгкий холодок по спине только добавляет эмоций от игры.</p>
+      </div>
+      <div class="review">
+        <div class="rv-head"><span class="rv-ava">A</span><div style="min-width:0"><div class="rv-name">aleksandraserko</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
+        <div class="rv-stars" aria-hidden="true">★★★★★</div>
+        <p>Боялись, смеялись, разгадывали — эмоции через край. Атмосфера психиатрической клиники передана на все сто, актёры играют без права на ошибку.</p>
+      </div>
+      <div class="review">
+        <div class="rv-head"><span class="rv-ava">K</span><div style="min-width:0"><div class="rv-name">Kristina</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
+        <div class="rv-stars" aria-hidden="true">★★★★★</div>
+        <p>Впечатлил антураж и полное погружение в игру актёров — а загадки логичны и вписаны в сюжет так, что не выбиваются из истории.</p>
+      </div>
+    </div>
+    <div class="reviews-more">
+      <a href="https://extrareality.by/quest/delo-meri-skazhi-im-chto-ya-zdes" class="btn btn-ghost" target="_blank" rel="noopener">Все отзывы →</a>
+    </div>
   </div>
 </section>
 
@@ -1762,8 +1766,8 @@
   <a class="brand" href="#top"><picture><source srcset="assets/logo.webp" type="image/webp"><img src="assets/logo.jpg" alt="Loony Games"></picture></a>
   <div class="foot-links">
     <a href="#booking">Бронирование</a>
-    <a href="#reviews">Отзывы</a>
     <a href="/loonyroom">Комната отдыха</a>
+    <a href="#reviews">Отзывы</a>
     <a href="#location">Адрес</a>
     <a href="tel:+375291761984">+375 (29) 176-19-84</a>
   </div>
