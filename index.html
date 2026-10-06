@@ -1043,6 +1043,312 @@
       radial-gradient(ellipse 60% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.18) 100%);
     mix-blend-mode:multiply;
   }
+
+  /* =========================================================================
+     РЕДИЗАЙН 06.10.2026 — крупнее, чище, «как приложение» на телефоне.
+     Анимации: Motion (motion.dev) + anime.js (animejs.com), файл assets/js/fx.js.
+     Паттерны интерфейса по мотивам Kokonut UI (glitch-text, smooth-drawer,
+     tweet-card, carousel, shimmer-button, scroll-text) и bklit UI (notch-gauge),
+     переписаны на чистый HTML/CSS, без React. Все «спрятанные до анимации»
+     состояния включаются только классом html.fx (его ставит скрипт, когда
+     библиотеки загрузились) — без JS всё просто видно сразу.
+     ========================================================================= */
+  :root{ --card:#0f0f0f; --card-2:#161616; --soft:rgba(255,255,255,.08); --r-lg:26px; --r-md:18px; }
+  body{font-size:17px;}
+  .wrap{max-width:1180px;}
+  section{padding:104px 28px;}
+  .eyebrow{font-size:13px; letter-spacing:.14em; margin-bottom:18px;}
+  h2{font-size:clamp(34px,4.4vw,52px); line-height:1.06; margin-bottom:28px;}
+  h2 .w{display:inline-block; overflow:hidden; vertical-align:top; padding-bottom:.06em; margin-bottom:-.06em;}
+  h2 .w > span{display:inline-block;}
+  .fx h2 .w > span{transform:translateY(110%);}
+  .btn{min-height:56px; padding:0 30px; display:inline-flex; align-items:center; justify-content:center; gap:10px; font-size:16px; font-weight:800; position:relative; overflow:hidden;}
+  /* shimmer-кнопка (Kokonut UI) — блик пробегает по жёлтой кнопке */
+  .btn-solid::after, .nav-cta::after, .submit-btn::after, .m-cta-bar a::after{
+    content:""; position:absolute; top:0; bottom:0; left:-60%; width:45%; pointer-events:none;
+    background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+    transform:skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;
+  }
+  .nav-cta, .submit-btn{position:relative; overflow:hidden;}
+  @keyframes btnShine{0%,62%{left:-60%;} 82%,100%{left:130%;}}
+  @media (prefers-reduced-motion: reduce){ .btn-solid::after, .nav-cta::after, .submit-btn::after, .m-cta-bar a::after{animation:none; display:none;} }
+
+  /* ---------- шапка + меню-«шторка» ---------- */
+  .nav-toggle{width:48px; height:48px; border-radius:14px; position:relative;}
+  .nav-toggle svg{display:none;}
+  .nav-toggle i{position:absolute; left:14px; right:14px; height:2px; border-radius:2px; background:currentColor; transition:transform .3s ease, opacity .2s ease, top .3s ease;}
+  .nav-toggle i:nth-child(2){top:17px;} .nav-toggle i:nth-child(3){top:23px;} .nav-toggle i:nth-child(4){top:29px;}
+  .nav-toggle[aria-expanded="true"] i:nth-child(2){top:23px; transform:rotate(45deg);}
+  .nav-toggle[aria-expanded="true"] i:nth-child(3){opacity:0;}
+  .nav-toggle[aria-expanded="true"] i:nth-child(4){top:23px; transform:rotate(-45deg);}
+
+  /* ---------- hero ---------- */
+  .hero h1 .gl{position:relative; display:inline-block;}
+  .hero h1 .gl-a, .hero h1 .gl-b{position:absolute; inset:0; pointer-events:none; opacity:0;}
+  .hero h1 .gl-a{color:#ff3d54; mix-blend-mode:screen;}
+  .hero h1 .gl-b{color:#38d9ff; mix-blend-mode:screen;}
+  .hero h1.glitching::before, .hero h1.glitching::after{display:none;}
+  .stat-strip{gap:12px;}
+  .stat{border-radius:var(--r-md); background:rgba(10,10,10,.5); border:1px solid var(--soft); padding:16px 20px; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);}
+  .stat b{font-size:26px;}
+  .stat span{font-size:12.5px;}
+  .hero-scroll{position:absolute; left:50%; bottom:22px; z-index:3; width:26px; height:42px; margin-left:-13px; border:2px solid rgba(255,255,255,.35); border-radius:14px;}
+  .hero-scroll::after{content:""; position:absolute; left:50%; top:8px; width:4px; height:8px; margin-left:-2px; border-radius:2px; background:var(--ochre-bright); animation:scrollDot 1.8s ease-in-out infinite;}
+  @keyframes scrollDot{0%{opacity:0; transform:translateY(0);} 30%{opacity:1;} 100%{opacity:0; transform:translateY(14px);}}
+
+  /* ---------- о квесте ---------- */
+  .about-grid{gap:64px;}
+  .about-grid p{font-size:18px; line-height:1.7;}
+  .about-grid p.lead-scroll .sw{transition:opacity .25s linear;}
+  .fx .about-grid p.lead-scroll .sw{opacity:.3;}
+  .about-grid p.lead-scroll{color:var(--paper);}
+  .tag{font-size:14px; padding:10px 18px; background:rgba(255,255,255,.03);}
+  .about-photo{border-radius:var(--r-lg); border-color:var(--soft); position:relative; margin:0;}
+  .about-photo figcaption{position:absolute; left:16px; bottom:16px; right:16px; z-index:2; font-weight:700; font-size:14px; color:var(--paper); background:rgba(0,0,0,.6); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); padding:10px 14px; border-radius:12px;}
+
+  /* ---------- галерея-карусель ---------- */
+  .gal-head{display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap;}
+  .gal-ctrl{display:flex; align-items:center; gap:10px; margin-bottom:28px;}
+  .gal-count{font-family:var(--display); font-size:22px; color:var(--muted); min-width:64px; text-align:center;}
+  .gal-count b{color:var(--ochre-bright); font-weight:400;}
+  .gal-btn{width:52px; height:52px; border-radius:50%; border:1px solid var(--soft); background:var(--card-2); color:var(--paper); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:border-color .2s, color .2s, opacity .2s;}
+  .gal-btn:hover:not(:disabled){border-color:var(--ochre-bright); color:var(--ochre-bright);}
+  .gal-btn:disabled{opacity:.3; cursor:default;}
+  .gal-btn svg{width:22px; height:22px;}
+  .gallery-grid{gap:18px; padding:6px 0 18px; scroll-snap-type:x mandatory; scrollbar-width:none; scroll-padding-left:max(28px, calc((100vw - 1180px)/2 + 28px));
+    margin:0 calc(50% - 50vw); padding-left:max(28px, calc((100vw - 1180px)/2 + 28px)); padding-right:28px;}
+  .gallery-grid::-webkit-scrollbar{display:none;}
+  .gallery-grid figure{width:340px; aspect-ratio:4/5; border-radius:var(--r-lg); border:1px solid var(--soft); scroll-snap-align:start; transform-origin:center; transition:transform .35s ease, opacity .35s ease, border-color .25s;}
+  .gallery-grid figure::after{content:""; position:absolute; inset:0; background:linear-gradient(180deg, transparent 55%, rgba(0,0,0,.55)); pointer-events:none;}
+  .gallery-grid figure:hover{border-color:var(--ochre);}
+  .gallery-hint{display:none;}
+
+  /* ---------- рейтинг: «notch gauge» по мотивам bklit UI ---------- */
+  .rating-block{grid-template-columns:minmax(300px, 400px) 1fr; gap:56px; align-items:center;}
+  .rating-hero{border:1px solid var(--soft); border-right:1px solid var(--soft); border-radius:var(--r-lg); padding:28px 24px 26px; background:radial-gradient(circle at 50% 30%, rgba(245,197,24,.08), transparent 65%), var(--card);}
+  .gauge{position:relative; width:100%; max-width:320px; margin:0 auto;}
+  .gauge svg{display:block; width:100%; height:auto; overflow:visible;}
+  .gauge .notch{fill:rgba(255,255,255,.09);}
+  .gauge .notch.on{fill:url(#gaugeGrad);}
+  .gauge-center{position:absolute; left:0; right:0; top:60%; transform:translateY(-50%); text-align:center;}
+  .rating-hero b{font-size:88px;}
+  .rating-hero span{font-size:13px; margin-top:4px;}
+  .badge-row{gap:10px; margin-bottom:44px;}
+  .badge{font-size:14.5px; padding:12px 20px; background:rgba(245,197,24,.06);}
+  .rating-bars{gap:22px;}
+  .rbar-row{grid-template-columns:170px 1fr 44px; font-size:16px; gap:18px;}
+  .rbar-row > span:last-child{font-family:var(--display); font-size:20px; color:var(--ochre-bright); text-align:right;}
+  .rbar-track{height:14px; background:rgba(255,255,255,.07); border-radius:3px;
+    -webkit-mask:repeating-linear-gradient(90deg, #000 0 calc(5% - 3px), transparent calc(5% - 3px) 5%);
+            mask:repeating-linear-gradient(90deg, #000 0 calc(5% - 3px), transparent calc(5% - 3px) 5%);}
+  .rbar-fill{border-radius:0;}
+
+  /* ---------- бронь ---------- */
+  .intake{border-radius:var(--r-lg); border-color:var(--soft); padding:44px;}
+  .intake-head h3{font-size:30px;}
+  .intake-head p{font-size:16px;}
+  .field-label{font-size:15px; letter-spacing:.04em;}
+  .field-label .num{width:30px; height:30px; font-size:14px;}
+  .cal-month{font-size:22px;}
+  .cal-nav{width:48px; height:48px; border-radius:14px; font-size:22px;}
+  .day{font-family:var(--display); font-weight:400; font-size:28px; border-radius:16px; gap:4px;}
+  .day small{font-family:var(--sans); font-size:12px; font-weight:800;}
+  .slot{min-height:72px; font-size:19px; border-radius:16px;}
+  .slot .slot-price{font-size:12.5px;}
+  .booking-modal-box{border-radius:var(--r-lg); border-color:var(--soft);}
+  .booking-modal-title{font-size:30px;}
+  .booking-modal-date{font-size:14px;}
+  .contact-fields input, .phone-field-wrap input, .players-select{font-size:17px;}
+  .contact-fields input, .players-select{min-height:58px;}
+  .phone-field-wrap{min-height:58px;}
+  .comment-field{font-size:16px;}
+  .animator-toggle-text{font-size:16px;}
+  .submit-btn{min-height:62px; font-size:17px;}
+  .price-note{font-size:15px;}
+  .fine{font-size:14px;}
+
+  /* ---------- отзывы: карточки по мотивам Kokonut tweet-card ---------- */
+  .reviews-grid{gap:18px;}
+  .review{padding:26px; border-radius:var(--r-lg); border-color:var(--soft); background:var(--card); display:flex; flex-direction:column; gap:16px;}
+  .review .rv-head{display:flex; align-items:center; gap:12px;}
+  .review .rv-ava{width:46px; height:46px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-family:var(--display-heading); font-size:19px; color:#151004; background:linear-gradient(135deg, var(--ochre-bright), var(--ochre));}
+  .review .rv-name{font-weight:800; font-size:16.5px; color:var(--paper); line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .review .rv-src{font-size:13.5px; color:var(--muted); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .review .rv-score{margin-left:auto; flex-shrink:0; font-family:var(--display); font-size:18px; color:#151004; background:var(--ochre-bright); border-radius:999px; padding:3px 11px;}
+  .review .rv-stars{color:var(--ochre-bright); letter-spacing:3px; font-size:16px; line-height:1;}
+  .review p{font-size:16.5px; line-height:1.6; margin:0; color:#d9d4c6;}
+  .review .who{display:none;}
+
+  /* ---------- FAQ ---------- */
+  #faqList{display:flex; flex-direction:column; gap:12px;}
+  .faq-item{border:1px solid var(--soft); border-radius:var(--r-md); background:var(--card); padding:0 24px; transition:border-color .25s;}
+  .faq-item.open{border-color:var(--line);}
+  .faq-q{font-size:18px; padding:24px 0; gap:16px; line-height:1.35;}
+  .faq-q .plus{font-family:var(--sans); font-weight:500; flex-shrink:0; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(245,197,24,.1); font-size:26px; line-height:1;}
+  .faq-a p{font-size:16.5px; line-height:1.65;}
+
+  /* ---------- Loony Room — бенто ---------- */
+  .classified{border-color:var(--soft); border-radius:var(--r-lg); padding:48px; display:grid; grid-template-columns:1.1fr 1fr; gap:22px 40px; align-items:center;}
+  .classified .rp-text{grid-column:1;}
+  .classified .room-feats{grid-column:2; grid-row:1 / span 2; display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0;}
+  .classified .room-promo-btn{grid-column:1; justify-self:start;}
+  .room-feats div{display:flex; flex-direction:column; justify-content:space-between; gap:18px; min-height:132px; padding:20px; border-radius:var(--r-md); border:1px solid var(--soft); background:var(--card-2); font-size:16px; font-weight:800; color:var(--paper);}
+  .room-feats div svg{width:30px; height:30px; stroke:var(--ochre-bright);}
+  .room-feats div.y{background:var(--ochre-bright); border-color:var(--ochre-bright); color:#151004;}
+  .room-feats div.y svg{stroke:#151004;}
+  .classified p{font-size:17px;}
+
+  /* ---------- адрес ---------- */
+  .loc-grid li{font-size:16.5px; padding:20px 0;}
+  .map-frame{height:340px; border-radius:var(--r-lg); border-color:var(--soft);}
+  .video-frame{border-radius:var(--r-lg); border-color:var(--soft);}
+  .howto-video-note{font-size:16.5px;}
+  .foot-links{font-size:15.5px;}
+  .foot-fine, .foot-unp{font-size:13.5px;}
+
+  /* ---------- нижняя плашка «Забронировать» (телефон) ---------- */
+  .m-cta-bar{display:none;}
+
+  /* ==================== ТЕЛЕФОН ==================== */
+  @media (max-width:860px){
+    body{font-size:17px;}
+    header .nav{padding:8px 16px;}
+    .brand img{height:48px;}
+    .nav-right{gap:10px;}
+    .nav-cta{padding:0 18px; height:48px; display:inline-flex; align-items:center; font-size:15px;}
+    .mobile-menu{position:fixed; left:0; right:0; top:100%; height:calc(100svh - 64px); z-index:60; padding:18px 20px 28px; overflow-y:auto; border-top:1px solid var(--soft); background:#050505; counter-reset:mm;}
+    .mobile-menu a{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:26px; letter-spacing:.01em; padding:16px 2px; border-bottom:1px solid var(--soft); display:flex; align-items:center; gap:14px;}
+    .mobile-menu a:not(.mobile-social)::before{counter-increment:mm; content:"0" counter(mm); font-family:var(--display); font-size:15px; color:var(--ochre-bright); min-width:24px;}
+    .mobile-menu .mobile-social{font-family:var(--sans); text-transform:none; font-size:17px; font-weight:800; border:1px solid var(--soft); border-radius:16px; padding:16px 18px; margin-top:12px;}
+    .mobile-menu .mobile-social + .mobile-social{margin-top:10px;}
+    .mobile-menu a.mobile-social:last-child{border-bottom:1px solid var(--soft);}
+    body.menu-open{overflow:hidden;}
+
+    .wrap{padding:0 16px;}
+    section{padding:64px 16px;}
+    .eyebrow{font-size:12.5px; margin-bottom:14px;}
+    h2{font-size:clamp(30px,9vw,40px); line-height:1.08; margin-bottom:22px;}
+
+    .hero{min-height:100svh; align-items:flex-end;}
+    .hero > .wrap{padding-top:120px; padding-bottom:72px;}
+    .case-tag{font-size:12.5px; padding:7px 16px 10px;}
+    .hero h1{font-size:clamp(52px,16vw,74px); line-height:.92;}
+    .hero-mark{font-size:clamp(26px,8.4vw,34px); padding:2px 18px 8px;}
+    .hero-lede{font-size:17px; line-height:1.6; margin:24px 0 26px;}
+    .stat-strip{grid-template-columns:1fr 1fr; gap:10px; margin-bottom:26px;}
+    .stat{flex-direction:row; align-items:center; text-align:left; gap:12px; padding:14px; background:rgba(10,10,10,.55); border:1px solid var(--soft); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);}
+    .stat svg{width:28px; height:28px;}
+    .stat b{font-size:26px;}
+    .stat span{font-size:12.5px;}
+    .hero-ctas .btn{min-height:60px; font-size:17px;}
+    .hero-scroll{display:none;}
+
+    .about-grid{gap:26px;}
+    .about-photo{aspect-ratio:4/3; max-height:none; border-radius:22px;}
+    .about-grid p{font-size:17.5px;}
+    .tag{font-size:14.5px; padding:10px 16px;}
+
+    .gal-ctrl .gal-btn{display:none;}
+    .gal-ctrl{margin:-8px 0 20px;}
+    .gallery-grid{gap:12px; margin:0 -16px; padding:4px 16px 14px; scroll-padding-left:16px; scroll-snap-type:x mandatory;}
+    .gallery-grid figure{width:80vw; max-width:360px;}
+
+    .rating-block{grid-template-columns:1fr; gap:36px;}
+    .rating-hero{border-bottom:1px solid var(--soft); padding:24px 18px 22px;}
+    .rating-hero b{font-size:76px;}
+    .rating-hero span{font-size:13px;}
+    .badge-row{display:flex; flex-wrap:nowrap; overflow-x:auto; margin:0 -16px 30px; padding:0 16px 4px; scrollbar-width:none;}
+    .badge-row::-webkit-scrollbar{display:none;}
+    .badge{flex-shrink:0; font-size:15px; padding:12px 18px;}
+    .rating-bars{gap:20px;}
+    .rbar-row{grid-template-columns:1fr auto; grid-template-areas:"name val" "bar bar"; gap:10px 12px; font-size:17px;}
+    .rbar-row > span:first-child{grid-area:name;}
+    .rbar-row > .rbar-track{grid-area:bar; height:16px;}
+    .rbar-row > span:last-child{grid-area:val; font-size:22px;}
+
+    /* календарь: лента дней, которую листают пальцем */
+    .intake{padding:0;}
+    .intake-head h3{font-size:24px; line-height:1.2;}
+    .intake-head p{font-size:16.5px;}
+    .field-label{font-size:15px;}
+    .field-label .num{width:30px; height:30px; font-size:14px;}
+    .cal-head{margin-bottom:14px;}
+    .cal-month{font-size:22px;}
+    .cal-nav{width:48px; height:48px; font-size:22px; border-radius:14px;}
+    .cal-weekdays{display:none;}
+    .cal-grid{display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x proximity; margin:0 -16px; padding:2px 16px 14px; scroll-padding-left:16px; scrollbar-width:none;}
+    .cal-grid::-webkit-scrollbar{display:none;}
+    .day{flex:0 0 78px; aspect-ratio:auto; height:96px; scroll-snap-align:start; font-family:var(--display); font-weight:400; font-size:32px; gap:4px; border-radius:18px; background:var(--card-2); border:1.5px solid var(--soft);}
+    .day small{font-family:var(--sans); font-size:13px; font-weight:800; letter-spacing:.04em;}
+    .day.empty{display:none;}
+    .day.active{background:var(--ochre-bright); border-color:var(--ochre-bright);}
+
+    /* окно брони — шторка снизу (Kokonut smooth-drawer) */
+    .booking-modal-overlay{padding:0; align-items:flex-end;}
+    .booking-modal-box{height:92svh; max-height:92svh; margin:0; border-radius:26px 26px 0 0; padding:34px 18px calc(30px + env(safe-area-inset-bottom)); animation:sheetUp .42s cubic-bezier(.2,.9,.25,1);}
+    .booking-modal-box::before{content:""; position:absolute; top:10px; left:50%; width:44px; height:5px; margin-left:-22px; border-radius:3px; background:rgba(255,255,255,.22);}
+    @keyframes sheetUp{from{transform:translateY(100%);} to{transform:translateY(0);}}
+    .booking-modal-close{top:calc(8svh + 16px); right:14px; left:auto; width:44px; height:44px; border-radius:50%; font-size:18px;}
+    .booking-modal-title{font-size:28px; padding-right:52px;}
+    .slot-row{grid-template-columns:repeat(3,1fr); gap:10px;}
+    .slot{min-height:76px; font-size:20px; border-radius:16px;}
+    .slot .slot-price{font-size:13px;}
+    .contact-fields input, .phone-field-wrap, .players-select{min-height:58px; font-size:17px;}
+    .phone-field-wrap input{font-size:17px;}
+    .comment-field{font-size:16.5px;}
+    .animator-toggle{padding:16px 18px;}
+    .animator-toggle-text{font-size:16.5px;}
+    .price-num{font-size:52px;}
+    .price-note{font-size:15.5px; max-width:none;}
+    .submit-btn, .submit-btn.submit-btn-inline{min-height:62px; font-size:17px;}
+    .fine{font-size:14px;}
+    .slot-note{font-size:15.5px;}
+    .confirm-msg{font-size:16px;}
+
+    .reviews-grid{display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory; margin:0 -16px; padding:4px 16px 16px; scroll-padding-left:16px; scrollbar-width:none;}
+    .reviews-grid::-webkit-scrollbar{display:none;}
+    .review{flex:0 0 86%; scroll-snap-align:start; padding:22px;}
+    .review p{font-size:17px;}
+    .reviews-more .btn{width:100%;}
+
+    .faq-item{padding:0 18px;}
+    .faq-q{font-size:17.5px; padding:20px 0;}
+    .faq-a p{font-size:16.5px;}
+
+    .classified{display:block; padding:24px 18px;}
+    .classified h3{font-size:28px;}
+    .classified p{font-size:17px;}
+    .classified .room-feats{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:0 0 20px;}
+    .room-feats div, .room-feats div:first-child{min-height:120px; padding:16px; font-size:15.5px; border:1px solid var(--soft); border-radius:var(--r-md); background:var(--card-2);}
+    .room-feats div.y{background:var(--ochre-bright); border-color:var(--ochre-bright);}
+    .classified .room-promo-btn{width:100%;}
+
+    .loc-grid li{font-size:16.5px; padding:17px 0; gap:14px;}
+    .loc-grid li b{text-align:right;}
+    .map-frame{height:280px; border-radius:22px;}
+    .map-col .btn{align-self:stretch;}
+    .howto-video-note{font-size:16.5px;}
+
+    footer{padding:48px 16px calc(110px + env(safe-area-inset-bottom));}
+    .foot-links{display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:16px;}
+    .foot-links a{padding:12px 8px; border-radius:12px; background:rgba(255,255,255,.03);}
+    .foot-fine, .foot-unp{font-size:13.5px;}
+
+    .m-cta-bar{position:fixed; left:12px; right:12px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:80; display:flex; transform:translateY(160%); transition:transform .45s cubic-bezier(.2,.9,.25,1);}
+    .m-cta-bar.show{transform:translateY(0);}
+    .m-cta-bar a{flex:1; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:62px; padding:0 22px; border-radius:18px; background:var(--ochre-bright); color:#151004; text-decoration:none; font-weight:800; font-size:17px; box-shadow:0 18px 40px rgba(0,0,0,.65);}
+    .m-cta-bar a b{font-family:var(--display); font-weight:400; font-size:22px;}
+  }
+  @media (max-width:380px){
+    .hero h1{font-size:48px;}
+    .stat b{font-size:22px;}
+    .day{flex-basis:72px;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .fx h2 .w > span{transform:none;}
+    .fx .about-grid p.lead-scroll .sw{opacity:1;}
+    .booking-modal-box{animation:none;}
+  }
 </style>
 
 <!--
@@ -1090,7 +1396,7 @@
       </a>
       <a class="nav-cta" href="#booking">Забронировать</a>
       <button class="nav-toggle" id="navToggle" aria-label="Меню" aria-expanded="false">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg><i></i><i></i><i></i>
       </button>
     </div>
   </div>
@@ -1149,6 +1455,7 @@
     </div>
   </div>
   <div class="hero-flicker" aria-hidden="true"></div>
+  <div class="hero-scroll" aria-hidden="true"></div>
 </section>
 
 <section id="story" class="reveal">
@@ -1157,7 +1464,7 @@
     <div class="about-grid">
       <div>
         <h2>Что вас ждёт</h2>
-        <p>Дредвуд принимает вас как практикантов — тех, кто ещё не разучился видеть в пациенте человека, а не строчку в архиве. Пока другие врачи заполняют карты, вы слышите то, что все давно перестали слушать.</p>
+        <p class="lead-scroll">Дредвуд принимает вас как практикантов — тех, кто ещё не разучился видеть в пациенте человека, а не строчку в архиве. Пока другие врачи заполняют карты, вы слышите то, что все давно перестали слушать.</p>
         <p>Кто-то в этих стенах хочет, чтобы правда осталась похоронена в подвале с документами. У вас есть час, чтобы решить: закрыть дело — или открыть его заново.</p>
         <div class="tags">
           <span class="tag">страшный квест</span>
@@ -1166,7 +1473,7 @@
           <span class="tag">атмосферный хоррор без скримеров</span>
         </div>
       </div>
-      <figure class="about-photo"><picture><source srcset="assets/photo-doctors.webp" type="image/webp"><img src="assets/photo-doctors.jpg" alt="Практиканты клиники Дредвуд" loading="lazy"></picture></figure>
+      <figure class="about-photo"><picture><source srcset="assets/photo-doctors.webp" type="image/webp"><img src="assets/photo-doctors.jpg" alt="Практиканты клиники Дредвуд" loading="lazy"></picture><figcaption>Практиканты клиники «Дредвуд»</figcaption></figure>
     </div>
   </div>
 </section>
@@ -1181,7 +1488,14 @@
 <section id="gallery" class="reveal">
   <div class="wrap">
     <div class="eyebrow">кадры со съёмок</div>
-    <h2>Внутри Дредвуда</h2>
+    <div class="gal-head">
+      <h2>Внутри Дредвуда</h2>
+      <div class="gal-ctrl">
+        <button type="button" class="gal-btn" id="galPrev" aria-label="Предыдущий кадр"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <span class="gal-count" id="galCount"><b>1</b> / 8</span>
+        <button type="button" class="gal-btn" id="galNext" aria-label="Следующий кадр"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+      </div>
+    </div>
     <p class="gallery-hint">Листайте ленту в сторону, нажмите на кадр — откроется просмотр с переключением стрелками.</p>
     <div class="gallery-grid">
       <figure><picture><source srcset="assets/photo-hallway-chase.webp" type="image/webp"><img src="assets/photo-hallway-chase.jpg" alt="Коридор клиники Дредвуд" loading="lazy"></picture></figure>
@@ -1206,8 +1520,10 @@
     </div>
     <div class="rating-block">
       <div class="rating-hero">
-        <b id="ratingNum">0.0</b>
-        <span>средняя оценка · 94 игрока</span>
+        <div class="gauge" id="gauge">
+          <svg viewBox="0 0 300 220" aria-hidden="true"><defs><linearGradient id="gaugeGrad" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#8a6a15"/><stop offset="1" stop-color="#F5C518"/></linearGradient></defs><g id="gaugeNotches"></g></svg>
+          <div class="gauge-center"><b id="ratingNum">0.0</b><span>из 10 · средняя оценка<br>94 игрока</span></div>
+        </div>
       </div>
       <div class="rating-bars">
         <div class="rbar-row"><span>Головоломки</span><div class="rbar-track"><div class="rbar-fill" data-w="98"></div></div><span>9.8</span></div>
@@ -1301,16 +1617,19 @@
     <h2>Что говорят те, кто уже был в Дредвуде</h2>
     <div class="reviews-grid">
       <div class="review">
+        <div class="rv-head"><span class="rv-ava">Е</span><div style="min-width:0"><div class="rv-name">Елизавета</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
+        <div class="rv-stars" aria-hidden="true">★★★★★</div>
         <p>Очень атмосферно: загадки логичные, всё продумано до мелочей, а лёгкий холодок по спине только добавляет эмоций от игры.</p>
-        <div class="who"><span>Елизавета</span><span>10.0 / 10</span></div>
       </div>
       <div class="review">
+        <div class="rv-head"><span class="rv-ava">A</span><div style="min-width:0"><div class="rv-name">aleksandraserko</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
+        <div class="rv-stars" aria-hidden="true">★★★★★</div>
         <p>Боялись, смеялись, разгадывали — эмоции через край. Атмосфера психиатрической клиники передана на все сто, актёры играют без права на ошибку.</p>
-        <div class="who"><span>aleksandraserko</span><span>10.0 / 10</span></div>
       </div>
       <div class="review">
+        <div class="rv-head"><span class="rv-ava">K</span><div style="min-width:0"><div class="rv-name">Kristina</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">10.0</span></div>
+        <div class="rv-stars" aria-hidden="true">★★★★★</div>
         <p>Впечатлил антураж и полное погружение в игру актёров — а загадки логичны и вписаны в сюжет так, что не выбиваются из истории.</p>
-        <div class="who"><span>Kristina</span><span>10.0 / 10</span></div>
       </div>
     </div>
     <div class="reviews-more">
@@ -1350,16 +1669,18 @@
          отдельная страница (/loonyroom), вся карточка ведёт туда. Старая
          заглушка «скоро» с подпиской на e-mail убрана. -->
     <a class="classified room-promo" href="/loonyroom">
+      <div class="rp-text">
       <span class="tape">новое · бронь открыта</span>
       <h3>Loony Room — комната отдыха в аренду</h3>
       <p>После квеста дело не обязательно закрывать сразу. Отдельная комната для дня рождения, корпоратива или посиделок с командой: караоке, проектор, две PlayStation 4, Just Dance, сцена и стол для застолья.</p>
-      <div class="room-feats">
-        <div>Караоке и проектор</div>
-        <div>2 × PlayStation 4 · Just Dance</div>
-        <div>Мафия или Бункер с ведущим</div>
-        <div>от 70 Br в час</div>
       </div>
-      <span class="btn btn-solid room-promo-btn">Смотреть комнату и забронировать →</span>
+      <div class="room-feats">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>Караоке и проектор</div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12a4 4 0 0 1 4 4v1a4 4 0 0 1-7 2.6L14 14h-4l-1 1.6A4 4 0 0 1 2 13v-1a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3"/></svg>2 × PlayStation 4 · Just Dance</div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.5c3.5 2.2 16.5 2.2 20 0"/><path d="M5.2 16 7 7.4c.3-1.3 1.7-1.8 2.8-1.1L12 7.7l2.2-1.4c1.1-.7 2.5-.2 2.8 1.1L18.8 16"/></svg>Мафия или Бункер с ведущим</div>
+        <div class="y"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>от 70 Br в час</div>
+      </div>
+      <span class="btn btn-solid room-promo-btn">Смотреть комнату →</span>
     </a>
   </div>
 </section>
@@ -1404,6 +1725,8 @@
     </div>
   </div>
 </section>
+
+<div class="m-cta-bar" id="mCtaBar"><a href="#booking"><span>Забронировать сеанс</span><b>от 140 Br</b></a></div>
 
 <footer>
   <a class="brand" href="#top"><picture><source srcset="assets/logo.webp" type="image/webp"><img src="assets/logo.jpg" alt="Loony Games"></picture></a>
@@ -1504,12 +1827,18 @@
           .slice(0, 3);
         const grid = document.querySelector('#reviews .reviews-grid');
         if (!grid) return;
-        grid.innerHTML = freshest.map((r) => `
+        // 06.10.2026: карточки отзывов в новом оформлении (аватар-буква, звёзды, оценка)
+        grid.innerHTML = freshest.map((r) => {
+          const name = String(r.name || 'Гость');
+          const score = r.rating != null ? Number(r.rating) : null;
+          const stars = score != null ? Math.max(1, Math.min(5, Math.round(score / 2))) : 5;
+          return `
           <div class="review">
+            <div class="rv-head"><span class="rv-ava">${escapeHtml(name.trim().charAt(0).toUpperCase() || 'Г')}</span><div style="min-width:0"><div class="rv-name">${escapeHtml(name)}</div><div class="rv-src">отзыв на ExtraReality</div></div><span class="rv-score">${score != null ? score.toFixed(1) : '—'}</span></div>
+            <div class="rv-stars" aria-hidden="true">${'★'.repeat(stars)}</div>
             <p>${escapeHtml(r.text)}</p>
-            <div class="who"><span>${escapeHtml(r.name || 'Гость')}</span><span>${r.rating != null ? Number(r.rating).toFixed(1) : '—'} / 10</span></div>
-          </div>
-        `).join('');
+          </div>`;
+        }).join('');
       })
       .catch(() => { /* тихо оставляем статичные отзывы и "9.9" ниже */ });
   })();
@@ -2290,7 +2619,7 @@
 
     // --- Наклон фото (галерея + фото практикантов) при наведении мышью ----
     if(finePointer && !reduceMotion){
-      const tiltEls = document.querySelectorAll('.gallery-grid figure, .about-photo');
+      const tiltEls = document.querySelectorAll('.about-photo'); // 06.10.2026: кадры галереи теперь масштабирует карусель
       tiltEls.forEach(fig=>{
         fig.addEventListener('mousemove', (e)=>{
           const r = fig.getBoundingClientRect();
@@ -2307,6 +2636,192 @@
 <!-- Vercel Web Analytics — обычный HTML-сниппет (не React), т.к. сайт без
      Next.js/npm-пакетов. Ничего не собирает и не отправляет, пока в панели
      Vercel не включена сама аналитика (Project → Analytics → Enable). -->
+<script defer src="/assets/js/fx.js"></script>
+<script>
+/* 06.10.2026 — редизайн: интерактив и анимации (Motion + anime.js из assets/js/fx.js).
+   Всё, что не требует библиотек (шкала рейтинга, карусель, меню, нижняя
+   плашка), работает и без них; анимации включаются, только когда fx.js
+   загрузился и в системе не включено «уменьшить движение». */
+(function(){
+  'use strict';
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const isMobile = () => window.matchMedia('(max-width:860px)').matches;
+
+  // ---- шкала рейтинга (bklit-style notch gauge): 36 «зубцов» по дуге 240° ----
+  const NOTCHES = 36;
+  const gaugeG = $('#gaugeNotches');
+  if (gaugeG){
+    const cx = 150, cy = 150, r1 = 112, r2 = 140, start = -210, sweep = 240, gap = 2.2;
+    const step = sweep / NOTCHES;
+    let html = '';
+    for (let i = 0; i < NOTCHES; i++){
+      const a0 = (start + i * step + gap / 2) * Math.PI / 180;
+      const a1 = (start + (i + 1) * step - gap / 2) * Math.PI / 180;
+      const p = (r, a) => (cx + r * Math.cos(a)).toFixed(2) + ',' + (cy + r * Math.sin(a)).toFixed(2);
+      html += '<polygon class="notch" points="' + p(r1, a0) + ' ' + p(r2, a0) + ' ' + p(r2, a1) + ' ' + p(r1, a1) + '"/>';
+    }
+    gaugeG.innerHTML = html;
+  }
+  function gaugeTarget(){ const v = (typeof liveRatingValue === 'number' && liveRatingValue) ? liveRatingValue : 9.9; return Math.round(v / 10 * NOTCHES); }
+  function lightGauge(animated){
+    const ns = $$('#gaugeNotches .notch');
+    const n = gaugeTarget();
+    if (!animated || !window.LG || LG.reduced){ ns.forEach((el, i) => el.classList.toggle('on', i < n)); return; }
+    ns.forEach((el, i) => { if (i < n) setTimeout(() => el.classList.add('on'), 200 + i * 32); });
+    LG.anime.animate(ns.slice(0, n), { scale: [{ to: 1.12, duration: 160 }, { to: 1, duration: 260 }], delay: LG.anime.stagger(32, { start: 200 }), ease: 'outQuad' });
+  }
+
+  // ---- галерея-карусель: счётчик, стрелки, «активный» кадр крупнее ----
+  const gal = $('.gallery-grid');
+  const galFigs = gal ? $$('figure', gal) : [];
+  function galUpdate(){
+    if (!gal) return;
+    const box = gal.getBoundingClientRect();
+    const anchor = box.left + (isMobile() ? 16 : Math.max(28, (window.innerWidth - 1180) / 2 + 28));
+    let best = 0, bestD = 1e9;
+    galFigs.forEach((f, i) => {
+      const r = f.getBoundingClientRect();
+      const d = Math.abs(r.left - anchor);
+      if (d < bestD){ bestD = d; best = i; }
+      const k = Math.min(1, d / Math.max(1, r.width));
+      f.style.transform = 'scale(' + (1 - k * 0.06).toFixed(3) + ')';
+      f.style.opacity = (1 - k * 0.35).toFixed(3);
+    });
+    const c = $('#galCount'); if (c) c.innerHTML = '<b>' + (best + 1) + '</b> / ' + galFigs.length;
+    const atStart = gal.scrollLeft < 8, atEnd = gal.scrollLeft + gal.clientWidth > gal.scrollWidth - 8;
+    if ($('#galPrev')) $('#galPrev').disabled = atStart;
+    if ($('#galNext')) $('#galNext').disabled = atEnd;
+  }
+  if (gal){
+    let raf = 0;
+    gal.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(galUpdate); }, { passive: true });
+    window.addEventListener('resize', galUpdate);
+    const stepBy = (dir) => { const w = galFigs[0] ? galFigs[0].getBoundingClientRect().width + 18 : 300; gal.scrollBy({ left: dir * w, behavior: 'smooth' }); };
+    if ($('#galPrev')) $('#galPrev').addEventListener('click', () => stepBy(-1));
+    if ($('#galNext')) $('#galNext').addEventListener('click', () => stepBy(1));
+    galUpdate();
+  }
+
+  // ---- меню-«шторка»: блокируем прокрутку под ним ----
+  const navToggle = $('#navToggle'), mobileMenu = $('#mobileMenu');
+  function syncMenu(){ document.body.classList.toggle('menu-open', mobileMenu.classList.contains('open')); }
+  if (navToggle && mobileMenu){
+    navToggle.addEventListener('click', () => {
+      syncMenu();
+      if (mobileMenu.classList.contains('open') && window.LG && !LG.reduced){
+        LG.motion.animate($$('a', mobileMenu), { opacity: [0, 1], x: [-24, 0] }, { delay: LG.motion.stagger(0.045), duration: 0.42, ease: [0.2, 0.9, 0.25, 1] });
+      }
+    });
+    $$('a', mobileMenu).forEach((a) => a.addEventListener('click', () => setTimeout(syncMenu, 0)));
+  }
+
+  // ---- нижняя плашка «Забронировать» на телефоне ----
+  const bar = $('#mCtaBar');
+  const hero = $('.hero'), booking = $('#booking'), modal = $('#bookingModalOverlay');
+  let pastHero = false, bookingVisible = false;
+  function syncBar(){
+    if (!bar) return;
+    const modalOpen = modal && modal.classList.contains('show');
+    bar.classList.toggle('show', pastHero && !bookingVisible && !modalOpen && !(mobileMenu && mobileMenu.classList.contains('open')));
+  }
+  if ('IntersectionObserver' in window && bar){
+    new IntersectionObserver((e) => { pastHero = !e[0].isIntersecting; syncBar(); }, { threshold: 0.05 }).observe(hero);
+    new IntersectionObserver((e) => { bookingVisible = e[0].isIntersecting; syncBar(); }, { threshold: 0.15 }).observe(booking);
+    if (modal) new MutationObserver(syncBar).observe(modal, { attributes: true, attributeFilter: ['class'] });
+    if (mobileMenu) new MutationObserver(syncBar).observe(mobileMenu, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  // ---- выбранный день в ленте календаря — прокрутить в видимую часть ----
+  const dayRow = $('#dayRow');
+  if (dayRow){
+    dayRow.addEventListener('click', (e) => {
+      const b = e.target.closest('.day'); if (!b || !isMobile()) return;
+      const r = b.getBoundingClientRect(), box = dayRow.getBoundingClientRect();
+      if (r.left < box.left || r.right > box.right) dayRow.scrollBy({ left: r.left - box.left - 16, behavior: 'smooth' });
+    });
+  }
+
+  // ---- всё, что дальше — только анимации ----
+  let gaugeDone = false;
+  function start(){
+    const rating = $('#rating');
+    if (!window.LG || LG.reduced){
+      if (rating && 'IntersectionObserver' in window){
+        new IntersectionObserver((e, o) => { if (e[0].isIntersecting && !gaugeDone){ gaugeDone = true; lightGauge(false); o.disconnect(); } }, { threshold: 0.3 }).observe(rating);
+      } else lightGauge(false);
+      return;
+    }
+    document.documentElement.classList.add('fx');
+    const { animate, inView, scroll, stagger } = LG.motion;
+    const A = LG.anime;
+
+    // Заголовок: «расшифровка дела» (anime.js scrambleText) + редкие сбои-глитчи (по мотивам Kokonut glitch-text)
+    const h1 = $('.hero h1');
+    if (h1){
+      const t = h1.textContent.trim();
+      h1.innerHTML = '<span class="gl"><span class="gl-t">' + t + '</span><span class="gl-a" aria-hidden="true">' + t + '</span><span class="gl-b" aria-hidden="true">' + t + '</span></span>';
+      h1.classList.remove('glitching');
+      A.animate($('.gl-t', h1), { innerHTML: A.scrambleText({ chars: 'АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ#%', duration: 1100 }) });
+      const burst = () => {
+        const a = $('.gl-a', h1), b = $('.gl-b', h1);
+        const kf = (s) => ['translate(0,0)', `translate(${4*s}px,${-2*s}px) skewX(${2*s}deg)`, `translate(${-3*s}px,${2*s}px) skewX(${-2*s}deg)`, `translate(${2*s}px,${1*s}px)`, 'translate(0,0)'];
+        animate(a, { opacity: [0, .9, .6, .9, 0], transform: kf(1) }, { duration: 0.45 });
+        animate(b, { opacity: [0, .8, .5, .8, 0], transform: kf(-1) }, { duration: 0.45 });
+        animate($('.gl-t', h1), { x: [0, -2, 2, -1, 0] }, { duration: 0.45 });
+      };
+      setTimeout(burst, 1500);
+      setInterval(() => { if (!document.hidden) burst(); }, 7000);
+    }
+    // Параллакс видео и плавное затемнение при прокрутке (Motion scroll)
+    const heroBg = $('.hero-bg');
+    if (heroBg && hero){
+      scroll(animate(heroBg, { y: [0, 160], scale: [1, 1.08] }, { ease: 'linear' }), { target: hero, offset: ['start start', 'end start'] });
+    }
+
+    // Заголовки секций: слова «выезжают» из-под маски (Kokonut swoosh-text)
+    $$('section h2').forEach((h) => {
+      const words = h.textContent.trim().split(/\s+/);
+      h.innerHTML = words.map((w) => '<span class="w"><span>' + w + '</span></span>').join(' ');
+      inView(h, () => { animate($$('.w > span', h), { y: ['110%', '0%'] }, { delay: stagger(0.06), duration: 0.75, ease: [0.2, 0.9, 0.25, 1] }); }, { amount: 0.6 });
+    });
+
+    // «Материалы дела»: текст проявляется словами по мере прокрутки (Kokonut scroll-text)
+    const lead = $('.about-grid p.lead-scroll');
+    if (lead){
+      const split = A.splitText(lead, { words: { class: 'sw' } });
+      const ws = split.words;
+      scroll((p) => { const k = p * ws.length * 1.25; ws.forEach((w, i) => { w.style.opacity = Math.min(1, Math.max(0.3, k - i)).toFixed(3); }); }, { target: lead, offset: ['start 85%', 'end 45%'] });
+    }
+
+    // Каскады карточек при появлении
+    const pop = (sel, root) => { const els = $$(sel); if (!els.length) return; inView(root || els[0], () => { animate(els, { opacity: [0, 1], y: [28, 0] }, { delay: stagger(0.08), duration: 0.6, ease: [0.2, 0.9, 0.25, 1] }); }, { amount: 0.2 }); };
+    pop('.room-feats > div', '#loonyroom');
+    pop('.loc-grid li', '#location');
+
+    // Рейтинг: зубцы шкалы загораются по очереди (anime.js stagger)
+    if (rating){
+      inView(rating, () => { if (!gaugeDone){ gaugeDone = true; setTimeout(() => lightGauge(true), 150); } }, { amount: 0.3 });
+    }
+
+    // Нажатия: пружинящий отклик на кнопках, днях и слотах (Motion press)
+    const PRESS = '.btn, .nav-cta, .day, .slot, .gal-btn, .m-cta-bar a, .faq-q, .submit-btn';
+    document.addEventListener('pointerdown', (e) => {
+      const el = e.target.closest(PRESS); if (!el || el.disabled) return;
+      animate(el, { scale: 0.95 }, { type: 'spring', stiffness: 600, damping: 30 });
+      const up = () => { animate(el, { scale: 1 }, { type: 'spring', stiffness: 500, damping: 16 }); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+      window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+    }, { passive: true });
+  }
+  if (window.LG) start();
+  else {
+    document.addEventListener('lg:ready', start, { once: true });
+    // fx.js не загрузился за 4 секунды — шкала всё равно покажет оценку
+    setTimeout(() => { if (!window.LG && !gaugeDone){ gaugeDone = true; lightGauge(false); } }, 4000);
+  }
+})();
+</script>
+
 <script>
   window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
 </script>

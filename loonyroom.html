@@ -45,6 +45,11 @@
 }
 </script>
 <script>
+  // 06.10.2026: пока грузятся анимации, плитки героя скрыты (чтобы не «мигали»);
+  // если библиотека не загрузится за 2,5 с — просто показываем всё.
+  (function(){ try{ if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)){ var d=document.documentElement; d.classList.add('fx-wait'); setTimeout(function(){ d.classList.remove('fx-wait'); }, 2500); } }catch(e){} })();
+</script>
+<script>
   // Фото комнаты: показываем только реально загруженные (см. комментарий у плиток).
   function lrPhoto(img){
     var box = img.closest('[data-photo]'); if (box) box.classList.add('has-photo');
@@ -395,6 +400,54 @@
     .reveal{opacity:1 !important; transform:none !important; transition:none !important;}
     .garland i{animation:none;}
   }
+
+  /* ===== 06.10.2026: анимации (Motion + anime.js, assets/js/fx.js) и правки для телефона ===== */
+  .nav-toggle{position:relative;}
+  .nav-toggle svg{display:none;}
+  .nav-toggle i{position:absolute; left:14px; right:14px; height:2px; border-radius:2px; background:currentColor; transition:transform .3s ease, opacity .2s ease, top .3s ease;}
+  .nav-toggle i:nth-child(2){top:17px;} .nav-toggle i:nth-child(3){top:23px;} .nav-toggle i:nth-child(4){top:29px;}
+  .nav-toggle[aria-expanded="true"] i:nth-child(2){top:23px; transform:rotate(45deg);}
+  .nav-toggle[aria-expanded="true"] i:nth-child(3){opacity:0;}
+  .nav-toggle[aria-expanded="true"] i:nth-child(4){top:23px; transform:rotate(-45deg);}
+  .fx-wait .bento .tile, .fx-wait .hero-sub, .fx-wait .hero-lede, .fx-wait .facts, .fx-wait .hero-ctas, .fx-wait .hero h1{opacity:0;}
+  h2 .w{display:inline-block; overflow:hidden; vertical-align:top; padding-bottom:.08em; margin-bottom:-.08em;}
+  h2 .w > span{display:inline-block;}
+  .fx h2 .w > span{transform:translateY(110%);}
+  .hero h1 .ch{display:inline-block;}
+  /* «прожектор» за пальцем/курсором на плитках (по мотивам Kokonut spotlight-cards) */
+  .tile, .group, .game, .price{--mx:50%; --my:50%;}
+  .tile::before, .game::before, .price::before{content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; opacity:0; transition:opacity .3s ease;
+    background:radial-gradient(260px circle at var(--mx) var(--my), rgba(245,197,24,.16), transparent 60%); z-index:0;}
+  .tile.yellow::before, .price.hot::before{background:radial-gradient(260px circle at var(--mx) var(--my), rgba(255,255,255,.35), transparent 60%);}
+  .tile:hover::before, .game:hover::before, .price:hover::before, .lit::before{opacity:1;}
+  .game, .price{position:relative; overflow:hidden;}
+  .game > *, .price > *{position:relative; z-index:1;}
+  .btn-yellow, .submit, .rb-float, .nav-cta{position:relative; overflow:hidden;}
+  .btn-yellow::after, .submit::after, .rb-float::after, .nav-cta::after{content:""; position:absolute; top:0; bottom:0; left:-60%; width:45%; pointer-events:none;
+    background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform:skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;}
+  .submit:disabled::after{display:none;}
+  @keyframes btnShine{0%,62%{left:-60%;} 82%,100%{left:130%;}}
+  @media (max-width:860px){
+    .mobile-menu{position:fixed; left:0; right:0; top:100%; height:calc(100svh - 68px); overflow-y:auto; z-index:60; padding:14px 20px 28px; background:#070707; counter-reset:mm;}
+    .mobile-menu a{font-family:var(--head); font-weight:600; font-size:24px; padding:18px 2px; display:flex; align-items:center; gap:14px;}
+    .mobile-menu a::before{counter-increment:mm; content:"0" counter(mm); font-family:var(--sans); font-weight:800; font-size:14px; color:var(--yellow); min-width:24px;}
+    .mobile-menu a:last-child{font-family:var(--sans); font-size:18px; font-weight:800; border:1px solid var(--line-y); border-radius:16px; padding:16px 18px; margin-top:16px;}
+    .mobile-menu a:last-child::before{content:none;}
+    body.menu-open{overflow:hidden;}
+    /* что внутри: плитки 2 в ряд с крупными иконками */
+    .group{padding:22px 16px;}
+    .items, .group.fun .items{grid-template-columns:1fr 1fr; gap:10px;}
+    .item{flex-direction:column; align-items:flex-start; gap:12px; padding:16px 14px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--card-2); position:relative; min-height:150px;}
+    .item .ic{width:54px; height:54px; border-radius:18px;}
+    .item .ic svg{width:28px; height:28px;}
+    .item b{font-size:16.5px;}
+    .item small{font-size:14.5px;}
+    .item .tag{position:absolute; top:14px; right:12px; margin:0; font-size:15px;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .fx h2 .w > span{transform:none;}
+    .btn-yellow::after, .submit::after, .rb-float::after, .nav-cta::after{display:none;}
+  }
 </style>
 </head>
 <body id="top">
@@ -413,7 +466,7 @@
       <a class="nav-phone" href="tel:+375291761984">+375 (29) 176-19-84</a>
       <a class="nav-cta" href="#room-booking">Забронировать</a>
       <button class="nav-toggle" id="navToggle" aria-label="Меню" aria-expanded="false">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></svg><i></i><i></i><i></i>
       </button>
     </div>
   </div>
@@ -1037,6 +1090,82 @@
   // ---- Старт ----
   renderDays(); renderHours(); renderSummary();
   loadAvailability().then(() => { renderDays(); renderHours(); });
+})();
+</script>
+<script defer src="/assets/js/fx.js"></script>
+<script>
+/* 06.10.2026: анимации страницы (Motion + anime.js из assets/js/fx.js). Без
+   библиотеки страница работает как обычно — просто без движения. */
+(function(){
+  'use strict';
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const menu = document.getElementById('mobileMenu'), tog = document.getElementById('navToggle');
+  function syncMenu(){ document.body.classList.toggle('menu-open', menu.classList.contains('open')); }
+  tog.addEventListener('click', () => {
+    syncMenu();
+    if (menu.classList.contains('open') && window.LG && !LG.reduced) LG.motion.animate($$('a', menu), { opacity: [0, 1], x: [-24, 0] }, { delay: LG.motion.stagger(0.045), duration: 0.42, ease: [0.2, 0.9, 0.25, 1] });
+  });
+  $$('a', menu).forEach((a) => a.addEventListener('click', () => setTimeout(syncMenu, 0)));
+
+  // «прожектор» за курсором / пальцем на карточках
+  $$('.tile, .game, .price').forEach((el) => {
+    const move = (e) => { const r = el.getBoundingClientRect(); const p = e.touches ? e.touches[0] : e; el.style.setProperty('--mx', (p.clientX - r.left) + 'px'); el.style.setProperty('--my', (p.clientY - r.top) + 'px'); };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerdown', (e) => { move(e); el.classList.add('lit'); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => el.addEventListener(t, () => el.classList.remove('lit')));
+  });
+
+  function start(){
+    if (!window.LG || LG.reduced){ document.documentElement.classList.remove('fx-wait'); return; }
+    document.documentElement.classList.add('fx');
+    const { animate, inView, stagger } = LG.motion;
+    const A = LG.anime;
+    const ease = [0.2, 0.9, 0.25, 1];
+    requestAnimationFrame(() => document.documentElement.classList.remove('fx-wait'));
+
+    // Название: буквы подпрыгивают по очереди (anime.js splitText + stagger)
+    const h1 = document.querySelector('.hero h1');
+    if (h1){
+      const sp = A.splitText(h1, { chars: { class: 'ch' } });
+      A.animate(sp.chars, { y: [{ from: '0.6em', to: 0 }], opacity: [{ from: 0, to: 1 }], rotate: [{ from: -8, to: 0 }], delay: A.stagger(45, { start: 150 }), duration: 700, ease: 'outBack(1.6)' });
+    }
+    // Гирлянда: огоньки вспыхивают волной
+    const bulbs = $$('.garland i');
+    if (bulbs.length) A.animate(bulbs, { scale: [{ to: 1.5, duration: 260 }, { to: 1, duration: 420 }], delay: A.stagger(90, { start: 400 }), loop: true, loopDelay: 2600, ease: 'outQuad' });
+    // Плитки героя: каскад
+    animate('.bento .tile', { opacity: [0, 1], y: [30, 0], scale: [0.96, 1] }, { delay: stagger(0.08, { startDelay: 0.3 }), duration: 0.7, ease });
+    animate('.hero-sub, .hero-lede, .facts, .hero-ctas', { opacity: [0, 1], y: [18, 0] }, { delay: stagger(0.08, { startDelay: 0.45 }), duration: 0.6, ease });
+
+    // Заголовки секций: слова выезжают из-под маски
+    $$('section h2').forEach((h) => {
+      h.innerHTML = h.textContent.trim().split(/\s+/).map((w) => '<span class="w"><span>' + w + '</span></span>').join(' ');
+      inView(h, () => { animate($$('.w > span', h), { y: ['110%', '0%'] }, { delay: stagger(0.06), duration: 0.75, ease }); }, { amount: 0.6 });
+    });
+    // Карточки появляются каскадом
+    [['#inside', '.item'], ['#games', '.game, .note'], ['#prices', '.price'], ['#photos', '.gallery figure']].forEach(([sec, sel]) => {
+      const root = document.querySelector(sec); if (!root) return;
+      inView(root, () => { animate($$(sel, root), { opacity: [0, 1], y: [26, 0] }, { delay: stagger(0.05), duration: 0.55, ease }); }, { amount: 0.15 });
+    });
+    // Цены: счётчик 0 → 70 / 90
+    $$('.price .num').forEach((el) => {
+      const small = el.querySelector('small'); const target = parseInt(el.textContent, 10) || 0; const node = el.firstChild;
+      inView(el, () => { const o = { v: 0 }; A.animate(o, { v: target, duration: 1100, ease: 'outExpo', onUpdate: () => { node.nodeValue = Math.round(o.v); } }); }, { amount: 0.6 });
+    });
+    // Отклик на нажатие: дни, часы, кнопки
+    document.addEventListener('pointerdown', (e) => {
+      const el = e.target.closest('.dday, .hour, .btn, .submit, .opts span, .rb-float, .nav-cta'); if (!el || el.disabled) return;
+      animate(el, { scale: 0.95 }, { type: 'spring', stiffness: 600, damping: 30 });
+      const up = () => { animate(el, { scale: 1 }, { type: 'spring', stiffness: 500, damping: 16 }); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+      window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+    }, { passive: true });
+    // Выбранные часы «вспыхивают»
+    const hw = document.getElementById('hoursWrap');
+    new MutationObserver(() => { const sel = $$('.hour.sel', hw); if (sel.length) animate(sel, { scale: [0.92, 1] }, { type: 'spring', stiffness: 420, damping: 18 }); }).observe(hw, { childList: true });
+    // Итоговая сумма — пружинка при изменении
+    const price = document.getElementById('sumPrice');
+    new MutationObserver(() => animate(price, { scale: [1.15, 1] }, { type: 'spring', stiffness: 380, damping: 14 })).observe(price, { childList: true, characterData: true, subtree: true });
+  }
+  if (window.LG) start(); else document.addEventListener('lg:ready', start, { once: true });
 })();
 </script>
 <script>
