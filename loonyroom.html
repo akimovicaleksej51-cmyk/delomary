@@ -28,7 +28,8 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/assets/favicon-192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Anton&family=Caveat:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -43,401 +44,361 @@
   "sameAs": ["https://www.instagram.com/loonygames.minsk"]
 }
 </script>
+<script>
+  // Фото комнаты: показываем только реально загруженные (см. комментарий у плиток).
+  function lrPhoto(img){
+    var box = img.closest('[data-photo]'); if (box) box.classList.add('has-photo');
+    var g = document.getElementById('photos'); if (g && img.closest('#photos')) g.hidden = false;
+  }
+</script>
 <style>
+  /* Loony Room — свой визуальный язык: та же гамма сайта (чёрный + жёлтый),
+     но без «наклеек», зернистости и узкого шрифта квеста. Мягкие формы,
+     крупные элементы, на телефоне всё нажимается пальцем. */
   :root{
-    --black:#000000; --black-2:#0C0C0C; --black-3:#171717;
-    --ochre:#E0A722; --ochre-bright:#F5C518; --ochre-deep:#8a6a15;
-    --paper:#F3EFE4; --muted:#B9B4A6;
-    --line:rgba(245,197,24,0.22);
-    --display:'Anton','Arial Narrow',sans-serif;
-    --display-heading:'Russo One','Anton','Arial Narrow',sans-serif;
-    --script:'Caveat',cursive;
+    --bg:#070707; --card:#121212; --card-2:#181818; --card-3:#202020;
+    --yellow:#F5C518; --yellow-soft:#FFD84D; --yellow-deep:#8a6a15;
+    --ink:#151004; --paper:#F5F1E6; --muted:#ABA697;
+    --line:rgba(245,239,228,0.10); --line-y:rgba(245,197,24,0.30);
+    --head:'Unbounded','Manrope',Arial,sans-serif;
     --sans:'Manrope',Arial,sans-serif;
-    --radius:18px;
+    --r-lg:28px; --r-md:20px; --r-sm:14px;
   }
   *{box-sizing:border-box;}
-  html{scroll-behavior:smooth;}
-  body{margin:0; background:var(--black); color:var(--paper); font-family:var(--sans); line-height:1.65; font-size:16px; overflow-x:hidden;}
+  html{scroll-behavior:smooth; -webkit-text-size-adjust:100%;}
+  body{margin:0; background:var(--bg); color:var(--paper); font-family:var(--sans); line-height:1.6; font-size:17px; overflow-x:hidden;}
+  body::before{content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(900px 520px at 85% -8%, rgba(245,197,24,0.13), transparent 70%),
+      radial-gradient(700px 600px at -10% 30%, rgba(245,197,24,0.06), transparent 70%);}
   a{color:inherit;}
   img{max-width:100%; display:block;}
-  .wrap{max-width:1120px; margin:0 auto; padding:0 28px;}
-  #progress{position:fixed; top:0; left:0; height:2px; background:linear-gradient(90deg,var(--ochre-deep),var(--ochre-bright)); width:0%; z-index:100; transition:width .08s linear;}
+  .wrap{max-width:1160px; margin:0 auto; padding:0 28px; position:relative;}
+  #progress{position:fixed; top:0; left:0; height:3px; background:var(--yellow); width:0%; z-index:100;}
 
-  /* ===== ambient background + film grain (как на главной) ===== */
-  #grainOverlay{
-    position:fixed; inset:-60px; z-index:300; pointer-events:none; opacity:.05; mix-blend-mode:overlay;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    animation:grainShift 1s steps(4) infinite;
-  }
-  @keyframes grainShift{0%{transform:translate(0,0);} 25%{transform:translate(-30px,15px);} 50%{transform:translate(15px,-25px);} 75%{transform:translate(-15px,-15px);} 100%{transform:translate(0,0);}}
-  #ambientBg{position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none;}
-  #ambientBg span{position:absolute; display:block; border-radius:42% 58% 63% 37% / 41% 44% 56% 59%; filter:blur(70px); opacity:.26; mix-blend-mode:screen; will-change:transform;}
-  #ambientBg .b1{top:-14%; left:-10%; width:52vmax; height:52vmax; background:radial-gradient(circle at 35% 35%, var(--ochre-bright), transparent 70%); animation:blobDrift1 34s ease-in-out infinite;}
-  #ambientBg .b2{top:32%; right:-16%; width:46vmax; height:46vmax; background:radial-gradient(circle at 60% 40%, var(--ochre-deep), transparent 70%); animation:blobDrift2 40s ease-in-out infinite reverse;}
-  #ambientBg .b3{bottom:-18%; left:16%; width:40vmax; height:40vmax; opacity:.18; background:radial-gradient(circle at 45% 55%, #7a1414, transparent 70%); animation:blobDrift1 27s linear infinite reverse;}
-  @keyframes blobDrift1{0%{transform:translate(0,0) rotate(0deg);} 50%{transform:translate(6vw,8vh) rotate(180deg);} 100%{transform:translate(0,0) rotate(360deg);}}
-  @keyframes blobDrift2{0%,100%{transform:translate(0,0);} 50%{transform:translate(-7vw,10vh);}}
-  @media (prefers-reduced-motion: reduce){ #grainOverlay, #ambientBg span{animation:none;} }
-  @media (max-width:640px){ #grainOverlay{display:none;} #ambientBg .b3{display:none;} #ambientBg span{filter:blur(50px); opacity:.16;} }
-
-  /* ===== header (как на главной) ===== */
-  header{position:sticky; top:0; z-index:50; background:rgba(0,0,0,0.86); backdrop-filter:blur(10px); border-bottom:1px solid var(--line);}
-  .nav{display:flex; align-items:center; justify-content:space-between; padding:12px 28px; max-width:1120px; margin:0 auto;}
-  .brand{display:flex; align-items:center; gap:10px; text-decoration:none;}
-  .brand img{height:84px; width:auto; border-radius:8px;}
-  .nav-right{display:flex; align-items:center; gap:28px;}
-  .nav-links{display:flex; gap:24px; font-weight:600; font-size:14px;}
-  .nav-links a{text-decoration:none; color:var(--paper); opacity:.7; transition:opacity .2s, color .2s;}
-  .nav-links a:hover, .nav-links a.current{opacity:1; color:var(--ochre-bright);}
-  .nav-phone{font-weight:700; font-size:14px; white-space:nowrap; color:var(--paper); opacity:.85; text-decoration:none; transition:opacity .2s, color .2s;}
-  .nav-phone:hover{opacity:1; color:var(--ochre-bright);}
-  .nav-social{display:flex; align-items:center; justify-content:center; flex-shrink:0; width:34px; height:34px; border-radius:50%; border:1px solid var(--line); color:var(--paper); transition:border-color .2s, color .2s;}
-  .nav-social:hover{border-color:var(--ochre-bright); color:var(--ochre-bright);}
-  .nav-social svg{width:18px; height:18px;}
-  .nav-cta{font-weight:700; font-size:14px; background:var(--ochre-bright); color:#151004; padding:10px 22px; text-decoration:none; border-radius:999px; transition:transform .2s, background .2s; white-space:nowrap;}
-  .nav-cta:hover{background:#ffd84d; transform:translateY(-1px);}
-  .nav-toggle{display:none; width:42px; height:42px; flex-shrink:0; border-radius:10px; border:1px solid var(--line); background:var(--black-2); color:var(--paper); align-items:center; justify-content:center; cursor:pointer;}
-  .nav-toggle svg{width:20px; height:20px;}
-  .mobile-menu{display:none; flex-direction:column; padding:6px 28px 18px; border-top:1px solid var(--line); background:rgba(0,0,0,0.98);}
+  /* ===== header (как на главной сайта) ===== */
+  header{position:sticky; top:0; z-index:50; background:rgba(7,7,7,0.88); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-bottom:1px solid var(--line);}
+  .nav{display:flex; align-items:center; justify-content:space-between; padding:10px 28px; max-width:1160px; margin:0 auto;}
+  .brand{display:flex; align-items:center; text-decoration:none;}
+  .brand img{height:72px; width:auto; border-radius:8px;}
+  .nav-right{display:flex; align-items:center; gap:26px;}
+  .nav-links{display:flex; gap:24px; font-weight:700; font-size:14.5px;}
+  .nav-links a{text-decoration:none; opacity:.72; transition:opacity .2s, color .2s;}
+  .nav-links a:hover{opacity:1; color:var(--yellow);}
+  .nav-phone{font-weight:700; font-size:14.5px; white-space:nowrap; text-decoration:none; opacity:.85;}
+  .nav-phone:hover{opacity:1; color:var(--yellow);}
+  .nav-cta{font-weight:800; font-size:14.5px; background:var(--yellow); color:var(--ink); padding:11px 22px; text-decoration:none; border-radius:999px; white-space:nowrap; transition:background .2s;}
+  .nav-cta:hover{background:var(--yellow-soft);}
+  .nav-toggle{display:none; width:48px; height:48px; flex-shrink:0; border-radius:14px; border:1px solid var(--line); background:var(--card); color:var(--paper); align-items:center; justify-content:center; cursor:pointer;}
+  .nav-toggle svg{width:22px; height:22px;}
+  .mobile-menu{display:none; flex-direction:column; padding:4px 20px 18px; border-top:1px solid var(--line); background:rgba(7,7,7,0.98);}
   .mobile-menu.open{display:flex;}
-  .mobile-menu a{padding:15px 2px; text-decoration:none; color:var(--paper); font-weight:700; font-size:15px; border-bottom:1px solid var(--line);}
-  .mobile-menu a:last-child{border-bottom:none;}
+  .mobile-menu a{padding:17px 2px; text-decoration:none; font-weight:700; font-size:17px; border-bottom:1px solid var(--line);}
+  .mobile-menu a:last-child{border-bottom:none; color:var(--yellow);}
 
-  /* ===== shared ===== */
-  section{position:relative; z-index:1; padding:80px 28px;}
-  .eyebrow{display:inline-flex; align-items:center; gap:8px; font-weight:700; font-size:12.5px; color:var(--ochre-bright); letter-spacing:.09em; text-transform:uppercase; margin-bottom:16px;}
-  .eyebrow::before{content:""; width:16px; height:2px; background:var(--ochre-bright); display:inline-block;}
-  h2{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:clamp(30px,4vw,44px); letter-spacing:.01em; margin:0 0 18px; color:var(--paper); line-height:1.12;}
-  .section-lede{color:var(--muted); max-width:620px; margin:0 0 40px; font-size:16.5px;}
-  .reveal{opacity:0; transform:translateY(24px); transition:opacity .7s ease, transform .7s ease;}
-  .reveal.in{opacity:1; transform:translateY(0);}
-  .btn{font-weight:700; font-size:15px; padding:15px 30px; text-decoration:none; display:inline-flex; align-items:center; gap:8px; border-radius:999px; transition:all .2s; cursor:pointer; border:1.5px solid transparent; font-family:var(--sans);}
-  .btn-solid{background:var(--ochre-bright); color:#151004;}
-  .btn-solid:hover{background:#ffd84d; transform:translateY(-2px);}
-  .btn-ghost{color:var(--paper); border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.03);}
-  .btn-ghost:hover{border-color:var(--ochre-bright); color:var(--ochre-bright);}
-  .byn{font-family:var(--sans); font-weight:800; font-size:.42em; margin-left:6px; letter-spacing:.02em; vertical-align:.55em; color:inherit;}
-
-  /* «потрёпанная наклейка» — та же текстура, что у «Клиника Дредвуд» на главной */
-  .sticker{position:relative; overflow:hidden; display:inline-block; background:var(--ochre-bright); color:#151004; border-radius:3px; transform:rotate(-2deg);}
-  .sticker > span{position:relative; z-index:1;}
-  .sticker::before{
-    content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
-    background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.15' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size:120px 120px, 200px 200px; mix-blend-mode:multiply; opacity:.7;
-  }
-  .sticker::after{
-    content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
-    background:
-      radial-gradient(ellipse 55% 60% at 6% 10%, rgba(0,0,0,.5), transparent 62%),
-      radial-gradient(ellipse 50% 55% at 95% 90%, rgba(0,0,0,.45), transparent 60%),
-      radial-gradient(ellipse 60% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.18) 100%);
-    mix-blend-mode:multiply;
-  }
+  /* ===== общее ===== */
+  main{position:relative; z-index:1;}
+  section{position:relative; padding:96px 0;}
+  .kicker{display:inline-flex; align-items:center; gap:10px; font-weight:800; font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--yellow); margin-bottom:16px;}
+  .kicker i{width:8px; height:8px; border-radius:50%; background:var(--yellow); box-shadow:0 0 12px var(--yellow);}
+  h2{font-family:var(--head); font-weight:700; font-size:clamp(30px,3.8vw,46px); line-height:1.12; letter-spacing:-.01em; margin:0 0 16px;}
+  .lede{color:var(--muted); max-width:640px; margin:0 0 44px; font-size:18px;}
+  .btn{font-family:var(--sans); font-weight:800; font-size:16px; min-height:56px; padding:0 30px; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px; border-radius:999px; cursor:pointer; border:1.5px solid transparent; transition:background .2s, border-color .2s, color .2s, transform .2s;}
+  .btn-yellow{background:var(--yellow); color:var(--ink);}
+  .btn-yellow:hover{background:var(--yellow-soft); transform:translateY(-2px);}
+  .btn-line{color:var(--paper); border-color:rgba(245,239,228,0.28);}
+  .btn-line:hover{border-color:var(--yellow); color:var(--yellow);}
+  .reveal{opacity:0; transform:translateY(22px); transition:opacity .7s ease, transform .7s ease;}
+  .reveal.in{opacity:1; transform:none;}
+  svg.i{width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0;}
 
   /* ===== hero ===== */
-  .room-hero{padding:72px 28px 64px; border-bottom:1px solid var(--line);}
-  .room-hero .wrap{display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center;}
-  .crumbs{font-size:13px; font-weight:600; color:var(--muted); margin-bottom:22px;}
-  .crumbs a{color:var(--muted); text-decoration:none; border-bottom:1px solid transparent; transition:color .2s, border-color .2s;}
-  .crumbs a:hover{color:var(--ochre-bright); border-color:var(--ochre-bright);}
-  .crumbs span{opacity:.5; margin:0 8px;}
-  .room-tag{font-weight:700; font-size:12.5px; letter-spacing:.08em; text-transform:uppercase; padding:7px 18px 9px; margin-bottom:22px;}
-  .room-hero h1{
-    font-family:var(--display-heading); font-weight:400; text-transform:uppercase;
-    font-size:clamp(52px,8vw,96px); line-height:.94; letter-spacing:.02em; margin:0; color:var(--paper);
-    text-shadow:0 2px 28px rgba(245,197,24,0.18);
-  }
-  .room-mark{display:inline-block; margin-top:10px; padding:2px 22px 10px; font-family:var(--script); font-weight:700; font-size:clamp(28px,4vw,40px); line-height:1.2;}
-  .room-lede{max-width:520px; margin:28px 0 30px; color:var(--muted); font-size:17px; font-weight:500;}
-  .stat-strip{display:flex; flex-wrap:wrap; gap:12px; margin-bottom:32px;}
-  .stat{display:flex; align-items:center; gap:12px; background:rgba(255,255,255,0.04); border:1px solid var(--line); padding:13px 18px; border-radius:14px; backdrop-filter:blur(4px);}
-  .stat svg{width:24px; height:24px; flex-shrink:0; stroke:var(--ochre-bright);}
-  .stat b{display:block; font-family:var(--display); font-weight:400; font-size:20px; color:var(--paper); line-height:1.1;}
-  .stat span{font-size:11.5px; letter-spacing:.03em; color:var(--muted); text-transform:uppercase; font-weight:600;}
-  .hero-ctas{display:flex; gap:14px; flex-wrap:wrap;}
-  .hero-photo{position:relative;}
-  .hero-photo .ph{aspect-ratio:4/5; border-radius:24px;}
-  .hero-photo{isolation:isolate;}
-  .hero-photo::after{
-    content:""; position:absolute; inset:16px -16px -16px 16px; z-index:-1; pointer-events:none;
-    border:1.5px solid var(--line); border-radius:24px;
-  }
-  .hero-stamp{
-    position:absolute; left:-22px; bottom:28px; z-index:3; padding:12px 18px 14px; text-align:center;
-    box-shadow:0 14px 34px rgba(0,0,0,.55);
-  }
-  .hero-stamp b{display:block; font-family:var(--display); font-weight:400; font-size:30px; line-height:1;}
-  .hero-stamp small{display:block; font-weight:800; font-size:11px; letter-spacing:.06em; text-transform:uppercase; margin-top:4px;}
+  .hero{padding:64px 0 88px;}
+  .hero .wrap{display:grid; grid-template-columns:1fr 1fr; gap:56px; align-items:center;}
+  .hero .wrap > *{min-width:0;}
+  .crumbs{font-size:14px; font-weight:600; color:var(--muted); margin-bottom:26px;}
+  .crumbs a{text-decoration:none; color:var(--muted);}
+  .crumbs a:hover{color:var(--yellow);}
+  .crumbs span{opacity:.45; margin:0 8px;}
+  .garland{display:flex; gap:14px; margin:0 0 26px 2px;}
+  .garland i{width:10px; height:10px; border-radius:50%; background:var(--yellow); box-shadow:0 0 14px 2px rgba(245,197,24,.7); animation:bulb 2.4s ease-in-out infinite;}
+  .garland i:nth-child(2n){animation-delay:1.2s;}
+  .garland i:nth-child(3n){background:var(--paper); box-shadow:0 0 12px 1px rgba(245,239,228,.5);}
+  @keyframes bulb{0%,100%{opacity:1;} 50%{opacity:.25;}}
+  .hero h1{font-family:var(--head); font-weight:700; font-size:clamp(48px,7.2vw,92px); line-height:1; letter-spacing:-.03em; margin:0;}
+  .hero h1 em{font-style:normal; color:var(--yellow);}
+  .hero-sub{font-family:var(--head); font-weight:500; font-size:clamp(19px,2vw,24px); line-height:1.35; margin:20px 0 0; color:var(--paper);}
+  .hero-lede{max-width:520px; margin:18px 0 30px; color:var(--muted); font-size:18px;}
+  .facts{display:flex; flex-wrap:wrap; gap:12px; margin-bottom:34px;}
+  .fact{display:flex; align-items:center; gap:12px; padding:12px 20px 12px 14px; border-radius:999px; background:var(--card); border:1px solid var(--line); font-size:16px; color:var(--muted); font-weight:600;}
+  .fact b{color:var(--paper); font-weight:800;}
+  .fact .dot{width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(245,197,24,0.12); color:var(--yellow);}
+  .fact .dot svg{width:22px; height:22px;}
+  .hero-ctas{display:flex; flex-wrap:wrap; gap:12px;}
 
-  /* ===== photo slots (фото добавятся позже — см. комментарий в разметке) ===== */
-  .ph{
-    position:relative; overflow:hidden; margin:0; border-radius:var(--radius);
-    background:
-      repeating-linear-gradient(135deg, rgba(245,197,24,0.035) 0 12px, transparent 12px 24px),
-      linear-gradient(160deg, #141414, #0a0a0a);
-    border:1.5px dashed rgba(245,197,24,0.32);
-    display:flex; align-items:center; justify-content:center;
-  }
-  .ph-empty{display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; padding:18px; color:var(--muted);}
-  .ph-empty svg{width:38px; height:38px; stroke:var(--ochre-bright); opacity:.85;}
-  .ph-empty b{font-family:var(--display); font-weight:400; text-transform:uppercase; letter-spacing:.04em; font-size:16px; color:var(--paper);}
-  .ph-empty small{font-size:12.5px; font-weight:600;}
-  .ph img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:2; transition:transform .5s ease;}
-  .ph.has-photo{border-style:solid; border-color:var(--line); cursor:zoom-in;}
-  .ph.has-photo:hover img{transform:scale(1.05);}
-  .photo-grid{display:grid; grid-template-columns:2fr 1fr 1fr; grid-template-rows:repeat(2, 210px); gap:14px;}
-  .photo-grid .ph:first-child{grid-row:span 2;}
-  .photo-note{font-size:13px; color:var(--muted); margin-top:16px;}
+  .bento{display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:minmax(150px,auto); gap:14px;}
+  .tile{position:relative; overflow:hidden; border-radius:var(--r-lg); padding:24px; background:var(--card); border:1px solid var(--line); display:flex; flex-direction:column; justify-content:space-between; gap:18px; min-height:150px;}
+  .tile .i{width:36px; height:36px;}
+  .tile h3{font-family:var(--head); font-weight:600; font-size:20px; line-height:1.2; margin:0;}
+  .tile p{margin:4px 0 0; font-size:15px; color:var(--muted); line-height:1.4;}
+  .tile .big{position:absolute; right:20px; top:14px; font-family:var(--head); font-weight:700; font-size:54px; line-height:1; color:var(--yellow);}
+  .tile.wide{grid-column:span 2;}
+  .tile.yellow{background:var(--yellow); color:var(--ink); border-color:var(--yellow); min-height:200px;}
+  .tile.yellow p{color:rgba(21,16,4,.72);}
+  .tile.yellow .i{width:44px; height:44px;}
+  .tile.yellow::after{content:""; position:absolute; right:-60px; bottom:-60px; width:220px; height:220px; border-radius:50%; border:28px solid rgba(21,16,4,.08);}
+  .tile img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;}
+  .tile.has-photo{cursor:zoom-in; color:#fff; border-color:var(--line);}
+  .tile.has-photo::after{content:""; position:absolute; inset:0; z-index:0; border:0; border-radius:0; width:auto; height:auto; right:0; bottom:0; background:linear-gradient(180deg, transparent 40%, rgba(0,0,0,.78));}
+  .tile.has-photo > :not(img){position:relative; z-index:1;}
+  .tile.has-photo .i{display:none;}
+  .tile.has-photo p{color:rgba(255,255,255,.8);}
+
+  /* ===== галерея (появится сама, когда загрузят фото) ===== */
+  .gallery{display:grid; grid-template-columns:2fr 1fr 1fr; grid-auto-rows:220px; gap:14px;}
+  .gallery figure{margin:0; position:relative; overflow:hidden; border-radius:var(--r-md); background:var(--card); display:none;}
+  .gallery figure.has-photo{display:block; cursor:zoom-in;}
+  .gallery figure.has-photo:first-child{grid-row:span 2;}
+  .gallery img{width:100%; height:100%; object-fit:cover; transition:transform .5s ease;}
+  .gallery figure:hover img{transform:scale(1.04);}
 
   /* ===== что внутри ===== */
-  .feat-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px;}
-  .feat-grid > *{min-width:0;}
-  .feat h3, .feat p{overflow-wrap:anywhere; hyphens:auto;}
-  .feat{
-    position:relative; padding:22px 20px; border-radius:var(--radius); background:var(--black-2);
-    border:1px solid var(--line); transition:border-color .25s, transform .25s, background .25s;
-  }
-  .feat:hover{border-color:var(--ochre); transform:translateY(-4px); background:#101010;}
-  .feat-ico{width:46px; height:46px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:rgba(245,197,24,0.08); border:1px solid var(--line); margin-bottom:16px;}
-  .feat-ico svg{width:24px; height:24px; stroke:var(--ochre-bright); fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
-  .feat h3{font-family:var(--sans); font-weight:800; font-size:15.5px; margin:0 0 4px; color:var(--paper); line-height:1.3;}
-  .feat p{margin:0; font-size:13.5px; color:var(--muted); line-height:1.5;}
-  .feat-cta{grid-column:span 3; display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap; text-decoration:none;
-    background:radial-gradient(circle at 100% 0%, rgba(245,197,24,0.14), transparent 60%), var(--black-2); border-color:var(--ochre);}
-  .feat-cta h3{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:20px; margin-bottom:6px;}
-  .feat-cta .btn{flex-shrink:0;}
-  .feat-count{position:absolute; top:16px; right:18px; font-family:var(--display); font-size:15px; color:var(--ochre-bright); opacity:.9;}
-  .reveal .feat{opacity:0; transform:translateY(16px); transition:opacity .55s ease, transform .55s ease, border-color .25s, background .25s;}
-  .reveal.in .feat{opacity:1; transform:translateY(0);}
-  .reveal.in .feat:hover{transform:translateY(-4px);}
+  .inside-grid{display:grid; grid-template-columns:1.45fr 1fr; gap:20px; align-items:stretch;}
+  .inside-grid > *{min-width:0;}
+  .group{border-radius:var(--r-lg); background:var(--card); border:1px solid var(--line); padding:30px;}
+  .group-head{display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:18px;}
+  .group-head h3{font-family:var(--head); font-weight:600; font-size:22px; margin:0;}
+  .group-head span{font-size:14px; font-weight:700; color:var(--muted);}
+  .items{display:grid; grid-template-columns:1fr; gap:4px;}
+  .group.fun .items{grid-template-columns:1fr 1fr; column-gap:18px;}
+  .item{display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--line); min-width:0;}
+  .item .ic{width:48px; height:48px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:rgba(245,197,24,0.10); color:var(--yellow); flex-shrink:0;}
+  .item b{display:block; font-weight:800; font-size:16.5px; line-height:1.3;}
+  .item small{display:block; color:var(--muted); font-size:14.5px; font-weight:600; line-height:1.35; margin-top:1px;}
+  .item .tag{margin-left:auto; flex-shrink:0; font-family:var(--head); font-weight:700; font-size:16px; color:var(--ink); background:var(--yellow); border-radius:999px; padding:4px 11px;}
 
-  /* ===== игра с ведущим ===== */
-  #games{background:var(--black-2); border-top:1px solid var(--line); border-bottom:1px solid var(--line);}
-  .games-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:20px;}
-  .game-card{
-    position:relative; overflow:hidden; padding:34px 32px; border-radius:24px; border:1px solid var(--line);
-    background:radial-gradient(circle at 90% 0%, rgba(245,197,24,0.08), transparent 55%), var(--black-3);
-  }
-  .game-card .g-ico{width:54px; height:54px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:var(--ochre-bright); margin-bottom:20px;}
-  .game-card .g-ico svg{width:28px; height:28px; stroke:#151004; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;}
-  .game-card h3{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:26px; margin:0 0 10px; color:var(--paper);}
-  .game-card p{margin:0; color:var(--muted); font-size:15px;}
-  .game-card .g-num{position:absolute; right:26px; bottom:-18px; font-family:var(--display); font-size:120px; line-height:1; color:rgba(245,197,24,0.045); pointer-events:none;}
-  .games-note{display:flex; gap:12px; align-items:flex-start; margin-top:22px; padding:16px 20px; border-radius:14px; border:1px dashed var(--line); color:var(--muted); font-size:14px;}
-  .games-note b{color:var(--ochre-bright);}
+  /* ===== игры с ведущим ===== */
+  .games{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
+  .game{position:relative; overflow:hidden; border-radius:var(--r-lg); padding:32px; background:var(--card); border:1px solid var(--line);}
+  .game .ic{width:60px; height:60px; border-radius:20px; display:flex; align-items:center; justify-content:center; background:var(--yellow); color:var(--ink); margin-bottom:22px;}
+  .game .ic svg{width:30px; height:30px;}
+  .game h3{font-family:var(--head); font-weight:600; font-size:26px; margin:0 0 10px;}
+  .game p{margin:0; color:var(--muted); font-size:16.5px;}
+  .note{display:flex; gap:14px; align-items:flex-start; margin-top:20px; padding:18px 22px; border-radius:var(--r-md); background:rgba(245,197,24,0.06); border:1px solid var(--line-y); color:var(--paper); font-size:16px;}
+  .note svg{color:var(--yellow); margin-top:1px;}
 
   /* ===== цены ===== */
-  .price-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:20px; max-width:820px;}
-  .price-card{padding:30px 32px; border-radius:24px; border:1px solid var(--line); background:var(--black-2); position:relative; overflow:hidden;}
-  .price-card.weekend{border-color:var(--ochre); background:radial-gradient(circle at 100% 0%, rgba(245,197,24,0.12), transparent 60%), var(--black-2);}
-  .price-card .p-label{font-weight:800; font-size:12.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted);}
-  .price-card .p-days{font-size:14px; color:var(--muted); margin-top:2px;}
-  .price-card .p-num{font-family:var(--display); font-weight:400; font-size:68px; line-height:1; color:var(--ochre-bright); margin:18px 0 4px;}
-  .price-card .p-per{font-weight:700; font-size:14px; color:var(--paper);}
-  .price-fine{color:var(--muted); font-size:14px; margin-top:20px; max-width:820px;}
+  .prices{display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:860px;}
+  .price{border-radius:var(--r-lg); padding:30px; background:var(--card); border:1px solid var(--line);}
+  .price.hot{background:var(--yellow); color:var(--ink); border-color:var(--yellow);}
+  .price .when{font-weight:800; font-size:18px;}
+  .price .days{font-size:15px; opacity:.7; font-weight:600;}
+  .price .num{font-family:var(--head); font-weight:700; font-size:68px; line-height:1; margin:22px 0 6px; letter-spacing:-.03em;}
+  .price .num small{font-size:.36em; font-weight:600; margin-left:6px; letter-spacing:0;}
+  .price .per{font-weight:700; font-size:15px; opacity:.75;}
+  .price-fine{color:var(--muted); font-size:16px; margin:22px 0 0; max-width:860px;}
 
   /* ===== бронь ===== */
-  #room-booking{background:var(--black-2); border-top:1px solid var(--line);}
-  .rb-layout{display:grid; grid-template-columns:1.25fr .9fr; gap:24px; align-items:start;}
+  #room-booking{scroll-margin-top:70px;}
+  .rb-layout{display:grid; grid-template-columns:1.3fr 1fr; gap:22px; align-items:start;}
   .rb-layout > *{min-width:0;}
-  .rb-card{background:var(--black-3); border:1px solid var(--line); border-radius:24px; padding:32px; box-shadow:0 30px 80px rgba(0,0,0,.45);}
-  .field-label{display:flex; align-items:center; gap:10px; font-weight:800; font-size:13px; letter-spacing:.03em; color:var(--paper); margin-bottom:16px; text-transform:uppercase;}
-  .field-label .num{display:flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:50%; background:var(--ochre-bright); color:#151004; font-weight:800; font-size:12.5px; flex-shrink:0;}
+  .rb-card{background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg); padding:32px;}
+  .step-title{display:flex; align-items:center; gap:12px; font-family:var(--head); font-weight:600; font-size:19px; margin:0 0 18px;}
+  .step-title .n{width:34px; height:34px; border-radius:50%; background:var(--yellow); color:var(--ink); display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; flex-shrink:0;}
+  .step-title .sub{font-family:var(--sans); font-weight:700; font-size:15px; color:var(--yellow);}
   .rb-step + .rb-step{margin-top:34px; padding-top:30px; border-top:1px solid var(--line);}
 
-  .cal-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;}
-  .cal-month{font-family:var(--display); font-weight:400; text-transform:uppercase; font-size:17px; letter-spacing:.02em;}
-  .cal-nav{width:38px; height:38px; flex-shrink:0; border-radius:10px; border:1.5px solid var(--line); background:var(--black-2); color:var(--paper); font-size:19px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; font-family:var(--sans);}
-  .cal-nav:hover:not(:disabled){border-color:var(--ochre); color:var(--ochre-bright);}
-  .cal-nav:disabled{opacity:.25; cursor:not-allowed;}
-  .cal-weekdays{display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; margin-bottom:8px;}
-  .cal-weekdays span{text-align:center; font-weight:700; font-size:11px; color:var(--muted); text-transform:uppercase;}
-  .cal-grid{display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px;}
-  .day{
-    font-family:var(--sans); font-weight:700; font-size:14px; aspect-ratio:1/1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
-    border:1.5px solid var(--line); border-radius:12px; cursor:pointer; padding:0; color:var(--paper); background:var(--black-2); transition:all .15s;
-  }
-  .day small{display:block; font-size:9.5px; font-weight:700; color:var(--muted); text-transform:uppercase;}
-  .day.weekend small{color:var(--ochre-bright);}
-  .day:not(:disabled):hover{border-color:var(--ochre);}
-  .day.active{background:var(--ochre-bright); color:#151004; border-color:var(--ochre-bright);}
-  .day.active small{color:#151004; opacity:.75;}
-  .day.empty{visibility:hidden; pointer-events:none;}
-  .day:disabled{opacity:.25; cursor:not-allowed;}
-  .day.full{opacity:.35; cursor:not-allowed;}
-  .day.full small{text-decoration:line-through;}
+  .ds-wrap{position:relative;}
+  .ds-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-6px 0 14px;}
+  .ds-month{font-weight:800; font-size:16px; color:var(--muted);}
+  .ds-arrows{display:flex; gap:8px;}
+  .ds-arrow{width:44px; height:44px; border-radius:50%; border:1px solid var(--line); background:var(--card-2); color:var(--paper); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:border-color .15s, color .15s, opacity .15s;}
+  .ds-arrow svg{width:20px; height:20px;}
+  .ds-arrow:hover:not(:disabled){border-color:var(--yellow); color:var(--yellow);}
+  .ds-arrow:disabled{opacity:.3; cursor:default;}
+  .ds{display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x proximity; padding:4px 2px 12px; margin:0 -2px; scrollbar-width:thin; scrollbar-color:#333 transparent; -webkit-overflow-scrolling:touch;}
+  .ds::-webkit-scrollbar{height:6px;} .ds::-webkit-scrollbar-thumb{background:#333; border-radius:3px;}
+  .dday{flex:0 0 84px; scroll-snap-align:start; display:flex; flex-direction:column; align-items:center; gap:2px; padding:12px 4px 12px; border-radius:var(--r-md); border:1.5px solid var(--line); background:var(--card-2); color:var(--paper); cursor:pointer; font-family:var(--sans); transition:border-color .15s, background .15s, transform .15s;}
+  .dday .wd{font-size:13px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;}
+  .dday.we .wd{color:var(--yellow);}
+  .dday b{font-family:var(--head); font-weight:700; font-size:28px; line-height:1.15;}
+  .dday .mo{font-size:13px; font-weight:700; color:var(--muted);}
+  .dday small{margin-top:6px; font-size:13px; font-weight:800; padding:3px 8px; border-radius:999px; background:rgba(245,239,228,0.06);}
+  .dday:hover:not(:disabled){border-color:var(--yellow);}
+  .dday.on{background:var(--yellow); border-color:var(--yellow); color:var(--ink);}
+  .dday.on .wd, .dday.on .mo{color:rgba(21,16,4,.7);}
+  .dday.on small{background:rgba(21,16,4,.12);}
+  .dday:disabled{opacity:.35; cursor:not-allowed;}
+  .dday:disabled small{text-decoration:line-through;}
 
-  .hours-hint{font-size:13.5px; color:var(--muted); margin:-6px 0 16px;}
-  .hours-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(92px,1fr)); gap:10px;}
-  .hour{
-    position:relative; font-family:var(--sans); font-weight:800; font-size:16px; padding:13px 6px 11px;
-    border:1.5px solid var(--line); border-radius:14px; background:var(--black-2); color:var(--paper);
-    cursor:pointer; transition:background .15s, border-color .15s, color .15s, transform .15s;
-    display:flex; flex-direction:column; align-items:center; gap:2px;
-  }
-  .hour small{font-size:11px; font-weight:700; color:var(--muted); letter-spacing:.02em;}
-  .hour:hover:not(:disabled){border-color:var(--ochre); transform:translateY(-1px);}
-  .hour.sel{background:var(--ochre-bright); color:#151004; border-color:var(--ochre-bright);}
-  .hour.sel small{color:#151004; opacity:.7;}
-  .hour.sel.mid{border-radius:8px;}
-  .hour:disabled{opacity:.32; cursor:not-allowed;}
-  .hour:disabled .h-time{text-decoration:line-through; text-decoration-color:rgba(245,239,228,.45);}
-  .legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:16px; font-size:12.5px; font-weight:600; color:var(--muted);}
-  .legend i{display:inline-block; width:12px; height:12px; border-radius:4px; margin-right:6px; vertical-align:-1px; border:1.5px solid var(--line); background:var(--black-2);}
-  .legend .lg-sel{background:var(--ochre-bright); border-color:var(--ochre-bright);}
-  .legend .lg-taken{opacity:.35;}
-  .rb-empty{padding:22px; border-radius:14px; border:1px dashed var(--line); color:var(--muted); font-size:14px; text-align:center;}
+  .hint{font-size:15.5px; color:var(--muted); margin:-6px 0 16px;}
+  .hours{display:grid; grid-template-columns:repeat(auto-fill, minmax(112px,1fr)); gap:10px;}
+  .hour{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:72px; padding:8px 4px; border-radius:var(--r-sm); border:1.5px solid var(--line); background:var(--card-2); color:var(--paper); cursor:pointer; font-family:var(--sans); transition:border-color .15s, background .15s;}
+  .hour .h-time{font-family:var(--head); font-weight:600; font-size:20px; line-height:1.2;}
+  .hour small{font-size:13.5px; font-weight:700; color:var(--muted);}
+  .hour:hover:not(:disabled){border-color:var(--yellow);}
+  .hour.sel{background:var(--yellow); border-color:var(--yellow); color:var(--ink);}
+  .hour.sel small{color:rgba(21,16,4,.7);}
+  .hour:disabled{opacity:.35; cursor:not-allowed;}
+  .hour:disabled .h-time{text-decoration:line-through; text-decoration-thickness:1.5px;}
+  .legend{display:flex; flex-wrap:wrap; gap:18px; margin-top:16px; font-size:14.5px; font-weight:600; color:var(--muted);}
+  .legend i{display:inline-block; width:16px; height:16px; border-radius:5px; margin-right:7px; vertical-align:-3px; border:1.5px solid var(--line); background:var(--card-2);}
+  .legend .l-sel{background:var(--yellow); border-color:var(--yellow);}
+  .legend .l-off{opacity:.35;}
+  .empty{padding:26px 20px; border-radius:var(--r-md); border:1.5px dashed var(--line); color:var(--muted); font-size:16px; text-align:center;}
 
-  .rb-side{position:sticky; top:118px;}
-  .summary{padding:22px 22px 20px; border-radius:18px; background:var(--black-2); border:1px solid var(--line); margin-bottom:22px;}
-  .summary-row{display:flex; justify-content:space-between; gap:14px; font-size:14px; padding:7px 0; border-bottom:1px solid rgba(245,197,24,0.1); color:var(--muted); font-weight:600;}
-  .summary-row:last-of-type{border-bottom:none;}
-  .summary-row b{color:var(--paper); font-weight:800; text-align:right;}
-  .summary-total{display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-top:12px; padding-top:14px; border-top:1px solid var(--line);}
-  .summary-total .lbl{font-weight:800; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted);}
-  .summary-total .lbl small{display:block; text-transform:none; letter-spacing:0; font-weight:600; font-size:12px; margin-top:2px;}
-  .price-num{font-family:var(--display); font-weight:400; font-size:50px; line-height:1; color:var(--ochre-bright); transition:transform .25s ease; white-space:nowrap;}
+  .rb-side{position:sticky; top:96px;}
+  .summary{padding:20px 22px; border-radius:var(--r-md); background:var(--card-2); border:1px solid var(--line); margin-bottom:24px;}
+  .s-row{display:flex; justify-content:space-between; gap:14px; font-size:16px; padding:8px 0; border-bottom:1px solid var(--line); color:var(--muted); font-weight:600;}
+  .s-row b{color:var(--paper); font-weight:800; text-align:right;}
+  .s-total{display:flex; align-items:flex-end; justify-content:space-between; gap:12px; padding-top:14px;}
+  .s-total .lbl{font-weight:800; font-size:16px;}
+  .s-total .lbl small{display:block; font-weight:600; font-size:14px; color:var(--muted); margin-top:2px;}
+  .price-num{font-family:var(--head); font-weight:700; font-size:44px; line-height:1; color:var(--yellow); white-space:nowrap; transition:transform .25s ease;}
+  .price-num small{font-size:.42em; margin-left:4px;}
   .price-num.bump{transform:scale(1.08);}
-
-  .opt-label{font-weight:800; font-size:12px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); margin:0 0 10px;}
-  .opt-pills{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px;}
-  .opt-pills label{position:relative; cursor:pointer;}
-  .opt-pills input{position:absolute; opacity:0; pointer-events:none;}
-  .opt-pills span{display:flex; align-items:center; justify-content:center; text-align:center; min-height:46px; padding:8px 6px; border-radius:12px; border:1.5px solid var(--line); background:var(--black-2); font-weight:700; font-size:13.5px; transition:all .15s; line-height:1.2;}
-  .opt-pills label:hover span{border-color:var(--ochre);}
-  .opt-pills input:checked + span{background:rgba(245,197,24,0.12); border-color:var(--ochre-bright); color:var(--ochre-bright);}
-  .opt-pills input:focus-visible + span{outline:2px solid var(--ochre-bright); outline-offset:2px;}
-  .opt-note{font-size:12.5px; color:var(--muted); margin:0 0 20px; min-height:1em;}
-
-  .contact-fields{display:flex; flex-direction:column; gap:12px;}
-  .text-field{font-family:var(--sans); font-size:16px; font-weight:600; padding:15px 18px; background:var(--black-2); border:1.5px solid var(--line); color:var(--paper); border-radius:14px; width:100%; transition:border-color .2s;}
-  .text-field:focus{outline:none; border-color:var(--ochre-bright);}
-  .text-field::placeholder{color:var(--muted);}
-  .phone-field-wrap{display:flex; align-items:center; background:var(--black-2); border:1.5px solid var(--line); border-radius:14px; padding:0 18px; width:100%; transition:border-color .2s;}
-  .phone-field-wrap:focus-within{border-color:var(--ochre-bright);}
-  .phone-prefix{font-size:16px; font-weight:800; color:var(--ochre-bright); flex-shrink:0; padding-right:10px; margin-right:10px; border-right:1.5px solid var(--line); user-select:none;}
-  .phone-field-wrap input{font-family:var(--sans); font-size:16px; font-weight:600; padding:15px 0; background:transparent; border:none; color:var(--paper); width:100%; min-width:0;}
-  .phone-field-wrap input:focus{outline:none;}
-  .phone-field-wrap input::placeholder{color:var(--muted);}
-  textarea.text-field{resize:vertical; min-height:84px; line-height:1.5; font-size:15px;}
+  .opt-label{font-weight:800; font-size:16px; margin:0 0 12px;}
+  .opts{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:8px;}
+  .opts label{position:relative; cursor:pointer;}
+  .opts input{position:absolute; opacity:0; pointer-events:none;}
+  .opts span{display:flex; align-items:center; justify-content:center; text-align:center; min-height:54px; padding:6px; border-radius:var(--r-sm); border:1.5px solid var(--line); background:var(--card-2); font-weight:800; font-size:15.5px; transition:all .15s;}
+  .opts label:hover span{border-color:var(--yellow);}
+  .opts input:checked + span{border-color:var(--yellow); color:var(--yellow); background:rgba(245,197,24,0.1);}
+  .opts input:focus-visible + span{outline:2px solid var(--yellow); outline-offset:2px;}
+  .opt-note{font-size:14.5px; color:var(--muted); margin:0 0 20px; min-height:1em;}
+  .fields{display:flex; flex-direction:column; gap:12px;}
+  .field{font-family:var(--sans); font-size:17px; font-weight:600; min-height:58px; padding:15px 18px; background:var(--card-2); border:1.5px solid var(--line); color:var(--paper); border-radius:var(--r-sm); width:100%; transition:border-color .2s;}
+  .field:focus{outline:none; border-color:var(--yellow);}
+  .field::placeholder{color:#8d897d;}
+  textarea.field{resize:vertical; min-height:96px; line-height:1.5;}
+  .phone{display:flex; align-items:center; background:var(--card-2); border:1.5px solid var(--line); border-radius:var(--r-sm); padding:0 18px; min-height:58px; transition:border-color .2s;}
+  .phone:focus-within{border-color:var(--yellow);}
+  .phone span{font-size:17px; font-weight:800; color:var(--yellow); padding-right:12px; margin-right:12px; border-right:1.5px solid var(--line); flex-shrink:0;}
+  .phone input{font-family:var(--sans); font-size:17px; font-weight:600; padding:15px 0; background:transparent; border:none; color:var(--paper); width:100%; min-width:0;}
+  .phone input:focus{outline:none;}
+  .phone input::placeholder{color:#8d897d;}
   .hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
-  .submit-btn{margin-top:16px; width:100%; font-family:var(--sans); font-weight:800; font-size:16px; background:var(--ochre-bright); color:#151004; border:none; padding:18px; cursor:pointer; border-radius:14px; transition:background .2s, transform .2s;}
-  .submit-btn:hover:not(:disabled){background:#ffd84d; transform:translateY(-2px);}
-  .submit-btn:disabled{opacity:.55; cursor:not-allowed; transform:none;}
-  .confirm-msg{display:none; margin-top:16px; padding:16px 20px; background:rgba(245,197,24,0.08); border:1px solid var(--ochre); border-radius:14px; color:var(--ochre-bright); font-weight:600; font-size:14px;}
-  .confirm-msg.show{display:block; animation:slidein .3s ease;}
-  .confirm-msg.err{background:rgba(224,106,106,0.08); border-color:#e06a6a; color:#e06a6a;}
-  .confirm-msg a{color:inherit;}
-  @keyframes slidein{from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:translateY(0);}}
-  .fine{font-size:12.5px; color:var(--muted); margin-top:14px; line-height:1.6;}
-  .fine a{color:var(--ochre-bright); text-decoration:none;}
+  .submit{margin-top:16px; width:100%; min-height:62px; font-family:var(--sans); font-weight:800; font-size:17px; background:var(--yellow); color:var(--ink); border:none; border-radius:var(--r-sm); cursor:pointer; transition:background .2s, transform .2s;}
+  .submit:hover:not(:disabled){background:var(--yellow-soft); transform:translateY(-2px);}
+  .submit:disabled{opacity:.5; cursor:not-allowed;}
+  .msg{display:none; margin-top:16px; padding:16px 20px; border-radius:var(--r-sm); background:rgba(245,197,24,0.08); border:1px solid var(--yellow); color:var(--yellow); font-weight:700; font-size:15.5px;}
+  .msg.show{display:block;}
+  .msg.err{background:rgba(224,106,106,0.08); border-color:#e06a6a; color:#ef8a8a;}
+  .msg a{color:inherit;}
+  .fine{font-size:14.5px; color:var(--muted); margin:16px 0 0; line-height:1.55;}
+  .fine a{color:var(--yellow); text-decoration:none; font-weight:700; white-space:nowrap;}
 
-  .rb-float{
-    position:fixed; left:16px; right:16px; bottom:16px; z-index:90; display:none; align-items:center; justify-content:space-between; gap:12px;
-    padding:15px 20px; border:none; border-radius:16px; background:var(--ochre-bright); color:#151004; font-family:var(--sans); font-weight:800; font-size:15px;
-    box-shadow:0 16px 40px rgba(0,0,0,.6); cursor:pointer; animation:slidein .25s ease;
-  }
-  .rb-float b{font-family:var(--display); font-weight:400; font-size:22px; line-height:1;}
+  .rb-float{position:fixed; left:14px; right:14px; bottom:14px; z-index:90; display:none; align-items:center; justify-content:space-between; gap:12px; min-height:62px; padding:0 22px; border:none; border-radius:18px; background:var(--yellow); color:var(--ink); font-family:var(--sans); font-weight:800; font-size:16.5px; box-shadow:0 16px 40px rgba(0,0,0,.6); cursor:pointer;}
+  .rb-float b{font-family:var(--head); font-weight:700; font-size:22px;}
   .rb-float.show{display:flex;}
   @media (min-width:1001px){ .rb-float{display:none !important;} }
 
-  /* ===== cross-promo + footer ===== */
-  .quest-promo{
-    display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;
-    padding:34px 38px; border-radius:24px; border:1px solid var(--line); text-decoration:none;
-    background:linear-gradient(90deg, rgba(0,0,0,.92), rgba(0,0,0,.6)), url('assets/photo-hallway-chase.jpg') center/cover;
-    transition:border-color .25s, transform .25s;
-  }
-  .quest-promo:hover{border-color:var(--ochre); transform:translateY(-3px);}
-  .quest-promo h3{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:clamp(22px,3vw,30px); margin:0 0 6px;}
-  .quest-promo p{margin:0; color:var(--muted); max-width:520px;}
-  footer{position:relative; z-index:1; padding:56px 28px 36px; text-align:center; border-top:1px solid var(--line);}
+  /* ===== квест + подвал ===== */
+  .promo{display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; padding:36px 40px; border-radius:var(--r-lg); border:1px solid var(--line); text-decoration:none;
+    background:linear-gradient(90deg, rgba(7,7,7,.94), rgba(7,7,7,.62)), url('assets/photo-hallway-chase.jpg') center/cover; transition:border-color .25s;}
+  .promo:hover{border-color:var(--yellow);}
+  .promo .kicker{margin-bottom:10px;}
+  .promo h3{font-family:var(--head); font-weight:600; font-size:clamp(22px,2.6vw,30px); margin:0 0 8px; line-height:1.2;}
+  .promo p{margin:0; color:var(--muted); max-width:520px;}
+  footer{position:relative; z-index:1; padding:56px 28px 40px; text-align:center; border-top:1px solid var(--line);}
   footer .brand{display:inline-flex; margin-bottom:20px;}
-  footer .brand img{height:104px;}
-  .foot-links{display:flex; gap:24px; justify-content:center; flex-wrap:wrap; font-weight:700; font-size:13.5px; margin-bottom:26px;}
+  footer .brand img{height:88px;}
+  .foot-links{display:flex; gap:24px; justify-content:center; flex-wrap:wrap; font-weight:700; font-size:15px; margin-bottom:24px;}
   .foot-links a{text-decoration:none; color:var(--muted);}
-  .foot-links a:hover{color:var(--ochre-bright);}
-  .foot-fine{font-size:12px; color:var(--muted); opacity:.7; max-width:640px; margin:0 auto 8px;}
-  .foot-unp{font-weight:700; font-size:12px; color:var(--ochre-deep); margin-top:16px;}
+  .foot-links a:hover{color:var(--yellow);}
+  .foot-fine{font-size:13.5px; color:var(--muted); margin:0 auto 6px; max-width:640px;}
 
   #lightbox{position:fixed; inset:0; background:rgba(0,0,0,.94); display:none; align-items:center; justify-content:center; z-index:400; padding:40px; cursor:zoom-out;}
   #lightbox.open{display:flex;}
-  #lightbox img{max-width:min(960px,92vw); max-height:86vh; border-radius:12px; border:1px solid var(--line); cursor:default;}
-  .lb-btn{position:absolute; display:flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; border:1px solid var(--line); background:rgba(0,0,0,.6); color:var(--paper); font-size:22px; cursor:pointer;}
-  .lb-btn:hover{border-color:var(--ochre-bright); color:var(--ochre-bright);}
-  .lb-close{top:24px; right:24px;} .lb-prev{left:16px; top:50%; transform:translateY(-50%);} .lb-next{right:16px; top:50%; transform:translateY(-50%);}
+  #lightbox img{max-width:min(1000px,94vw); max-height:86vh; border-radius:14px; cursor:default;}
+  .lb-btn{position:absolute; display:flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:50%; border:1px solid var(--line); background:rgba(0,0,0,.6); color:var(--paper); font-size:24px; cursor:pointer;}
+  .lb-close{top:20px; right:20px;} .lb-prev{left:14px; top:50%; transform:translateY(-50%);} .lb-next{right:14px; top:50%; transform:translateY(-50%);}
 
   /* ===== адаптив ===== */
   @media (max-width:1000px){
-    .feat-grid{grid-template-columns:repeat(3,1fr);}
-    .feat-cta{grid-column:span 2;}
+    .hero .wrap{grid-template-columns:1fr; gap:44px;}
     .rb-layout{grid-template-columns:1fr;}
     .rb-side{position:static;}
+    .inside-grid{grid-template-columns:1fr;}
   }
   @media (max-width:860px){
-    .nav-links, .nav-phone, .nav-social{display:none;}
+    .nav-links, .nav-phone{display:none;}
     .nav-toggle{display:flex;}
-    .brand img{height:56px;}
-    .nav-right{gap:12px;}
-    .wrap{padding:0 20px;}
-    section{padding:52px 20px;}
-    h2{font-size:clamp(24px,7.5vw,32px); margin-bottom:14px;}
-    .section-lede{font-size:15px; margin-bottom:28px;}
-    .room-hero{padding:40px 20px 48px;}
-    .room-hero .wrap{grid-template-columns:1fr; gap:34px;}
-    .room-hero h1{font-size:clamp(46px,14vw,64px);}
-    .room-lede{font-size:15.5px; margin:22px 0 24px;}
-    .hero-photo{max-width:420px;}
-    .hero-photo .ph{aspect-ratio:4/3;}
-    .hero-stamp{left:auto; right:-6px; bottom:auto; top:-18px; padding:9px 14px 11px;}
-    .hero-stamp b{font-size:24px;}
-    .room-mark{font-size:clamp(18px,5.6vw,30px); white-space:nowrap; padding:2px 14px 8px; max-width:100%;}
-    .room-hero .wrap > *{min-width:0;}
-    .photo-grid{grid-template-columns:1fr 1fr; grid-template-rows:none; grid-auto-rows:130px; gap:10px;}
-    .photo-grid .ph:first-child{grid-column:span 2; grid-row:span 2;}
-    .ph-empty b{font-size:14px;} .ph-empty svg{width:30px; height:30px;}
-    .feat-grid{grid-template-columns:repeat(2,1fr); gap:10px;}
-    .feat{padding:16px 14px;}
-    .feat h3{font-size:14.5px;} .feat p{font-size:12.8px;}
-    .feat-cta{grid-column:span 1; flex-direction:column; align-items:flex-start; justify-content:center; gap:12px;}
-    .feat-cta h3{font-size:15px;} .feat-cta p{font-size:12.5px;}
-    .feat-cta .btn{padding:10px 16px; font-size:13px;}
-    .feat-ico{width:40px; height:40px; margin-bottom:12px;}
-    .games-grid, .price-grid{grid-template-columns:1fr;}
-    .game-card{padding:26px 22px;}
-    .price-card .p-num{font-size:56px;}
-    .rb-card{padding:22px 16px; border-radius:20px;}
-    .hours-grid{grid-template-columns:repeat(4,1fr); gap:8px;}
-    .hour{font-size:15px; padding:11px 2px 9px;}
-    .hour small{font-size:10px;}
-    .quest-promo{padding:26px 22px;}
-    footer{padding:44px 20px 28px;}
-    footer .brand img{height:76px;}
-    .foot-links{gap:14px; font-size:12.5px;}
+    .nav{padding:8px 16px;}
+    .brand img{height:52px;}
+    .nav-right{gap:10px;}
+    .nav-cta{padding:12px 18px; font-size:15px;}
+    .wrap{padding:0 16px;}
+    section{padding:64px 0;}
+    body{font-size:17px;}
+    h2{font-size:clamp(28px,8vw,36px);}
+    .lede{font-size:17px; margin-bottom:30px;}
+    .hero{padding:28px 0 60px;}
+    .crumbs{margin-bottom:20px; font-size:15px;}
+    .garland{margin-bottom:22px;}
+    .hero h1{font-size:clamp(48px,15vw,68px);}
+    .hero-sub{font-size:21px;}
+    .hero-lede{font-size:17px;}
+    .facts{flex-direction:column; align-items:stretch;}
+    .fact{font-size:17px; border-radius:var(--r-md); padding:12px 16px 12px 12px;}
+    .fact .dot{width:46px; height:46px;}
+    .hero-ctas .btn{flex:1 1 100%; min-height:60px; font-size:17px;}
+    .bento{gap:12px; grid-auto-rows:minmax(160px,auto);}
+    .tile{padding:20px; border-radius:var(--r-md);}
+    .tile h3{font-size:19px;}
+    .tile p{font-size:15.5px;}
+    .tile .big{font-size:46px; right:16px; top:12px;}
+    .gallery{grid-template-columns:1fr 1fr; grid-auto-rows:160px; gap:10px;}
+    .gallery figure.has-photo:first-child{grid-column:span 2; grid-row:span 2;}
+    .group{padding:22px 18px; border-radius:var(--r-md);}
+    .group.fun .items{grid-template-columns:1fr;}
+    .group-head h3{font-size:21px;}
+    .item{padding:13px 0;}
+    .item .ic{width:52px; height:52px;}
+    .item b{font-size:17.5px;}
+    .item small{font-size:15px;}
+    .games{grid-template-columns:1fr; gap:14px;}
+    .game{padding:26px 22px; border-radius:var(--r-md);}
+    .game p{font-size:17px;}
+    .note{font-size:16.5px; padding:18px;}
+    .prices{gap:12px;}
+    .price{padding:22px 18px; border-radius:var(--r-md);}
+    .price .when{font-size:18px;}
+    .price .num{font-size:52px; margin-top:16px;}
+    .price-fine{font-size:16.5px;}
+    .rb-card{padding:22px 16px; border-radius:var(--r-md);}
+    .step-title{font-size:19px;}
+    .ds-arrows{display:none;}
+    .ds{margin:0 -16px; padding:4px 16px 12px; scroll-padding-left:16px;}
+    .dday{flex-basis:88px;}
+    .hours{grid-template-columns:repeat(3,1fr); gap:10px;}
+    .hour{min-height:78px;}
+    .hour .h-time{font-size:21px;}
+    .hour small{font-size:14px;}
+    .legend{font-size:15px;}
+    .opts span{font-size:16px; min-height:58px;}
+    .s-row{font-size:16.5px;}
+    .promo{padding:26px 22px; border-radius:var(--r-md);}
+    .promo .btn{width:100%;}
+    footer{padding:44px 16px 110px;}
+    footer .brand img{height:72px;}
+    .foot-links{gap:16px 20px; font-size:16px;}
   }
-  @media (max-width:420px){
-    .stat{padding:11px 14px;}
-    .cal-grid, .cal-weekdays{gap:4px;}
-    .day{font-size:13px; border-radius:10px;}
-    .day small{font-size:8px; letter-spacing:-.02em;}
-    .feat-cta{padding:14px 12px;} .feat-cta h3{font-size:12.5px; letter-spacing:0;}
-    .feat-cta .btn{padding:9px 12px; font-size:12.5px;}
-    .opt-pills span{font-size:12.5px;}
-    .price-num{font-size:42px;}
+  @media (max-width:380px){
+    .hero h1{font-size:44px;}
+    .nav-cta{padding:11px 14px; font-size:14px;}
+    .price .num{font-size:44px;}
+    .dday{flex-basis:80px;}
   }
   @media (prefers-reduced-motion: reduce){
     html{scroll-behavior:auto;}
-    .reveal, .reveal .feat{opacity:1 !important; transform:none !important; transition:none !important;}
+    .reveal{opacity:1 !important; transform:none !important; transition:none !important;}
+    .garland i{animation:none;}
   }
 </style>
 </head>
 <body id="top">
 <div id="progress"></div>
-<div id="grainOverlay" aria-hidden="true"></div>
-<div id="ambientBg" aria-hidden="true"><span class="b1"></span><span class="b2"></span><span class="b3"></span></div>
 
 <header>
   <div class="nav">
@@ -446,90 +407,85 @@
       <nav class="nav-links">
         <a href="/">Квест «Дело Мэри»</a>
         <a href="#inside">Что внутри</a>
-        <a href="#games">Игры с ведущим</a>
+        <a href="#games">Мафия и Бункер</a>
         <a href="#prices">Цены</a>
-        <a class="current" href="#room-booking">Бронь</a>
       </nav>
       <a class="nav-phone" href="tel:+375447803000">+375 (44) 780-30-00</a>
-      <a class="nav-social" href="https://www.instagram.com/loonygames.minsk" target="_blank" rel="noopener noreferrer" aria-label="Loony Games в Instagram">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-      </a>
       <a class="nav-cta" href="#room-booking">Забронировать</a>
       <button class="nav-toggle" id="navToggle" aria-label="Меню" aria-expanded="false">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></svg>
       </button>
     </div>
   </div>
   <nav class="mobile-menu" id="mobileMenu">
-    <a href="/">Квест «Дело Мэри»</a>
     <a href="#inside">Что внутри</a>
-    <a href="#games">Игры с ведущим</a>
+    <a href="#games">Мафия и Бункер с ведущим</a>
     <a href="#prices">Цены</a>
-    <a href="#room-booking">Бронь комнаты</a>
-    <a href="tel:+375447803000">📞 +375 (44) 780-30-00</a>
+    <a href="#room-booking">Забронировать комнату</a>
+    <a href="/">Квест «Дело Мэри»</a>
+    <a href="tel:+375447803000">Позвонить: +375 (44) 780-30-00</a>
   </nav>
 </header>
 
 <main>
 <!-- ===== HERO ===== -->
-<section class="room-hero">
+<section class="hero">
   <div class="wrap">
     <div>
       <div class="crumbs"><a href="/">Loony Games</a><span>/</span>Loony Room</div>
-      <div class="sticker room-tag"><span>Loony Games · комната отдыха</span></div>
-      <h1>Loony Room</h1>
-      <div class="sticker room-mark"><span>ваш вечер — ваши правила</span></div>
-      <p class="room-lede">Отдельная комната для дня рождения, корпоратива или посиделок после квеста. Караоке, проектор, две PlayStation 4 Pro, Just Dance, сцена и стол для застолья — всё уже внутри, остаётся собрать своих.</p>
-      <div class="stat-strip">
-        <div class="stat">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-          <div><b>10:00–23:00</b><span>каждый день</span></div>
-        </div>
-        <div class="stat">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg>
-          <div><b>от 70 Br</b><span>за час</span></div>
-        </div>
-        <div class="stat">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
-          <div><b>13</b><span>часовых слотов</span></div>
-        </div>
+      <div class="garland" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <h1>Loony <em>Room</em></h1>
+      <p class="hero-sub">Комната для праздника,<br>где всё уже есть</p>
+      <p class="hero-lede">День рождения, корпоратив или посиделки после квеста. Караоке, проектор, PlayStation, сцена и стол для застолья. Вам остаётся только собрать своих.</p>
+      <div class="facts">
+        <div class="fact"><span class="dot"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span><b>10:00–23:00</b> каждый день</span></div>
+        <div class="fact"><span class="dot"><svg class="i" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg></span><span>от <b>70 Br</b> за час</span></div>
       </div>
       <div class="hero-ctas">
-        <a class="btn btn-solid" href="#room-booking">Выбрать время</a>
-        <a class="btn btn-ghost" href="#inside">Что внутри</a>
+        <a class="btn btn-yellow" href="#room-booking">Выбрать день и время</a>
+        <a class="btn btn-line" href="#inside">Что внутри</a>
       </div>
     </div>
 
-    <!-- ФОТО: чтобы появились фотографии, загрузите их в папку
-         assets/loonyroom/ с именами room-1.jpg … room-6.jpg
-         (room-1 — главное фото здесь, room-2…room-6 — галерея ниже).
-         Код менять не нужно: если файла нет, показывается аккуратная
-         заглушка, как только файл появится — встанет фото. -->
-    <div class="hero-photo">
-      <figure class="ph" data-photo>
-        <img src="assets/loonyroom/room-1.jpg" alt="Loony Room — общий вид комнаты" onload="this.parentNode.classList.add('has-photo')" onerror="this.remove()">
-        <div class="ph-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></svg>
-          <b>Фото комнаты</b>
-          <small>появится совсем скоро</small>
-        </div>
-      </figure>
-      <div class="sticker hero-stamp"><span><b>×2</b><small>PlayStation<br>4 Pro</small></span></div>
+    <!-- ФОТО: загрузите фото в папку assets/loonyroom/ с именами
+         room-1.jpg … room-6.jpg. room-1 встанет в большую жёлтую плитку
+         здесь, room-2…room-6 — в галерею ниже (галерея сама появится, как
+         только загрузится хотя бы одно фото). Код менять не нужно. -->
+    <div class="bento">
+      <div class="tile wide yellow" data-photo>
+        <img src="assets/loonyroom/room-1.jpg" alt="Loony Room — общий вид комнаты" onload="lrPhoto(this)" onerror="this.remove()">
+        <svg class="i" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>
+        <div><h3>Караоке и сцена</h3><p>Микрофоны, колонки и небольшая сцена — она же фотозона</p></div>
+      </div>
+      <div class="tile">
+        <span class="big">×2</span>
+        <svg class="i" viewBox="0 0 24 24"><path d="M6 8h12a4 4 0 0 1 4 4v1a4 4 0 0 1-7 2.6L14 14h-4l-1 1.6A4 4 0 0 1 2 13v-1a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3"/><path d="M16.5 11h.01M18.5 13h.01"/></svg>
+        <div><h3>PlayStation 4 Pro</h3><p>две приставки</p></div>
+      </div>
+      <div class="tile">
+        <span class="big">×4</span>
+        <svg class="i" viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="M10 22l2-7-3-3 2-5 4 3 3 1M9 12l-4 2M12 15l4 2v5"/></svg>
+        <div><h3>Just Dance</h3><p>четыре контроллера</p></div>
+      </div>
+      <div class="tile wide">
+        <svg class="i" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><circle cx="15" cy="12" r="3"/><path d="M6 11h3M6 17v2M18 17v2"/></svg>
+        <div><h3>Проектор и телевизор</h3><p>Фильмы, клипы, игры и ваши видео на большом экране</p></div>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- ===== ФОТО ===== -->
-<section id="photos" class="reveal">
+<!-- ===== ГАЛЕРЕЯ: скрыта, пока нет ни одного фото ===== -->
+<section id="photos" class="reveal" hidden>
   <div class="wrap">
-    <div class="eyebrow">фотографии</div>
+    <div class="kicker"><i></i>фото</div>
     <h2>Как выглядит комната</h2>
-    <div class="photo-grid">
-      <figure class="ph" data-photo><img src="assets/loonyroom/room-2.jpg" alt="Loony Room — фото 2" loading="lazy" onload="this.parentNode.classList.add('has-photo')" onerror="this.remove()"><div class="ph-empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></svg><b>Фото скоро</b><small>зона для застолья</small></div></figure>
-      <figure class="ph" data-photo><img src="assets/loonyroom/room-3.jpg" alt="Loony Room — фото 3" loading="lazy" onload="this.parentNode.classList.add('has-photo')" onerror="this.remove()"><div class="ph-empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></svg><b>Фото скоро</b><small>сцена и фотозона</small></div></figure>
-      <figure class="ph" data-photo><img src="assets/loonyroom/room-4.jpg" alt="Loony Room — фото 4" loading="lazy" onload="this.parentNode.classList.add('has-photo')" onerror="this.remove()"><div class="ph-empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></svg><b>Фото скоро</b><small>караоке и проектор</small></div></figure>
-      <figure class="ph" data-photo><img src="assets/loonyroom/room-5.jpg" alt="Loony Room — фото 5" loading="lazy" onload="this.parentNode.classList.add('has-photo')" onerror="this.remove()"><div class="ph-empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></svg><b>Фото скоро</b><small>PlayStation и Just Dance</small></div></figure>
-      <figure class="ph" data-photo><img src="assets/loonyroom/room-6.jpg" alt="Loony Room — фото 6" loading="lazy" onload="this.parentNode.classList.add('has-photo')" onerror="this.remove()"><div class="ph-empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l2-2h6l2 2h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></svg><b>Фото скоро</b><small>настольные игры</small></div></figure>
+    <div class="gallery">
+      <figure data-photo><img src="assets/loonyroom/room-2.jpg" alt="Loony Room — фото 2" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
+      <figure data-photo><img src="assets/loonyroom/room-3.jpg" alt="Loony Room — фото 3" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
+      <figure data-photo><img src="assets/loonyroom/room-4.jpg" alt="Loony Room — фото 4" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
+      <figure data-photo><img src="assets/loonyroom/room-5.jpg" alt="Loony Room — фото 5" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
+      <figure data-photo><img src="assets/loonyroom/room-6.jpg" alt="Loony Room — фото 6" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
     </div>
   </div>
 </section>
@@ -537,30 +493,33 @@
 <!-- ===== ЧТО ВНУТРИ ===== -->
 <section id="inside" class="reveal">
   <div class="wrap">
-    <div class="eyebrow">что внутри</div>
-    <h2>Всё для праздника уже на месте</h2>
-    <p class="section-lede">Приходите со своей компанией, тортом и хорошим настроением — техника, игры и всё для застолья ждут в комнате.</p>
-    <div class="feat-grid">
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 1-3 4-3 7h3v11"/></svg></div><h3>Зона для застолья</h3><p>Общий стол для вашей компании</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M6 10h12M9 5v2M9 13v3"/></svg></div><h3>Холодильник</h3><p>Для напитков и торта</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><rect x="5" y="8" width="10" height="8" rx="1"/><path d="M18 9v.01M18 12v.01M18 15v.01"/></svg></div><h3>Микроволновка</h3><p>Разогреть еду на месте</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><path d="M12 2.5s-6 6.5-6 11a6 6 0 0 0 12 0c0-4.5-6-11-6-11z"/><path d="M9.5 14a2.5 2.5 0 0 0 2.5 2.5"/></svg></div><h3>Кулер</h3><p>Горячая и холодная вода</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><path d="M5 6h14l-1.5 14a2 2 0 0 1-2 1.8h-7a2 2 0 0 1-2-1.8L5 6z"/><path d="M4 6h16M9 3h6"/></svg></div><h3>Одноразовая посуда</h3><p>Ничего не придётся мыть</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg></div><h3>Караоке</h3><p>Пойте, сколько хочется</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><circle cx="15" cy="12" r="3"/><path d="M6 11h3M6 17v2M18 17v2"/></svg></div><h3>Проектор</h3><p>Фильмы, клипы, презентации</p></div>
-      <div class="feat"><span class="feat-count">×2</span><div class="feat-ico"><svg viewBox="0 0 24 24"><path d="M6 8h12a4 4 0 0 1 4 4v1a4 4 0 0 1-7 2.6L14 14h-4l-1 1.6A4 4 0 0 1 2 13v-1a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3"/><path d="M16.5 11h.01M18.5 13h.01"/></svg></div><h3>PlayStation 4 Pro</h3><p>Две приставки — играйте компанией</p></div>
-      <div class="feat"><span class="feat-count">×4</span><div class="feat-ico"><svg viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="M10 22l2-7-3-3 2-5 4 3 3 1M9 12l-4 2M12 15l4 2v5"/></svg></div><h3>Just Dance</h3><p>Четыре контроллера для танцевальных баттлов</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Телевизор</h3><p>Для игр и трансляций</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="14" r="4"/><circle cx="12" cy="6.5" r="1.2"/></svg></div><h3>Колонки</h3><p>Ваша музыка на весь вечер</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.4 7.2 18l.9-5.4L4.2 8.7l5.4-.8z"/><path d="M4 21h16"/></svg></div><h3>Сцена и фотозона</h3><p>Для тостов, выступлений и фото</p></div>
-      <div class="feat"><div class="feat-ico"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01" stroke-width="2.6"/></svg></div><h3>Настольные игры</h3><p>На любую компанию</p></div>
-      <a class="feat feat-cta" href="#room-booking">
-        <div>
-          <h3>Всё готово — осталось выбрать время</h3>
-          <p>Почасовая аренда с 10:00 до 23:00 · от 70 Br в час</p>
+    <div class="kicker"><i></i>что внутри</div>
+    <h2>Всё уже на месте</h2>
+    <p class="lede">Техника, игры и всё для застолья уже ждут в комнате.</p>
+    <div class="inside-grid">
+      <div class="group fun">
+        <div class="group-head"><h3>Развлечения</h3><span>8 вещей</span></div>
+        <div class="items">
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg></span><div><b>Караоке</b><small>пойте, сколько хочется</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M6 8h12a4 4 0 0 1 4 4v1a4 4 0 0 1-7 2.6L14 14h-4l-1 1.6A4 4 0 0 1 2 13v-1a4 4 0 0 1 4-4z"/><path d="M7 10.5v3M5.5 12h3"/></svg></span><div><b>PlayStation 4 Pro</b><small>две приставки</small></div><span class="tag">×2</span></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="M10 22l2-7-3-3 2-5 4 3 3 1M9 12l-4 2M12 15l4 2v5"/></svg></span><div><b>Just Dance</b><small>4 контроллера</small></div><span class="tag">×4</span></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><circle cx="15" cy="12" r="3"/><path d="M6 11h3M6 17v2M18 17v2"/></svg></span><div><b>Проектор</b><small>фильмы и клипы</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><div><b>Телевизор</b><small>для игр и видео</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="14" r="4"/><circle cx="12" cy="6.5" r="1.2"/></svg></span><div><b>Колонки</b><small>ваша музыка</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.4 7.2 18l.9-5.4L4.2 8.7l5.4-.8z"/><path d="M4 21h16"/></svg></span><div><b>Сцена и фотозона</b><small>тосты, выступления, фото</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01" stroke-width="2.6"/></svg></span><div><b>Настольные игры</b><small>на любую компанию</small></div></div>
         </div>
-        <span class="btn btn-solid">Забронировать</span>
-      </a>
+      </div>
+      <div class="group">
+        <div class="group-head"><h3>Застолье</h3><span>5 вещей</span></div>
+        <div class="items">
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 1-3 4-3 7h3v11"/></svg></span><div><b>Зона для застолья</b><small>общий стол на компанию</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M6 10h12M9 5v2M9 13v3"/></svg></span><div><b>Холодильник</b><small>для напитков и торта</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><rect x="5" y="8" width="10" height="8" rx="1"/><path d="M18 9v.01M18 12v.01M18 15v.01"/></svg></span><div><b>Микроволновка</b><small>разогреть еду</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M12 2.5s-6 6.5-6 11a6 6 0 0 0 12 0c0-4.5-6-11-6-11z"/><path d="M9.5 14a2.5 2.5 0 0 0 2.5 2.5"/></svg></span><div><b>Кулер</b><small>горячая и холодная вода</small></div></div>
+          <div class="item"><span class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M5 6h14l-1.5 14a2 2 0 0 1-2 1.8h-7a2 2 0 0 1-2-1.8L5 6z"/><path d="M4 6h16M9 3h6"/></svg></span><div><b>Одноразовая посуда</b><small>ничего не придётся мыть</small></div></div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -568,26 +527,24 @@
 <!-- ===== ИГРЫ С ВЕДУЩИМ ===== -->
 <section id="games" class="reveal">
   <div class="wrap">
-    <div class="eyebrow">дополнительная опция</div>
+    <div class="kicker"><i></i>по желанию</div>
     <h2>Мафия или Бункер с ведущим</h2>
-    <p class="section-lede">Хотите, чтобы вечер шёл сам собой? Закажите игру с ведущим — он объяснит правила, раздаст роли и будет держать интригу до последнего круга.</p>
-    <div class="games-grid">
-      <div class="game-card">
-        <div class="g-ico"><svg viewBox="0 0 24 24"><path d="M2 16.5c3.5 2.2 16.5 2.2 20 0"/><path d="M5.2 16 7 7.4c.3-1.3 1.7-1.8 2.8-1.1L12 7.7l2.2-1.4c1.1-.7 2.5-.2 2.8 1.1L18.8 16"/><path d="M6.2 12.6c3.7 1 7.9 1 11.6 0"/></svg></div>
+    <p class="lede">Ведущий объяснит правила, раздаст роли и будет держать интригу до последнего круга.</p>
+    <div class="games">
+      <div class="game">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M2 16.5c3.5 2.2 16.5 2.2 20 0"/><path d="M5.2 16 7 7.4c.3-1.3 1.7-1.8 2.8-1.1L12 7.7l2.2-1.4c1.1-.7 2.5-.2 2.8 1.1L18.8 16"/><path d="M6.2 12.6c3.7 1 7.9 1 11.6 0"/></svg></div>
         <h3>Мафия</h3>
-        <p>Классика на блеф и интуицию: мирные жители против мафии. Днём — споры и подозрения, ночью — тайные ходы. Отлично раскачивает любую компанию.</p>
-        <span class="g-num">01</span>
+        <p>Мирные жители против мафии. Днём споры и подозрения, ночью тайные ходы. Раскачает любую компанию.</p>
       </div>
-      <div class="game-card">
-        <div class="g-ico"><svg viewBox="0 0 24 24"><path d="M4 21V10l8-6 8 6v11z"/><path d="M9 21v-6h6v6"/></svg></div>
+      <div class="game">
+        <div class="ic"><svg class="i" viewBox="0 0 24 24"><path d="M4 21V10l8-6 8 6v11z"/><path d="M9 21v-6h6v6"/></svg></div>
         <h3>Бункер</h3>
-        <p>Дискуссионная игра на выживание: у каждого своя карточка с профессией, здоровьем и секретами, а мест в бункере на всех не хватит. Убеждайте, договаривайтесь, голосуйте.</p>
-        <span class="g-num">02</span>
+        <p>Мест в бункере на всех не хватит. У каждого карточка с профессией и секретами — убеждайте, договаривайтесь, голосуйте.</p>
       </div>
     </div>
-    <div class="games-note">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F5C518" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-      <div>Отметьте игру прямо в форме бронирования. <b>Стоимость ведущего администратор назовёт при подтверждении брони</b> — в цену аренды комнаты она не входит.</div>
+    <div class="note">
+      <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+      <div>Отметьте игру в форме бронирования. Стоимость ведущего администратор назовёт при подтверждении — в цену аренды она не входит.</div>
     </div>
   </div>
 </section>
@@ -595,68 +552,69 @@
 <!-- ===== ЦЕНЫ ===== -->
 <section id="prices" class="reveal">
   <div class="wrap">
-    <div class="eyebrow">стоимость</div>
-    <h2>Цена за час аренды</h2>
-    <div class="price-grid">
-      <div class="price-card">
-        <div class="p-label">Будни</div>
-        <div class="p-days">понедельник — пятница</div>
-        <div class="p-num">70<span class="byn">Br</span></div>
-        <div class="p-per">за час</div>
+    <div class="kicker"><i></i>цены</div>
+    <h2>Аренда по часам</h2>
+    <div class="prices">
+      <div class="price">
+        <div class="when">Будни</div>
+        <div class="days">пн — пт</div>
+        <div class="num">70<small>Br</small></div>
+        <div class="per">за час</div>
       </div>
-      <div class="price-card weekend">
-        <div class="p-label">Выходные</div>
-        <div class="p-days">суббота и воскресенье</div>
-        <div class="p-num">90<span class="byn">Br</span></div>
-        <div class="p-per">за час</div>
+      <div class="price hot">
+        <div class="when">Выходные</div>
+        <div class="days">сб и вс</div>
+        <div class="num">90<small>Br</small></div>
+        <div class="per">за час</div>
       </div>
     </div>
-    <p class="price-fine">Аренда почасовая, от 1 часа — с 10:00 до 23:00. Например, вечер с 19:00 до 22:00 в будний день — 3 часа × 70 Br = 210 Br. Бронь подтверждает администратор звонком.</p>
+    <p class="price-fine">От 1 часа, с 10:00 до 23:00. Например, с 19:00 до 22:00 в будний день: 3 × 70 = 210 Br.</p>
   </div>
 </section>
 
 <!-- ===== БРОНЬ ===== -->
 <section id="room-booking" class="reveal">
   <div class="wrap">
-    <div class="eyebrow">бронирование</div>
-    <h2>Забронировать Loony Room</h2>
-    <p class="section-lede">Выберите день, отметьте нужные часы и оставьте контакты — администратор перезвонит и подтвердит бронь.</p>
+    <div class="kicker"><i></i>бронирование</div>
+    <h2>Забронировать комнату</h2>
+    <p class="lede">Выберите день и часы, оставьте телефон — администратор перезвонит и подтвердит.</p>
 
     <div class="rb-layout">
       <div class="rb-card">
         <div class="rb-step">
-          <span class="field-label"><span class="num">1</span>День</span>
-          <div class="cal-head">
-            <button type="button" class="cal-nav" id="calPrev" aria-label="Предыдущий месяц">‹</button>
-            <span class="cal-month" id="calMonth"></span>
-            <button type="button" class="cal-nav" id="calNext" aria-label="Следующий месяц">›</button>
+          <div class="step-title"><span class="n">1</span>День</div>
+          <div class="ds-head">
+            <span class="ds-month" id="dsMonth"></span>
+            <div class="ds-arrows">
+              <button type="button" class="ds-arrow" id="dsPrev" aria-label="Раньше"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+              <button type="button" class="ds-arrow" id="dsNext" aria-label="Позже"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+            </div>
           </div>
-          <div class="cal-weekdays"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
-          <div class="cal-grid" id="calGrid"></div>
+          <div class="ds" id="dayStrip" role="listbox" aria-label="Выбор дня"></div>
         </div>
 
         <div class="rb-step">
-          <span class="field-label"><span class="num">2</span>Часы <span id="hoursDayLabel" style="color:var(--ochre-bright); text-transform:none; letter-spacing:0; font-weight:700;"></span></span>
-          <p class="hours-hint">Нажмите на первый час, потом на последний — выделится весь промежуток. Каждый слот — один час.</p>
-          <div id="hoursWrap"><div class="rb-empty">Сначала выберите день в календаре</div></div>
-          <div class="legend"><span><i></i>свободно</span><span><i class="lg-sel"></i>выбрано</span><span><i class="lg-taken"></i>занято</span></div>
+          <div class="step-title"><span class="n">2</span>Часы <span class="sub" id="hoursDayLabel"></span></div>
+          <p class="hint">Нажмите на первый и последний час — выделится весь промежуток.</p>
+          <div id="hoursWrap"><div class="empty">Сначала выберите день</div></div>
+          <div class="legend"><span><i></i>свободно</span><span><i class="l-sel"></i>выбрано</span><span><i class="l-off"></i>занято</span></div>
         </div>
       </div>
 
       <aside class="rb-card rb-side">
-        <span class="field-label"><span class="num">3</span>Ваша бронь</span>
+        <div class="step-title"><span class="n">3</span>Ваша бронь</div>
         <div class="summary">
-          <div class="summary-row"><span>День</span><b id="sumDay">—</b></div>
-          <div class="summary-row"><span>Время</span><b id="sumTime">—</b></div>
-          <div class="summary-row"><span>Тариф</span><b id="sumRate">—</b></div>
-          <div class="summary-total">
+          <div class="s-row"><span>День</span><b id="sumDay">—</b></div>
+          <div class="s-row"><span>Время</span><b id="sumTime">—</b></div>
+          <div class="s-row"><span>Тариф</span><b id="sumRate">—</b></div>
+          <div class="s-total">
             <div class="lbl">Итого<small id="sumHint">выберите часы</small></div>
-            <div class="price-num" id="sumPrice">0<span class="byn">Br</span></div>
+            <div class="price-num" id="sumPrice">0<small>Br</small></div>
           </div>
         </div>
 
         <p class="opt-label">Игра с ведущим</p>
-        <div class="opt-pills" role="radiogroup" aria-label="Игра с ведущим">
+        <div class="opts" role="radiogroup" aria-label="Игра с ведущим">
           <label><input type="radio" name="hostGame" value="" checked><span>Без игры</span></label>
           <label><input type="radio" name="hostGame" value="mafia"><span>Мафия</span></label>
           <label><input type="radio" name="hostGame" value="bunker"><span>Бункер</span></label>
@@ -664,32 +622,29 @@
         <p class="opt-note" id="optNote"></p>
 
         <input type="text" id="roomWebsite" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
-        <div class="contact-fields">
-          <input type="text" class="text-field" id="roomName" placeholder="Ваше имя" aria-label="Ваше имя" autocomplete="name" maxlength="100">
-          <div class="phone-field-wrap">
-            <span class="phone-prefix">+375</span>
-            <input type="tel" id="roomPhone" placeholder="(__) ___-__-__" aria-label="Номер телефона" autocomplete="tel-national">
-          </div>
-          <textarea class="text-field" id="roomComment" rows="3" maxlength="500" placeholder="Комментарий (необязательно): повод, сколько будет гостей, пожелания" aria-label="Комментарий"></textarea>
+        <div class="fields">
+          <input type="text" class="field" id="roomName" placeholder="Ваше имя" aria-label="Ваше имя" autocomplete="name" maxlength="100">
+          <div class="phone"><span>+375</span><input type="tel" id="roomPhone" placeholder="(__) ___-__-__" aria-label="Номер телефона" autocomplete="tel-national"></div>
+          <textarea class="field" id="roomComment" rows="3" maxlength="500" placeholder="Комментарий: повод, сколько гостей, пожелания" aria-label="Комментарий"></textarea>
         </div>
-        <button class="submit-btn" id="roomSubmit" disabled>Выберите день и часы</button>
-        <div class="confirm-msg" id="roomMsg" role="status" aria-live="polite"></div>
-        <p class="fine">Онлайн-бронь закрывается за час до начала. Нужно срочнее или есть вопросы — звоните: <a href="tel:+375447803000">+375 (44) 780-30-00</a>.</p>
+        <button class="submit" id="roomSubmit" disabled>Выберите день и часы</button>
+        <div class="msg" id="roomMsg" role="status" aria-live="polite"></div>
+        <p class="fine">Онлайн-бронь закрывается за час до начала. Срочно или есть вопросы — <a href="tel:+375447803000">+375 (44) 780-30-00</a></p>
       </aside>
     </div>
   </div>
 </section>
 
 <!-- ===== КВЕСТ ===== -->
-<section class="reveal" style="padding-top:64px;">
+<section class="reveal" style="padding-top:24px;">
   <div class="wrap">
-    <a class="quest-promo" href="/">
+    <a class="promo" href="/">
       <div>
-        <div class="eyebrow">а до праздника — квест</div>
+        <div class="kicker"><i></i>а до праздника — квест</div>
         <h3>Дело Мэри. Скажи им, что я здесь</h3>
         <p>Страшный квест-перформанс с актёрами от Loony Games. 1–6 игроков, от 140 Br.</p>
       </div>
-      <span class="btn btn-ghost">Подробнее о квесте →</span>
+      <span class="btn btn-line">Подробнее о квесте</span>
     </a>
   </div>
 </section>
@@ -705,10 +660,9 @@
     <a href="tel:+375447803000">+375 (44) 780-30-00</a>
   </div>
   <p class="foot-fine">Loony Room — комната отдыха от Loony Games.</p>
-  <p class="foot-unp">Услугу оказывает ИП Стрельская Лолита Вячеславовна, УНП 693275298</p>
+  <p class="foot-fine">Услугу оказывает ИП Стрельская Лолита Вячеславовна, УНП 693275298</p>
 </footer>
 
-<!-- Мобильная плашка: появляется, когда часы выбраны, а форма вне экрана -->
 <button type="button" class="rb-float" id="rbFloat" aria-label="Перейти к оформлению брони"><span id="rbFloatText">К оформлению</span><b id="rbFloatPrice"></b></button>
 
 <div id="lightbox" aria-hidden="true">
@@ -782,7 +736,6 @@
   let taken = {};            // { iso: ['14:00', …] }
   let selectedDate = null;   // 'YYYY-MM-DD'
   let sel = null;            // { a, b } — индексы в SLOTS, включительно
-  let view = { y: parts(todayISO).y, m: parts(todayISO).m }; // показываемый месяц (m = 1..12)
 
   function isTaken(iso, time){ return (taken[iso] || []).indexOf(time) !== -1; }
   function isFree(iso, i){ return !isTaken(iso, SLOTS[i]) && !isClosed(iso, SLOTS[i]); }
@@ -797,59 +750,67 @@
     } catch (e) { /* без сети покажем всё свободным — сервер всё равно проверит при отправке */ }
   }
 
-  // ---- Календарь ----
-  function renderCalendar(){
-    const grid = $('calGrid');
-    $('calMonth').textContent = MONTHS_NOM[view.m - 1] + ' ' + view.y;
-    const first = view.y + '-' + String(view.m).padStart(2, '0') + '-01';
-    const lead = (dow(first) + 6) % 7; // понедельник первым
-    const daysInMonth = new Date(Date.UTC(view.y, view.m, 0)).getUTCDate();
+  // ---- Дни: горизонтальная лента на 60 дней (удобно листать пальцем) ----
+  const MONTHS_SHORT = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+  function renderDays(){
+    const strip = $('dayStrip');
     let html = '';
-    for (let i = 0; i < lead; i++) html += '<button type="button" class="day empty" tabindex="-1" aria-hidden="true"></button>';
-    for (let d = 1; d <= daysInMonth; d++){
-      const iso = view.y + '-' + String(view.m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-      // "занят" — только если реально всё раскуплено; если сегодня просто
-      // все часы уже прошли/закрылись — день просто неактивен, без "занят".
-      const inRange = iso >= todayISO && iso <= lastISO;
-      const anyOpen = inRange && SLOTS.some((t) => !isClosed(iso, t));
-      const out = !inRange || !anyOpen;
-      const full = !out && dayFull(iso);
-      const cls = ['day'];
-      if (isWeekend(iso)) cls.push('weekend');
-      if (iso === selectedDate) cls.push('active');
-      if (full) cls.push('full');
-      const label = full ? 'занят' : (out ? WD_SHORT[dow(iso)] : (isWeekend(iso) ? RATE_WEEKEND : RATE_WEEKDAY) + ' Br');
-      html += '<button type="button" class="' + cls.join(' ') + '" data-iso="' + iso + '"' + (out || full ? ' disabled' : '') +
-        ' aria-label="' + dayLabel(iso) + (full ? ', всё занято' : '') + '">' + d + '<small>' + label + '</small></button>';
+    for (let k = 0; k < DAYS_AHEAD; k++){
+      const iso = addDays(todayISO, k);
+      const anyOpen = SLOTS.some((t) => !isClosed(iso, t));
+      if (!anyOpen) continue; // сегодня все часы уже прошли — просто не показываем день
+      const p = parts(iso);
+      const full = dayFull(iso);
+      const cls = ['dday'];
+      if (isWeekend(iso)) cls.push('we');
+      if (iso === selectedDate) cls.push('on');
+      const wd = k === 0 ? 'Сегодня' : k === 1 ? 'Завтра' : WD_CAP[dow(iso)];
+      html += '<button type="button" role="option" class="' + cls.join(' ') + '" data-iso="' + iso + '"' + (full ? ' disabled' : '') +
+        ' aria-selected="' + (iso === selectedDate) + '" aria-label="' + dayLabel(iso) + (full ? ', всё занято' : ', ' + rateFor(iso) + ' Br в час') + '">' +
+        '<span class="wd">' + wd + '</span><b>' + p.d + '</b><span class="mo">' + MONTHS_SHORT[p.m - 1] + '</span>' +
+        '<small>' + (full ? 'занято' : rateFor(iso) + ' Br') + '</small></button>';
     }
-    grid.innerHTML = html;
-    const minMonth = parts(todayISO), maxMonth = parts(lastISO);
-    $('calPrev').disabled = view.y === minMonth.y && view.m === minMonth.m;
-    $('calNext').disabled = view.y === maxMonth.y && view.m === maxMonth.m;
+    const keep = strip.scrollLeft;
+    strip.innerHTML = html;
+    strip.scrollLeft = keep;
+    updateStripUI();
   }
-  $('calGrid').addEventListener('click', (e) => {
-    const b = e.target.closest('.day[data-iso]');
+  function updateStripUI(){
+    const strip = $('dayStrip');
+    $('dsPrev').disabled = strip.scrollLeft <= 4;
+    $('dsNext').disabled = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 4;
+    // подпись месяца — по первому видимому дню (или выбранному)
+    const btns = strip.querySelectorAll('.dday');
+    let iso = selectedDate;
+    if (!iso){
+      for (const b of btns){ if (b.offsetLeft + b.offsetWidth > strip.scrollLeft + 10){ iso = b.dataset.iso; break; } }
+    }
+    if (iso){ const p = parts(iso); $('dsMonth').textContent = MONTHS_NOM[p.m - 1] + ' ' + p.y; }
+  }
+  $('dayStrip').addEventListener('scroll', () => { if (!selectedDate) updateStripUI(); else { $('dsPrev').disabled = $('dayStrip').scrollLeft <= 4; $('dsNext').disabled = $('dayStrip').scrollLeft + $('dayStrip').clientWidth >= $('dayStrip').scrollWidth - 4; } }, { passive: true });
+  $('dsPrev').addEventListener('click', () => { const s = $('dayStrip'); s.scrollBy({ left: -s.clientWidth * 0.8, behavior: 'smooth' }); });
+  $('dsNext').addEventListener('click', () => { const s = $('dayStrip'); s.scrollBy({ left: s.clientWidth * 0.8, behavior: 'smooth' }); });
+  $('dayStrip').addEventListener('click', (e) => {
+    const b = e.target.closest('.dday[data-iso]');
     if (!b || b.disabled) return;
     if (selectedDate !== b.dataset.iso){ selectedDate = b.dataset.iso; sel = null; }
     hideMsg();
-    renderCalendar(); renderHours(); renderSummary();
+    renderDays(); renderHours(); renderSummary();
     if (window.matchMedia('(max-width:1000px)').matches) {
       $('hoursWrap').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   });
-  $('calPrev').addEventListener('click', () => { view.m--; if (view.m < 1){ view.m = 12; view.y--; } renderCalendar(); });
-  $('calNext').addEventListener('click', () => { view.m++; if (view.m > 12){ view.m = 1; view.y++; } renderCalendar(); });
 
   // ---- Почасовая сетка ----
   function renderHours(){
     const wrap = $('hoursWrap');
     if (!selectedDate){
-      wrap.innerHTML = '<div class="rb-empty">Сначала выберите день в календаре</div>';
+      wrap.innerHTML = '<div class="empty">Сначала выберите день</div>';
       $('hoursDayLabel').textContent = '';
       return;
     }
     $('hoursDayLabel').textContent = '· ' + dayLabel(selectedDate);
-    let html = '<div class="hours-grid">';
+    let html = '<div class="hours">';
     SLOTS.forEach((t, i) => {
       const tk = isTaken(selectedDate, t);
       const cl = !tk && isClosed(selectedDate, t);
@@ -916,7 +877,7 @@
   }
   function setPrice(v){
     const el = $('sumPrice');
-    el.innerHTML = v + '<span class="byn">Br</span>';
+    el.innerHTML = v + '<small>Br</small>';
     if (v !== lastPrice){ el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 260); }
     lastPrice = v;
   }
@@ -1013,7 +974,7 @@
     } catch (e) {
       showMsg('Нет связи с сервером. Позвоните нам: <a href="tel:+375447803000">+375 (44) 780-30-00</a>.', true);
     } finally {
-      renderCalendar(); renderHours(); renderSummary();
+      renderDays(); renderHours(); renderSummary();
     }
   });
 
@@ -1028,16 +989,16 @@
   renderSummary = function(){ _renderSummary(); updateFloat(); };
 
   // Слоты "сегодня" закрываются со временем — раз в минуту перерисовываем
-  setInterval(() => { if (selectedDate === minskTodayISO()) { if (sel && !rangeFree(selectedDate, sel.a, sel.b)) sel = null; renderHours(); renderSummary(); } }, 60000);
+  setInterval(() => { if (selectedDate === minskTodayISO()) { if (sel && !rangeFree(selectedDate, sel.a, sel.b)) sel = null; renderHours(); renderSummary(); } renderDays(); }, 60000);
 
   // ---- Фото: лайтбокс только для реально загруженных фото ----
   const lb = $('lightbox'), lbImg = $('lbImg');
   let lbList = [], lbIdx = 0;
   function lbShow(i){ lbIdx = (i + lbList.length) % lbList.length; lbImg.src = lbList[lbIdx].src; lbImg.alt = lbList[lbIdx].alt; }
   document.addEventListener('click', (e) => {
-    const f = e.target.closest('.ph.has-photo');
+    const f = e.target.closest('[data-photo].has-photo');
     if (!f) return;
-    lbList = Array.from(document.querySelectorAll('.ph.has-photo img'));
+    lbList = Array.from(document.querySelectorAll('[data-photo].has-photo img'));
     const img = f.querySelector('img');
     lbShow(Math.max(0, lbList.indexOf(img)));
     lb.classList.add('open'); lb.setAttribute('aria-hidden', 'false');
@@ -1067,17 +1028,15 @@
       if (!en.isIntersecting) return;
       en.target.classList.add('in'); io.unobserve(en.target);
       // каскад только на появление — потом убираем задержку, чтобы ховер был мгновенным
-      setTimeout(() => en.target.querySelectorAll('.feat').forEach((f) => { f.style.transitionDelay = ''; }), 1200);
     }), { threshold: 0.08 });
     document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
   } else {
     document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'));
   }
-  document.querySelectorAll('.feat').forEach((f, i) => { f.style.transitionDelay = (Math.min(i, 12) * 0.04) + 's'; });
 
   // ---- Старт ----
-  renderCalendar(); renderHours(); renderSummary();
-  loadAvailability().then(() => { renderCalendar(); renderHours(); });
+  renderDays(); renderHours(); renderSummary();
+  loadAvailability().then(() => { renderDays(); renderHours(); });
 })();
 </script>
 <script>
