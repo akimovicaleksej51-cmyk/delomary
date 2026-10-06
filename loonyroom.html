@@ -79,7 +79,7 @@
   a{color:inherit;}
   img{max-width:100%; display:block;}
   .wrap{max-width:1160px; margin:0 auto; padding:0 28px; position:relative;}
-  #progress{position:fixed; top:0; left:0; height:3px; background:var(--yellow); width:0%; z-index:100;}
+  #progress{position:fixed; top:0; left:0; height:3px; background:var(--yellow); width:100%; transform:scaleX(0); transform-origin:0 50%; z-index:100;}
 
   /* ===== header (как на главной сайта) ===== */
   header{position:sticky; top:0; z-index:50; background:rgba(7,7,7,0.88); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-bottom:1px solid var(--line);}
@@ -427,10 +427,10 @@
   .game, .price{position:relative; overflow:hidden;}
   .game > *, .price > *{position:relative; z-index:1;}
   .btn-yellow, .submit, .rb-float, .nav-cta{position:relative; overflow:hidden;}
-  .btn-yellow::after, .submit::after, .rb-float::after, .nav-cta::after{content:""; position:absolute; top:0; bottom:0; left:-60%; width:45%; pointer-events:none;
-    background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform:skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;}
+  .btn-yellow::after, .submit::after, .rb-float::after, .nav-cta::after{content:""; position:absolute; top:0; bottom:0; left:0; width:45%; pointer-events:none;
+    background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform:translateX(-150%) skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;}
   .submit:disabled::after{display:none;}
-  @keyframes btnShine{0%,62%{left:-60%;} 82%,100%{left:130%;}}
+  @keyframes btnShine{0%,62%{transform:translateX(-150%) skewX(-18deg);} 82%,100%{transform:translateX(330%) skewX(-18deg);}}
   @media (max-width:860px){
     .mobile-menu{position:fixed; left:0; right:0; top:100%; height:calc(100svh - 68px); overflow-y:auto; z-index:60; padding:14px 20px 28px; background:#070707; counter-reset:mm;}
     .mobile-menu a{font-family:var(--head); font-weight:600; font-size:24px; padding:18px 2px; display:flex; align-items:center; gap:14px;}
@@ -447,6 +447,13 @@
     .item b{font-size:16.5px;}
     .item small{font-size:14.5px;}
     .item .tag{position:absolute; top:14px; right:12px; margin:0; font-size:15px;}
+  }
+  /* облегчение для телефонов (фризы): без размытия под шапкой, без постоянных анимаций в шапке */
+  @media (max-width:860px), (hover:none){
+    header{backdrop-filter:none !important; -webkit-backdrop-filter:none !important; background:rgba(7,7,7,.96) !important;}
+    .nav-cta::after{display:none;}
+    .garland i{box-shadow:none;}
+    .reveal{transition:opacity .5s ease, transform .5s ease;}
   }
   @media (prefers-reduced-motion: reduce){
     .fx h2 .w > span{transform:none;}
@@ -1076,9 +1083,14 @@
   const navToggle = $('navToggle'), mobileMenu = $('mobileMenu');
   navToggle.addEventListener('click', () => { const o = mobileMenu.classList.toggle('open'); navToggle.setAttribute('aria-expanded', o ? 'true' : 'false'); });
   mobileMenu.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => { mobileMenu.classList.remove('open'); navToggle.setAttribute('aria-expanded', 'false'); }));
+  let progTick = false;
   window.addEventListener('scroll', () => {
-    const h = document.documentElement;
-    $('progress').style.width = (h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight) * 100) + '%';
+    if (progTick) return; progTick = true;
+    requestAnimationFrame(() => {
+      const h = document.documentElement;
+      $('progress').style.transform = 'scaleX(' + Math.min(1, h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight)).toFixed(4) + ')';
+      progTick = false;
+    });
   }, { passive: true });
   if ('IntersectionObserver' in window){
     const io = new IntersectionObserver((entries) => entries.forEach((en) => {
@@ -1103,6 +1115,7 @@
 (function(){
   'use strict';
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const LIGHT = window.matchMedia('(max-width:860px), (hover:none), (pointer:coarse)').matches;
   const menu = document.getElementById('mobileMenu'), tog = document.getElementById('navToggle');
   function syncMenu(){ document.body.classList.toggle('menu-open', menu.classList.contains('open')); }
   tog.addEventListener('click', () => {
@@ -1112,7 +1125,7 @@
   $$('a', menu).forEach((a) => a.addEventListener('click', () => setTimeout(syncMenu, 0)));
 
   // «прожектор» за курсором / пальцем на карточках
-  $$('.tile, .game, .price').forEach((el) => {
+  if (!LIGHT) $$('.tile, .game, .price').forEach((el) => {
     const move = (e) => { const r = el.getBoundingClientRect(); const p = e.touches ? e.touches[0] : e; el.style.setProperty('--mx', (p.clientX - r.left) + 'px'); el.style.setProperty('--my', (p.clientY - r.top) + 'px'); };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerdown', (e) => { move(e); el.classList.add('lit'); });
@@ -1135,7 +1148,7 @@
     }
     // Гирлянда: огоньки вспыхивают волной
     const bulbs = $$('.garland i');
-    if (bulbs.length) A.animate(bulbs, { scale: [{ to: 1.5, duration: 260 }, { to: 1, duration: 420 }], delay: A.stagger(90, { start: 400 }), loop: true, loopDelay: 2600, ease: 'outQuad' });
+    if (bulbs.length && !LIGHT) A.animate(bulbs, { scale: [{ to: 1.5, duration: 260 }, { to: 1, duration: 420 }], delay: A.stagger(90, { start: 400 }), loop: true, loopDelay: 2600, ease: 'outQuad' });
     // Плитки героя: каскад
     animate('.bento .tile', { opacity: [0, 1], y: [30, 0], scale: [0.96, 1] }, { delay: stagger(0.08, { startDelay: 0.3 }), duration: 0.7, ease });
     animate('.hero-sub, .hero-lede, .facts, .hero-ctas', { opacity: [0, 1], y: [18, 0] }, { delay: stagger(0.08, { startDelay: 0.45 }), duration: 0.6, ease });

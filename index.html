@@ -143,7 +143,7 @@
   img{max-width:100%; display:block;}
   .wrap{max-width:1120px; margin:0 auto; padding:0 28px;}
 
-  #progress{position:fixed; top:0; left:0; height:2px; background:linear-gradient(90deg,var(--ochre-deep),var(--ochre-bright)); width:0%; z-index:100; transition:width .08s linear;}
+  #progress{position:fixed; top:0; left:0; height:2px; background:linear-gradient(90deg,var(--ochre-deep),var(--ochre-bright)); width:100%; transform:scaleX(0); transform-origin:0 50%; z-index:100; will-change:transform;}
 
   /* ===== HEADER ===== */
   header{
@@ -1065,12 +1065,12 @@
   .btn{min-height:56px; padding:0 30px; display:inline-flex; align-items:center; justify-content:center; gap:10px; font-size:16px; font-weight:800; position:relative; overflow:hidden;}
   /* shimmer-кнопка (Kokonut UI) — блик пробегает по жёлтой кнопке */
   .btn-solid::after, .nav-cta::after, .submit-btn::after{
-    content:""; position:absolute; top:0; bottom:0; left:-60%; width:45%; pointer-events:none;
+    content:""; position:absolute; top:0; bottom:0; left:0; width:45%; pointer-events:none;
     background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
-    transform:skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;
+    transform:translateX(-150%) skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;
   }
   .nav-cta, .submit-btn{position:relative; overflow:hidden;}
-  @keyframes btnShine{0%,62%{left:-60%;} 82%,100%{left:130%;}}
+  @keyframes btnShine{0%,62%{transform:translateX(-150%) skewX(-18deg);} 82%,100%{transform:translateX(330%) skewX(-18deg);}}
   @media (prefers-reduced-motion: reduce){ .btn-solid::after, .nav-cta::after, .submit-btn::after{animation:none; display:none;} }
 
   /* ---------- шапка + меню-«шторка» ---------- */
@@ -1085,8 +1085,8 @@
   /* ---------- hero ---------- */
   .hero h1 .gl{position:relative; display:inline-block;}
   .hero h1 .gl-a, .hero h1 .gl-b{position:absolute; inset:0; pointer-events:none; opacity:0;}
-  .hero h1 .gl-a{color:#ff3d54; mix-blend-mode:screen;}
-  .hero h1 .gl-b{color:#38d9ff; mix-blend-mode:screen;}
+  .hero h1 .gl-a{color:#ff3d54;}
+  .hero h1 .gl-b{color:#38d9ff;}
   .hero h1.glitching::before, .hero h1.glitching::after{display:none;}
   .stat-strip{gap:12px;}
   .stat{border-radius:var(--r-md); background:rgba(10,10,10,.5); border:1px solid var(--soft); padding:16px 20px; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);}
@@ -1360,6 +1360,20 @@
   @media (max-width:380px){
     .hero h1{font-size:48px;}
     .stat b{font-size:22px;}
+  }
+
+  /* ===== 06.10.2026: облегчение для телефонов (были фризы) =====
+     На телефоне отключены самые тяжёлые эффекты: размытые «кляксы» на фоне,
+     размытие под шапкой и плашками, постоянные анимации в шапке. */
+  @media (max-width:860px), (hover:none){
+    #ambientBg, .hero-flicker, #grainOverlay{display:none !important;}
+    header{backdrop-filter:none !important; -webkit-backdrop-filter:none !important; background:rgba(0,0,0,.95) !important;}
+    .stat{backdrop-filter:none !important; -webkit-backdrop-filter:none !important; background:rgba(12,12,12,.78) !important;}
+    .about-photo figcaption{backdrop-filter:none; -webkit-backdrop-filter:none; background:rgba(0,0,0,.72);}
+    .btn-solid, .nav-cta, .submit-btn, .gallery-grid figure, .about-photo, .review{will-change:auto !important;}
+    .nav-cta::after{display:none;}
+    .gallery-grid figure{transition:border-color .25s;}
+    .reveal{transition:opacity .5s ease, transform .5s ease;}
   }
   @media (prefers-reduced-motion: reduce){
     .fx h2 .w > span{transform:none;}
@@ -1870,11 +1884,19 @@
     navToggle.setAttribute('aria-expanded', 'false');
   }));
 
-  window.addEventListener('scroll', ()=>{
-    const h = document.documentElement;
-    const pct = (h.scrollTop) / (h.scrollHeight - h.clientHeight) * 100;
-    document.getElementById('progress').style.width = pct + '%';
-  });
+  // 06.10.2026: полоска прогресса — через transform и не чаще кадра (раньше
+  // меняла width на каждое событие прокрутки, это пересчитывало раскладку).
+  (function(){
+    const bar = document.getElementById('progress'); let ticking = false;
+    window.addEventListener('scroll', ()=>{
+      if (ticking) return; ticking = true;
+      requestAnimationFrame(()=>{
+        const h = document.documentElement;
+        bar.style.transform = 'scaleX(' + Math.min(1, h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight)).toFixed(4) + ')';
+        ticking = false;
+      });
+    }, { passive: true });
+  })();
 
   const io = new IntersectionObserver((entries)=>{
     entries.forEach(en=>{
@@ -2603,8 +2625,8 @@
         heroTitle.classList.add('glitching');
         setTimeout(()=> heroTitle.classList.remove('glitching'), 1000);
       };
-      setTimeout(glitch, 900);
-      setInterval(glitch, 13000);
+      // 06.10.2026: старый CSS-глитч заменён новым (Motion), см. скрипт ниже
+      void glitch;
     }
 
     // --- Магнитные кнопки + рябь при клике ---------------------------------
@@ -2663,6 +2685,8 @@
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const isMobile = () => window.matchMedia('(max-width:860px)').matches;
+  // «лёгкий режим» для телефонов: без эффектов, привязанных к прокрутке
+  const LIGHT = window.matchMedia('(max-width:860px), (hover:none), (pointer:coarse)').matches;
 
   // ---- шкала рейтинга (bklit-style notch gauge): 36 «зубцов» по дуге 240° ----
   const NOTCHES = 36;
@@ -2685,38 +2709,30 @@
     const n = gaugeTarget();
     if (!animated || !window.LG || LG.reduced){ ns.forEach((el, i) => el.classList.toggle('on', i < n)); return; }
     ns.forEach((el, i) => { if (i < n) setTimeout(() => el.classList.add('on'), 200 + i * 32); });
+    if (LIGHT) return;
     LG.anime.animate(ns.slice(0, n), { scale: [{ to: 1.12, duration: 160 }, { to: 1, duration: 260 }], delay: LG.anime.stagger(32, { start: 200 }), ease: 'outQuad' });
   }
 
-  // ---- галерея-карусель: счётчик, стрелки, «активный» кадр крупнее ----
+  // ---- галерея-карусель: счётчик и стрелки (06.10.2026: без пересчёта
+  // размеров на каждый кадр прокрутки — только scrollLeft, это дёшево) ----
   const gal = $('.gallery-grid');
   const galFigs = gal ? $$('figure', gal) : [];
+  let galStep = 1;
+  function galMeasure(){ if (galFigs.length > 1) galStep = Math.max(1, galFigs[1].offsetLeft - galFigs[0].offsetLeft); }
   function galUpdate(){
     if (!gal) return;
-    const box = gal.getBoundingClientRect();
-    const anchor = box.left + (isMobile() ? 16 : Math.max(28, (window.innerWidth - 1180) / 2 + 28));
-    let best = 0, bestD = 1e9;
-    galFigs.forEach((f, i) => {
-      const r = f.getBoundingClientRect();
-      const d = Math.abs(r.left - anchor);
-      if (d < bestD){ bestD = d; best = i; }
-      const k = Math.min(1, d / Math.max(1, r.width));
-      f.style.transform = 'scale(' + (1 - k * 0.06).toFixed(3) + ')';
-      f.style.opacity = (1 - k * 0.35).toFixed(3);
-    });
-    const c = $('#galCount'); if (c) c.innerHTML = '<b>' + (best + 1) + '</b> / ' + galFigs.length;
-    const atStart = gal.scrollLeft < 8, atEnd = gal.scrollLeft + gal.clientWidth > gal.scrollWidth - 8;
-    if ($('#galPrev')) $('#galPrev').disabled = atStart;
-    if ($('#galNext')) $('#galNext').disabled = atEnd;
+    const idx = Math.min(galFigs.length - 1, Math.max(0, Math.round(gal.scrollLeft / galStep)));
+    const c = $('#galCount'); if (c) c.innerHTML = '<b>' + (idx + 1) + '</b> / ' + galFigs.length;
+    if ($('#galPrev')) $('#galPrev').disabled = gal.scrollLeft < 8;
+    if ($('#galNext')) $('#galNext').disabled = gal.scrollLeft + gal.clientWidth > gal.scrollWidth - 8;
   }
   if (gal){
-    let raf = 0;
-    gal.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(galUpdate); }, { passive: true });
-    window.addEventListener('resize', galUpdate);
-    const stepBy = (dir) => { const w = galFigs[0] ? galFigs[0].getBoundingClientRect().width + 18 : 300; gal.scrollBy({ left: dir * w, behavior: 'smooth' }); };
-    if ($('#galPrev')) $('#galPrev').addEventListener('click', () => stepBy(-1));
-    if ($('#galNext')) $('#galNext').addEventListener('click', () => stepBy(1));
-    galUpdate();
+    let ticking = false;
+    gal.addEventListener('scroll', () => { if (ticking) return; ticking = true; requestAnimationFrame(() => { galUpdate(); ticking = false; }); }, { passive: true });
+    window.addEventListener('resize', () => { galMeasure(); galUpdate(); }, { passive: true });
+    if ($('#galPrev')) $('#galPrev').addEventListener('click', () => gal.scrollBy({ left: -galStep, behavior: 'smooth' }));
+    if ($('#galNext')) $('#galNext').addEventListener('click', () => gal.scrollBy({ left: galStep, behavior: 'smooth' }));
+    galMeasure(); galUpdate();
   }
 
   // ---- меню-«шторка»: блокируем прокрутку под ним ----
@@ -2762,12 +2778,14 @@
         animate(b, { opacity: [0, .8, .5, .8, 0], transform: kf(-1) }, { duration: 0.45 });
         animate($('.gl-t', h1), { x: [0, -2, 2, -1, 0] }, { duration: 0.45 });
       };
+      let heroOn = true;
+      if ('IntersectionObserver' in window) new IntersectionObserver((e) => { heroOn = e[0].isIntersecting; }).observe(h1);
       setTimeout(burst, 1500);
-      setInterval(() => { if (!document.hidden) burst(); }, 7000);
+      setInterval(() => { if (!document.hidden && heroOn) burst(); }, LIGHT ? 11000 : 8000);
     }
     // Параллакс видео и плавное затемнение при прокрутке (Motion scroll)
     const heroBg = $('.hero-bg');
-    if (heroBg && hero){
+    if (heroBg && hero && !LIGHT){
       scroll(animate(heroBg, { y: [0, 160], scale: [1, 1.08] }, { ease: 'linear' }), { target: hero, offset: ['start start', 'end start'] });
     }
 
@@ -2783,7 +2801,8 @@
     if (lead){
       const split = A.splitText(lead, { words: { class: 'sw' } });
       const ws = split.words;
-      scroll((p) => { const k = p * ws.length * 1.25; ws.forEach((w, i) => { w.style.opacity = Math.min(1, Math.max(0.3, k - i)).toFixed(3); }); }, { target: lead, offset: ['start 85%', 'end 45%'] });
+      if (LIGHT) inView(lead, () => { animate(ws, { opacity: [0.3, 1] }, { delay: stagger(0.025), duration: 0.4 }); }, { amount: 0.4 });
+      else scroll((p) => { const k = p * ws.length * 1.25; ws.forEach((w, i) => { w.style.opacity = Math.min(1, Math.max(0.3, k - i)).toFixed(3); }); }, { target: lead, offset: ['start 85%', 'end 45%'] });
     }
 
     // Каскады карточек при появлении
