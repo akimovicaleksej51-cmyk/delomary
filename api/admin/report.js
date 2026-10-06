@@ -182,6 +182,16 @@ export default async function handler(req, res) {
 
   const channelTotals = {};
   const actorTotals = {};
+  // 06.10.2026: which exact games each person played (date + time), not just
+  // how many — for Бухгалтерия's "кто сколько отыграл" with days and payouts.
+  const actorGames = {};
+  const addActorGame = (name, dateISO, record, via) => {
+    if (!actorTotals[name]) actorTotals[name] = 0;
+    actorTotals[name] += 1;
+    (actorGames[name] = actorGames[name] || []).push({
+      dateISO, time: record.time || '', client: record.name || '', via,
+    });
+  };
   const wantDetailed = String((req.query && req.query.detailed) || '') === '1';
   const detailedRows = [];
   // 22.09.2026: the owner counted the admin panel's own booking list by hand
@@ -258,10 +268,7 @@ export default async function handler(req, res) {
 
     const manuallyAssigned = [record.workedActor, record.workedActress].filter(Boolean);
     if (manuallyAssigned.length) {
-      manuallyAssigned.forEach((name) => {
-        if (!actorTotals[name]) actorTotals[name] = 0;
-        actorTotals[name] += 1;
-      });
+      manuallyAssigned.forEach((name) => addActorGame(name, dateISO, record, 'manual'));
     } else if (record.time && gameHasFinished(dateISO, record.time)) {
       // 26.09.2026: nobody has typed a "Кто отыграл" name onto this booking
       // yet, but the game is already over (see GAME_FINISHED_BUFFER_MINUTES
@@ -275,8 +282,7 @@ export default async function handler(req, res) {
       const shiftsMap = shiftsByDate[dateISO] || {};
       resolveActorUsernamesForSlotSync(shiftsMap, record.time).forEach((username) => {
         const name = (actorsMap[username] && actorsMap[username].displayName) || username;
-        if (!actorTotals[name]) actorTotals[name] = 0;
-        actorTotals[name] += 1;
+        addActorGame(name, dateISO, record, 'shift');
       });
     }
   }
@@ -316,6 +322,41 @@ export default async function handler(req, res) {
     return { ...d, netChange: d.cash - d.expenses - d.payroll };
   });
 
+  // 06.10.2026: ЗП-выплаты, привязанные к человеку и к конкретным играм
+  // (api/admin/finance.js, addCashout с actor + paidGames). Ищем их с
+  // начала периода и до сегодня (не дальше 120 дней), потому что за конец
+  // месяца часто платят уже в следующем.
+  let payoutsOut = {};
+  let unlinkedPayroll = [];
+  if (String((req.query && req.query.actorDetails) || '') === '1') {
+    Object.values(actorGames).forEach((list) => list.sort((a, b) => (a.dateISO + a.time).localeCompare(b.dateISO + b.time)));
+    const today = todayISO();
+    const scan = [];
+    {
+      const start = parseISO(dates[0]);
+      const end = parseISO(today > dates[0] ? today : dates[dates.length - 1]);
+      const total = Math.min(Math.round((end - start) / 86400000) + 1, 120);
+      for (let i = 0; i < total; i++) { const d = new Date(start); d.setDate(d.getDate() + i); scan.push(isoDate(d)); }
+    }
+    const payRes = await kvPipeline(scan.map((iso) => ['GET', `cashouts:${iso}`]));
+    (payRes || []).forEach((entry, i) => {
+      const raw = entry && entry.result;
+      if (!raw) return;
+      let arr = [];
+      try { arr = JSON.parse(raw); } catch { arr = []; }
+      if (!Array.isArray(arr)) return;
+      arr.forEach((c) => {
+        if (c.kind !== 'payroll') return;
+        const item = {
+          id: c.id, dateISO: scan[i], amount: toAmount(c.amount), label: c.label || '',
+          createdAt: c.createdAt || '', paidGames: Array.isArray(c.paidGames) ? c.paidGames : [],
+        };
+        if (c.actor) (payoutsOut[c.actor] = payoutsOut[c.actor] || []).push(item);
+        else unlinkedPayroll.push(item);
+      });
+    });
+  }
+
   return res.status(200).json({
     from: dates[0],
     to: dates[dates.length - 1],
@@ -323,6 +364,7 @@ export default async function handler(req, res) {
     channels: channelTotals,
     actors: actorTotals,
     technicalCount,
+    ...(String((req.query && req.query.actorDetails) || '') === '1' ? { actorGames, actorPayouts: payoutsOut, unlinkedPayroll } : {}),
     ...(wantDetailed ? { bookings: detailedRows } : {}),
   });
 }

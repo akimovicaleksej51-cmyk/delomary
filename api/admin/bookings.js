@@ -368,6 +368,51 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, roomBookings });
     }
 
+    // 06.10.2026: close several slots as technical bookings in one go (owner's
+    // request) — the admin panel used to close its "Новая бронь" window after
+    // every single technical slot, so blocking a few slots meant reopening it
+    // and re-picking the date each time. Same record shape and same HSETNX
+    // reservation as a single technical 'create' below; a slot that turns out
+    // to be taken is skipped (reported back), the rest still go through. ONE
+    // Telegram message for the whole batch instead of one per slot.
+    if (action === 'createTechMany') {
+      const raw = Array.isArray(body.slots) ? body.slots.slice(0, 60) : [];
+      const seen = new Set();
+      const slots = [];
+      raw.forEach((sl) => {
+        const d = sl && isValidDateISO(sl.dateISO) ? sl.dateISO : '';
+        const t = sl && isValidTime(sl.time) ? sl.time.trim().slice(0, 20) : '';
+        if (d && t && !seen.has(`${d}|${t}`)) { seen.add(`${d}|${t}`); slots.push({ dateISO: d, time: t }); }
+      });
+      if (!slots.length) return res.status(400).json({ error: 'Выберите хотя бы один слот.' });
+      const comment = typeof body.comment === 'string' ? body.comment.trim().slice(0, 500) : '';
+      const created = [];
+      const conflicts = [];
+      for (const sl of slots) {
+        const record = {
+          type: 'technical', name: 'Техническая бронь', phone: '', players: '', price: '',
+          comment, dateISO: sl.dateISO, dateLabel: '', time: sl.time, createdAt: new Date().toISOString(),
+        };
+        const hashKey = `bookings:${sl.dateISO}`;
+        // eslint-disable-next-line no-await-in-loop
+        const added = await kv('hsetnx', hashKey, sl.time, JSON.stringify(record));
+        if (added === 0 || (added === null && isKvConfigured())) { conflicts.push(sl); continue; }
+        // eslint-disable-next-line no-await-in-loop
+        await kv('expire', hashKey, SLOT_TTL_SECONDS);
+        created.push(sl);
+      }
+      if (created.length) {
+        const byDate = {};
+        created.forEach((sl) => { (byDate[sl.dateISO] = byDate[sl.dateISO] || []).push(sl.time); });
+        const lines = Object.keys(byDate).sort().map((d) =>
+          `<b>${escapeTgHtml(formatDateRu(d))}</b>: ${byDate[d].sort().map(escapeTgHtml).join(', ')}`);
+        // No urgency lead — technical bookings never get one (see notifyTelegram()).
+        const title = `Технические брони — из админки (${created.length})`.toUpperCase();
+        await sendTelegram(`${title}\n\n${lines.join('\n')}${comment ? `\nКомментарий: ${escapeTgHtml(comment)}` : ''}`, 'admin create tech many');
+      }
+      return res.status(200).json({ ok: true, created, conflicts });
+    }
+
     if (action === 'create') {
       const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
       const cleanTime = isValidTime(body.time) ? body.time.trim().slice(0, 20) : '';

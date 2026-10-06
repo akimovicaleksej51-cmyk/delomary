@@ -111,7 +111,17 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Укажите дату, описание и сумму больше нуля.' });
       }
       const list = await getCashoutsForDate(cleanDateISO);
-      list.push({ id: genId(), kind, label, amount, createdAt: new Date().toISOString() });
+      const entry = { id: genId(), kind, label, amount, createdAt: new Date().toISOString() };
+      // 06.10.2026: a ЗП payout can now be tied to a person and to the exact
+      // games it pays for ("YYYY-MM-DD|HH:MM"), so Бухгалтерия can show for
+      // every actor which days are already paid and which aren't.
+      if (kind === 'payroll' && typeof body.actor === 'string' && body.actor.trim()) {
+        entry.actor = body.actor.trim().slice(0, 60);
+        entry.paidGames = (Array.isArray(body.paidGames) ? body.paidGames : [])
+          .filter((g) => typeof g === 'string' && /^\d{4}-\d{2}-\d{2}\|.{1,20}$/.test(g))
+          .slice(0, 300);
+      }
+      list.push(entry);
       await saveCashoutsForDate(cleanDateISO, list);
       const state = await computeCashRegister(todayISO());
       return res.status(200).json({ ok: true, ...state });

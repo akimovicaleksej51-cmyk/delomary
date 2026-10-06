@@ -1046,7 +1046,13 @@
   const listContainer = document.getElementById('listContainer');
 
   async function loadBookings(){
-    listContainer.innerHTML = '<div class="load-note">Загрузка…</div>';
+    // 06.10.2026: при обновлении списка (после отмены, создания, сверки…)
+    // список больше не подменяется на "Загрузка…" — из-за этого страница
+    // на миг становилась короткой и прокрутка прыгала в самый верх, как
+    // будто панель выбрасывает на начальный экран. Позиция прокрутки
+    // сохраняется и возвращается после перерисовки.
+    const keepScrollY = window.scrollY;
+    if (!allBookings.length) listContainer.innerHTML = '<div class="load-note">Загрузка…</div>';
     try{
       const res = await fetch('/api/admin/bookings', { headers: authHeaders(), cache:'no-store' });
       if (res.status === 401){
@@ -1073,6 +1079,7 @@
       const out = await res.json().catch(() => ({}));
       allBookings = Array.isArray(out.bookings) ? out.bookings : [];
       renderList();
+      if (keepScrollY) requestAnimationFrame(() => window.scrollTo(0, keepScrollY));
     } catch(err){
       listContainer.innerHTML = '<div class="empty-note">Не удалось загрузить брони. Проверьте соединение и нажмите «Обновить».</div>';
     }
