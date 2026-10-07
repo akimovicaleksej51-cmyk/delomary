@@ -2023,9 +2023,8 @@
   });
 
   function statusLabelForExport(b){
-    if (b.status === 'cancelled') return 'Отменена';
-    if (b.status === 'rescheduled') return 'Перенесена';
-    return 'Активна';
+    if (b.type === 'technical') return b.status === 'cancelled' ? 'Отменена' : 'Активна';
+    return bookingStatusInfo(b).label;
   }
 
   // 22.09.2026: builds a real .xlsx (not a CSV text file) and triggers its
@@ -2097,6 +2096,26 @@
     detailMsg.className = 'modal-msg';
   }
 
+  // 07.10.2026: статус брони с учётом того, прошла ли игра. Раньше всё, что не
+  // отменено и не перенесено, называлось «Активна» — даже давно проведённые игры.
+  function gameStartMs(b){
+    const [y, m, d] = String(b.dateISO || '').split('-').map(Number);
+    const [hh, mm] = String(b.time || '').split(':').map(Number);
+    if (!y || Number.isNaN(hh)) return NaN;
+    return Date.UTC(y, m - 1, d, hh, mm || 0) - 3 * 3600 * 1000; // Минск, UTC+3
+  }
+  function bookingStatusInfo(b){
+    if (b.status === 'cancelled') return { label: 'Отменена', color: 'var(--danger-bright)' };
+    if (b.status === 'rescheduled') return { label: 'Перенесена', color: 'var(--info-bright)' };
+    const mc = b.manualCloseout;
+    if (mc && mc.done && mc.played === false) return { label: 'Не состоялась', color: 'var(--danger-bright)' };
+    if (mc && mc.done) return { label: 'Проведена', color: '#2fbf71' };
+    const start = gameStartMs(b);
+    if (Number.isFinite(start) && Date.now() >= start + 90 * 60000) return { label: 'Проведена · нет сверки', color: '#2fbf71' };
+    if (Number.isFinite(start) && Date.now() >= start) return { label: 'Идёт игра', color: 'var(--ochre-bright)' };
+    return { label: 'Предстоит', color: 'var(--ochre-bright)' };
+  }
+
   function openDetail(booking){
     activeBooking = booking;
     resetDetailViews();
@@ -2114,10 +2133,12 @@
         (to ? ` → ${formatDateHeading(to.dateISO)} в ${to.time}` : '');
     } else if (booking.rescheduledFrom){
       const from = booking.rescheduledFrom;
-      dvStatus.innerHTML = `<span style="color:var(--ochre-bright); font-weight:700;">Активна</span>` +
+      const st = isTech ? { label: 'Активна', color: 'var(--ochre-bright)' } : bookingStatusInfo(booking);
+      dvStatus.innerHTML = `<span style="color:${st.color}; font-weight:700;">${st.label}</span>` +
         ` (перенесена с ${formatDateHeading(from.dateISO)}, ${from.time})`;
     } else {
-      dvStatus.innerHTML = `<span style="color:var(--ochre-bright); font-weight:700;">Активна</span>`;
+      const st = isTech ? { label: 'Активна', color: 'var(--ochre-bright)' } : bookingStatusInfo(booking);
+      dvStatus.innerHTML = `<span style="color:${st.color}; font-weight:700;">${st.label}</span>`;
     }
 
     document.getElementById('dvType').textContent = isTech ? 'Техническая (слот заблокирован)' : 'Клиентская бронь';
@@ -4006,7 +4027,8 @@
         const isTech = b.type === 'technical';
         const isCancelledLike = b.status === 'cancelled' || b.status === 'rescheduled';
         const name = isTech ? 'Техническая бронь' : (b.name || '—');
-        const statusLabel = isTech ? '—' : (STATUS_LABELS[b.status] || b.status || 'Активна');
+        const statusLabel = isTech ? '—' : bookingStatusInfo(b).label; // 07.10.2026: «Проведена» вместо «Активна» для прошедших игр
+        void STATUS_LABELS;
         const sum = (!isTech && b.price) ? `${Math.round(Number(b.price) || 0)} Br` : '—';
         return `<tr>
           <td${isCancelledLike ? ' class="is-cancelled"' : ''}>${escapeHtml(formatDateHeading(b.dateISO))}</td>
