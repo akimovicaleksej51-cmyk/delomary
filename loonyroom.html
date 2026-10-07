@@ -432,7 +432,7 @@
   .submit:disabled::after{display:none;}
   @keyframes btnShine{0%,62%{transform:translateX(-150%) skewX(-18deg);} 82%,100%{transform:translateX(330%) skewX(-18deg);}}
   @media (max-width:860px){
-    .mobile-menu{position:fixed; left:0; right:0; top:100%; height:calc(100svh - 68px); overflow-y:auto; z-index:60; padding:14px 20px 28px; background:#070707; counter-reset:mm;}
+    .mobile-menu{position:fixed; left:0; right:0; top:var(--menu-top, 68px); bottom:0; height:auto; overflow-y:auto; z-index:60; padding:14px 20px 28px; background:#070707; counter-reset:mm;}
     .mobile-menu a{font-family:var(--head); font-weight:600; font-size:24px; padding:18px 2px; display:flex; align-items:center; gap:14px;}
     .mobile-menu a::before{counter-increment:mm; content:"0" counter(mm); font-family:var(--sans); font-weight:800; font-size:14px; color:var(--yellow); min-width:24px;}
     .mobile-menu a:last-child{font-family:var(--sans); font-size:18px; font-weight:800; border:1px solid var(--line-y); border-radius:16px; padding:16px 18px; margin-top:16px;}
@@ -1119,6 +1119,9 @@
   const menu = document.getElementById('mobileMenu'), tog = document.getElementById('navToggle');
   function syncMenu(){ document.body.classList.toggle('menu-open', menu.classList.contains('open')); }
   tog.addEventListener('click', () => {
+    // меню отсчитывается от низа шапки (см. комментарий на главной)
+    const hb = document.querySelector('header').getBoundingClientRect().bottom;
+    menu.style.setProperty('--menu-top', Math.max(0, Math.round(hb)) + 'px');
     syncMenu();
     if (menu.classList.contains('open') && window.LG && !LG.reduced) LG.motion.animate($$('a', menu), { opacity: [0, 1], x: [-24, 0] }, { delay: LG.motion.stagger(0.045), duration: 0.42, ease: [0.2, 0.9, 0.25, 1] });
   });

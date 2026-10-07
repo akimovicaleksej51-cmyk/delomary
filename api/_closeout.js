@@ -317,7 +317,7 @@ export function stripCloseoutFields(record) {
 // вторая правка "съела" бы разницу первой, и стрелка "было → стало" в
 // списке показывала бы уже не настоящую исходную цену, а то, что сверка
 // сама же туда недавно записала.
-export async function setManualCloseout(dateISO, time, { played, price, players, discountNote, payCash, payCard, payErip, confirmedBy } = {}) {
+export async function setManualCloseout(dateISO, time, { played, price, players, discountNote, payCash, payCard, payErip, confirmedBy, workedActor, workedActress } = {}) {
   const hashKey = `bookings:${dateISO}`;
   const raw = await kv('hget', hashKey, time);
   if (!raw) return { ok: false, reason: 'no-booking', message: 'Эта бронь больше не существует.' };
@@ -372,6 +372,9 @@ export async function setManualCloseout(dateISO, time, { played, price, players,
     payErip: nextPayErip,
     manualCloseout,
   };
+  // 07.10.2026: «кто отыграл» отмечается прямо при сверке (если поле прислали)
+  if (wasPlayed && workedActor != null) updated.workedActor = String(workedActor).slice(0, 60);
+  if (wasPlayed && workedActress != null) updated.workedActress = String(workedActress).slice(0, 60);
   await kv('hset', hashKey, time, JSON.stringify(updated));
   return { ok: true, reason: 'saved', message: 'Сверка сохранена.', booking: { ...updated, dateISO, time } };
 }

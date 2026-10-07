@@ -435,6 +435,20 @@
   .shift-view-name{flex:1; font-weight:700; color:var(--paper); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .shift-view-name.empty{color:var(--muted); font-weight:400; font-style:italic;}
   .shift-view-time{color:var(--muted); font-size:13px; flex:0 0 auto;}
+  /* 07.10.2026: имя + ник, кнопка «Поменять» */
+  .shift-view-name small{display:block; font-weight:600; font-size:12px; color:var(--muted);}
+  .shift-swap-btn{flex:0 0 auto; padding:6px 12px; font-size:12.5px;}
+  .worked-pair{display:flex; gap:8px; flex-wrap:wrap;}
+  .detail-field select{width:100%; padding:10px 12px; border-radius:8px; border:1px solid #333; background:var(--black-3); color:var(--paper); font-size:14.5px; font-family:var(--sans);}
+  .worked-pair .wp{flex:1 1 140px; min-width:0; display:flex; flex-direction:column; gap:4px; margin:0;}
+  .worked-pair .wp span{font-size:11px; font-weight:800; color:var(--muted); text-transform:none; letter-spacing:0;}
+  .worked-pair select{width:100%; min-width:0; padding:10px 12px; border-radius:8px; border:1px solid #333; background:var(--black-3); color:var(--paper); font-size:14.5px; font-family:var(--sans);}
+  .swap-list{max-height:55vh; overflow-y:auto; border:1px solid #2a2a2a; border-radius:10px; margin-top:10px;}
+  .swap-item{display:block; width:100%; text-align:left; background:none; border:none; border-bottom:1px solid #242424; color:inherit; font:inherit; font-size:15.5px; padding:14px 16px; cursor:pointer;}
+  .swap-item:last-child{border-bottom:none;}
+  .swap-item:hover, .swap-item:active{background:var(--black-3);}
+  .swap-item b{font-weight:800;} .swap-item small{color:var(--muted); margin-left:8px; font-size:13px;}
+  .swap-item.none{color:var(--danger-bright);}
 
   /* ---------- Payment split (edit form + Касса) ---------- */
   .pay-split{display:flex; gap:8px; flex-wrap:wrap;}
@@ -628,8 +642,8 @@
   </div>
 </div>
 
-<!-- Read-only weekly shift schedule — "кто в какую смену работает на этой
-     неделе". Просмотр, без редактирования (заполняет смены владелец/админ
+<!-- Weekly shift schedule — "кто в какую смену работает на этой неделе".
+     07.10.2026: можно поменять человека в смене («Поменять»). Раньше — просмотр, без редактирования (заполняет смены владелец/админ
      в обычной админке, «Смены и напоминания») — сотрудникам/актёрам нужно
      только посмотреть. Данные берутся из того же GET /api/admin/shifts,
      что и полноценный редактор смен. -->
@@ -644,6 +658,17 @@
     </div>
     <div id="shiftsViewDaysList"><div class="load-note">Загрузка…</div></div>
     <div class="modal-msg" id="shiftsViewMsg"></div>
+  </div>
+</div>
+
+<!-- 07.10.2026: замена человека в смене (время смены не меняется) -->
+<div class="modal-overlay" id="swapOverlay">
+  <div class="modal-box" style="max-width:440px;">
+    <button class="modal-close-x" data-close="swap">✕</button>
+    <h2>Кто будет в смене</h2>
+    <p class="load-note" id="swapWhat" style="margin:0;"></p>
+    <div class="swap-list" id="swapList"></div>
+    <div class="modal-msg" id="swapMsg"></div>
   </div>
 </div>
 
@@ -683,6 +708,13 @@
           <div class="detail-field"><label>Игроков</label><select id="sverkaPlayers"></select></div>
           <div class="detail-field"><label>Цена, Br</label><input id="sverkaPrice" inputmode="numeric"></div>
           <div class="detail-field"><label>Скидка / номер сертификата</label><input id="sverkaDiscount" placeholder="Например: скидка 10% или серт. №123"></div>
+          <div class="detail-field">
+            <label>Кто вёл игру</label>
+            <div class="worked-pair">
+              <label class="wp"><span>Актёр</span><select id="sverkaWorkedActor"></select></label>
+              <label class="wp"><span>Актриса</span><select id="sverkaWorkedActress"></select></label>
+            </div>
+          </div>
           <div class="detail-field">
             <label>Как оплатили (можно частями)</label>
             <div class="pay-split">
@@ -1677,6 +1709,48 @@
     document.getElementById(id).addEventListener('input', updateSverkaPayTotal);
   });
 
+  // 07.10.2026: «кто вёл игру» — актёры отмечают прямо при сверке. Список людей
+  // и подсказка «кто стоял в смене на это время» берутся из расписания смен.
+  const sverkaPeopleCache = {};
+  async function sverkaLoadPeople(dateISO){
+    if (sverkaPeopleCache[dateISO]) return sverkaPeopleCache[dateISO];
+    try{
+      const res = await fetch(`/api/admin/shifts?from=${dateISO}&days=1`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) return null;
+      const data = { actors: out.actors || {}, slots: (out.shifts || {})[dateISO] || {} };
+      sverkaPeopleCache[dateISO] = data;
+      return data;
+    } catch(err){ return null; }
+  }
+  function sverkaShiftName(data, role, time){
+    if (!data) return '';
+    const ids = role === 'actor' ? ['actor-1', 'actor-2'] : ['actress-1', 'actress-2'];
+    for (const id of ids){
+      const s = data.slots[id];
+      if (s && s.actorUsername && s.start <= time && time < s.end){
+        const a = data.actors[s.actorUsername];
+        return (a && (a.name || a.displayName)) || s.actorUsername;
+      }
+    }
+    return '';
+  }
+  function sverkaFillWorked(sel, data, current, placeholder){
+    const names = data ? [...new Set(Object.values(data.actors).map(a => a.name || a.displayName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')) : [];
+    if (current && !names.includes(current)) names.unshift(current);
+    sel.innerHTML = `<option value="">${placeholder}</option>` + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    sel.value = current || '';
+  }
+  async function sverkaPrepareWorked(b){
+    const selA = document.getElementById('sverkaWorkedActor'), selB = document.getElementById('sverkaWorkedActress');
+    sverkaFillWorked(selA, null, b.workedActor || '', '— не указан —');
+    sverkaFillWorked(selB, null, b.workedActress || '', '— не указана —');
+    const data = await sverkaLoadPeople(b.dateISO);
+    if (!activeBooking || activeBooking.id !== b.id) return;
+    sverkaFillWorked(selA, data, b.workedActor || sverkaShiftName(data, 'actor', b.time), '— не указан —');
+    sverkaFillWorked(selB, data, b.workedActress || sverkaShiftName(data, 'actress', b.time), '— не указана —');
+  }
+
   document.getElementById('openSverkaBtn').addEventListener('click', () => {
     if (!activeBooking) return;
     const mc = activeBooking.manualCloseout;
@@ -1693,6 +1767,7 @@
     sverkaMsg.textContent = '';
     sverkaForm.style.display = 'block';
     document.getElementById('detailActiveActions').style.display = 'none';
+    sverkaPrepareWorked(activeBooking);
   });
   document.getElementById('cancelSverkaFormBtn').addEventListener('click', () => {
     sverkaForm.style.display = 'none';
@@ -1714,6 +1789,8 @@
       payCash: document.getElementById('sverkaPayCash').value,
       payCard: document.getElementById('sverkaPayCard').value,
       payErip: document.getElementById('sverkaPayErip').value,
+      workedActor: document.getElementById('sverkaWorkedActor').value,
+      workedActress: document.getElementById('sverkaWorkedActress').value,
       confirmedBy,
     };
     const btn = document.getElementById('saveSverkaBtn');
@@ -2126,23 +2203,27 @@
     return dates;
   }
 
+  let viewShifts = {}, viewActors = {};
+  const nameOfActor = (u) => { const a = viewActors[u]; return (a && (a.name || a.displayName)) || ''; };
   function renderShiftsView(shiftsByDate, actors){
+    viewShifts = shiftsByDate; viewActors = actors;
     const dates = shiftsViewWeekDates();
     shiftsViewWeekLabel.textContent = `${formatDateHeading(dates[0])} — ${formatDateHeading(dates[dates.length - 1])}`;
     shiftsViewDaysList.innerHTML = dates.map(dateISO => {
       const daySlots = shiftsByDate[dateISO] || {};
       const rows = SHIFT_VIEW_SLOT_DEFS.map(def => {
         const s = daySlots[def.id];
-        const actorInfo = s && s.actorUsername ? actors[s.actorUsername] : null;
-        const name = s && s.actorUsername ? (actorInfo && actorInfo.displayName ? actorInfo.displayName : s.actorUsername) : '';
+        const name = s && s.actorUsername ? (nameOfActor(s.actorUsername) || '@' + s.actorUsername) : '';
         const nameHtml = name
-          ? escapeHtml(name)
+          ? `${escapeHtml(name)}<small>@${escapeHtml(s.actorUsername)}</small>`
           : '<span class="shift-view-name empty">не назначен</span>';
         const timeHtml = s && s.start && s.end ? `<span class="shift-view-time">${escapeHtml(s.start)}–${escapeHtml(s.end)}</span>` : '';
+        const swapHtml = s && s.start && s.end ? `<button type="button" class="btn-secondary shift-swap-btn" data-date="${dateISO}" data-slot="${def.id}">${name ? 'Поменять' : 'Назначить'}</button>` : '';
         return `<div class="shift-view-row">
             <span class="shift-view-role role-${def.role}">${def.label}</span>
             <span class="shift-view-name">${nameHtml}</span>
             ${timeHtml}
+            ${swapHtml}
           </div>`;
       }).join('');
       return `<div class="shift-view-day">
@@ -2151,6 +2232,39 @@
         </div>`;
     }).join('');
   }
+
+  // 07.10.2026: «Поменять» — выбрать другого человека на ту же смену
+  const swapOverlay = document.getElementById('swapOverlay');
+  let swapTarget = null;
+  shiftsViewDaysList.addEventListener('click', (e) => {
+    const b = e.target.closest('.shift-swap-btn'); if (!b) return;
+    const def = SHIFT_VIEW_SLOT_DEFS.find(d => d.id === b.dataset.slot);
+    const s = (viewShifts[b.dataset.date] || {})[b.dataset.slot] || {};
+    swapTarget = { dateISO: b.dataset.date, slot: b.dataset.slot, start: s.start, end: s.end, current: s.actorUsername || '' };
+    document.getElementById('swapWhat').textContent = `${formatDateHeading(swapTarget.dateISO)}, ${def ? def.label : ''}, ${s.start}–${s.end}`;
+    document.getElementById('swapMsg').textContent = '';
+    const users = Object.keys(viewActors).sort((a, c) => (nameOfActor(a) || a).localeCompare(nameOfActor(c) || c, 'ru'));
+    document.getElementById('swapList').innerHTML =
+      (swapTarget.current ? '<button type="button" class="swap-item none" data-u="">Никого — освободить смену</button>' : '') +
+      users.map(u => `<button type="button" class="swap-item" data-u="${escapeHtml(u)}"><b>${escapeHtml(nameOfActor(u) || '@' + u)}</b><small>@${escapeHtml(u)}${u === swapTarget.current ? ' · сейчас в смене' : ''}</small></button>`).join('');
+    swapOverlay.classList.add('show');
+  });
+  document.getElementById('swapList').addEventListener('click', async (e) => {
+    const it = e.target.closest('.swap-item'); if (!it || !swapTarget) return;
+    const msg = document.getElementById('swapMsg');
+    if (it.dataset.u === swapTarget.current){ swapOverlay.classList.remove('show'); return; }
+    it.disabled = true; msg.textContent = 'Сохраняю…'; msg.className = 'modal-msg';
+    try{
+      const res = await fetch('/api/admin/shifts', { method:'POST', headers: authHeaders(),
+        body: JSON.stringify({ action:'setSlot', dateISO: swapTarget.dateISO, slot: swapTarget.slot, start: swapTarget.start, end: swapTarget.end, actorUsername: it.dataset.u }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ msg.textContent = out.error || 'Не удалось сохранить.'; msg.className = 'modal-msg err'; it.disabled = false; return; }
+      swapOverlay.classList.remove('show');
+      await loadShiftsView();
+    } catch(err){ msg.textContent = 'Ошибка сети.'; msg.className = 'modal-msg err'; it.disabled = false; }
+  });
+  document.querySelectorAll('[data-close="swap"]').forEach(b => b.addEventListener('click', () => swapOverlay.classList.remove('show')));
+  swapOverlay.addEventListener('click', e => { if (e.target === swapOverlay) swapOverlay.classList.remove('show'); });
 
   async function loadShiftsView(){
     shiftsViewMsg.textContent = '';

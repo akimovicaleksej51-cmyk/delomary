@@ -1242,7 +1242,7 @@
     .brand img{height:48px;}
     .nav-right{gap:10px;}
     .nav-cta{padding:0 18px; height:48px; display:inline-flex; align-items:center; font-size:15px;}
-    .mobile-menu{position:fixed; left:0; right:0; top:100%; height:calc(100svh - 64px); z-index:60; padding:18px 20px 28px; overflow-y:auto; border-top:1px solid var(--soft); background:#050505; counter-reset:mm;}
+    .mobile-menu{position:fixed; left:0; right:0; top:var(--menu-top, 65px); bottom:0; height:auto; z-index:60; padding:18px 20px 28px; overflow-y:auto; border-top:1px solid var(--soft); background:#050505; counter-reset:mm;}
     .mobile-menu a{font-family:var(--display-heading); font-weight:400; text-transform:uppercase; font-size:26px; letter-spacing:.01em; padding:16px 2px; border-bottom:1px solid var(--soft); display:flex; align-items:center; gap:14px;}
     .mobile-menu a:not(.mobile-social)::before{counter-increment:mm; content:"0" counter(mm); font-family:var(--display); font-size:15px; color:var(--ochre-bright); min-width:24px;}
     .mobile-menu .mobile-social{font-family:var(--sans); text-transform:none; font-size:17px; font-weight:800; border:1px solid var(--soft); border-radius:16px; padding:16px 18px; margin-top:12px;}
@@ -2744,6 +2744,10 @@
   function syncMenu(){ document.body.classList.toggle('menu-open', mobileMenu.classList.contains('open')); }
   if (navToggle && mobileMenu){
     navToggle.addEventListener('click', () => {
+      // 06.10.2026: меню отсчитывается от низа шапки (раньше — от самой шапки, и после
+      // отключения размытия под шапкой меню уезжало за нижний край экрана)
+      const hb = document.querySelector('header').getBoundingClientRect().bottom;
+      mobileMenu.style.setProperty('--menu-top', Math.max(0, Math.round(hb)) + 'px');
       syncMenu();
       if (mobileMenu.classList.contains('open') && window.LG && !LG.reduced){
         LG.motion.animate($$('a', mobileMenu), { opacity: [0, 1], x: [-24, 0] }, { delay: LG.motion.stagger(0.045), duration: 0.42, ease: [0.2, 0.9, 0.25, 1] });

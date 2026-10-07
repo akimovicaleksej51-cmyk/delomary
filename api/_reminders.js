@@ -42,6 +42,7 @@
 // blocks or breaks the booking itself, same philosophy as the existing
 // Telegram-notify code in api/book.js / api/admin/bookings.js.
 
+import { getActorNames } from './_names.js';
 import { kv } from './_kv.js';
 import { businessDateTime } from './_time.js';
 
@@ -90,12 +91,17 @@ export async function saveShiftsForDate(dateISO, shiftsMap) {
   await kv('expire', key, SHIFTS_TTL_SECONDS);
 }
 
+// 07.10.2026: displayName теперь — имя сотрудника из api/_names.js (если оно
+// задано для этого ника), а имя из профиля Telegram сохраняется в tgName.
 export async function getActorsMap() {
-  const raw = await kv('hgetall', 'actors');
+  const [raw, names] = await Promise.all([kv('hgetall', 'actors'), getActorNames()]);
   const out = {};
   if (Array.isArray(raw)) {
     for (let i = 0; i < raw.length - 1; i += 2) {
-      try { out[raw[i]] = JSON.parse(raw[i + 1]); } catch { /* skip */ }
+      try {
+        const info = JSON.parse(raw[i + 1]) || {};
+        out[raw[i]] = { ...info, tgName: info.displayName || '', displayName: names[raw[i]] || info.displayName || '' };
+      } catch { /* skip */ }
     }
   }
   return out;

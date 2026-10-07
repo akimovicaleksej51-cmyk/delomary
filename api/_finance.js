@@ -35,6 +35,7 @@
 // drawer.
 
 import { kv, kvPipeline, pairsToObject } from './_kv.js';
+import { getNameAliases } from './_names.js';
 
 const OPENING_KEY = 'cashRegisterOpening';
 const CASHOUTS_TTL_SECONDS = 60 * 60 * 24 * 400; // cashouts matter long-term for the register's history
@@ -523,6 +524,10 @@ export async function getPaidGamesForActor(actor, todayISOValue, days = 120) {
   }
   const results = await kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`]));
   const paid = new Set();
+  // 07.10.2026: старые подписи этого же человека тоже считаются (api/_names.js)
+  const aliases = await getNameAliases();
+  const canon = (n) => aliases[n] || n;
+  const me = canon(actor);
   (results || []).forEach((entry) => {
     const raw = entry && entry.result;
     if (!raw) return;
@@ -530,13 +535,13 @@ export async function getPaidGamesForActor(actor, todayISOValue, days = 120) {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) {
         arr.forEach((c) => {
-          if (c.kind === 'payroll' && c.actor === actor && Array.isArray(c.paidGames)) c.paidGames.forEach((k) => paid.add(k));
+          if (c.kind === 'payroll' && c.actor && canon(c.actor) === me && Array.isArray(c.paidGames)) c.paidGames.forEach((k) => paid.add(k));
         });
       }
     } catch { /* skip */ }
   });
   (await getSettledMarkers()).forEach((m) => {
-    if (m && m.actor === actor && Array.isArray(m.paidGames)) m.paidGames.forEach((k) => paid.add(k));
+    if (m && m.actor && canon(m.actor) === me && Array.isArray(m.paidGames)) m.paidGames.forEach((k) => paid.add(k));
   });
   return paid;
 }

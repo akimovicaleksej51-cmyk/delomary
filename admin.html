@@ -684,6 +684,28 @@
     color:inherit; font:inherit; font-size:15px; padding:14px 16px; cursor:pointer;
   }
   .actor-picker-item:last-child{border-bottom:none;}
+  /* 07.10.2026: человек в смене — кнопка с именем и ником, выбор из списка */
+  .shift-person{flex:1 1 170px; min-width:150px; display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:left;
+    background:var(--black-3); color:var(--paper); border:1px solid #2a2a2a; border-radius:8px; padding:6px 12px; font-family:var(--sans); cursor:pointer; min-height:38px; justify-content:center;}
+  .shift-person:hover{border-color:var(--ochre-bright);}
+  .shift-person b{font-size:14.5px; font-weight:800; line-height:1.2;}
+  .shift-person small{font-size:12px; color:var(--muted); line-height:1.2;}
+  .shift-person .ph{font-size:13.5px; color:var(--muted);}
+  .actor-picker-item b{font-weight:800;}
+  .actor-picker-item small{color:var(--muted); margin-left:8px; font-size:13px;}
+  .actor-picker-item.none{color:var(--danger-bright);}
+  .names-editor{margin-top:18px; border-top:1px solid #2a2a2a; padding-top:14px;}
+  .names-editor summary{cursor:pointer; font-weight:800; font-size:14px;}
+  .names-hint{color:var(--muted); font-size:13px; margin:8px 0 10px;}
+  .name-row{display:flex; gap:8px; align-items:center; padding:6px 0; flex-wrap:wrap;}
+  .name-row .nick{flex:0 0 140px; font-size:13.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis;}
+  .name-row input{flex:1 1 140px; min-width:110px; background:var(--black-3); color:var(--paper); border:1px solid #2a2a2a; border-radius:8px; padding:8px 10px; font-size:14px; font-family:var(--sans);}
+  .name-row button{padding:8px 14px; font-size:13px;}
+  .worked-pair{display:flex; gap:8px; flex-wrap:wrap;}
+  .detail-field select{width:100%; padding:10px 12px; border-radius:8px; border:1px solid #333; background:var(--black-3); color:var(--paper); font-size:14.5px; font-family:var(--sans);}
+  .worked-pair .wp{flex:1 1 140px; min-width:0; display:flex; flex-direction:column; gap:4px; margin:0;}
+  .worked-pair .wp span{font-size:11px; font-weight:800; color:var(--muted); text-transform:none; letter-spacing:0;}
+  .worked-pair select{width:100%; min-width:0; padding:10px 12px; border-radius:8px; border:1px solid #333; background:var(--black-3); color:var(--paper); font-size:14.5px; font-family:var(--sans);}
   .actor-picker-item:hover, .actor-picker-item:active{background:var(--black-3);}
 
   /* ---------- Payment split (edit form + Касса) ---------- */
@@ -923,6 +945,13 @@
           <div class="detail-field"><label>Игроков</label><select id="sverkaPlayers"></select></div>
           <div class="detail-field"><label>Цена, Br</label><input id="sverkaPrice" inputmode="numeric"></div>
           <div class="detail-field"><label>Скидка / номер сертификата</label><input id="sverkaDiscount" placeholder="Например: скидка 10% или серт. №123"></div>
+          <div class="detail-field">
+            <label>Кто вёл игру</label>
+            <div class="worked-pair">
+              <label class="wp"><span>Актёр</span><select id="sverkaWorkedActor"></select></label>
+              <label class="wp"><span>Актриса</span><select id="sverkaWorkedActress"></select></label>
+            </div>
+          </div>
           <div class="detail-field">
             <label>Как оплатили (можно частями)</label>
             <div class="pay-split">
@@ -1200,7 +1229,8 @@
       Расставьте, какой актёр работает в какие часы — если в это время появится бронь клиента,
       актёру придёт в Telegram напоминание за 1.5 часа до игры. Актёр должен один раз написать
       <b>/start</b> вашему боту в Telegram — иначе напоминание отправить будет некому; кто уже
-      подключился, видно рядом с именем.
+      подключился, видно рядом с именем.<br>
+      Чтобы поставить или <b>поменять человека</b>, нажмите на имя в строке смены и выберите из списка — смена сохранится сама.
     </p>
     <div class="cal-head">
       <button type="button" class="cal-nav" id="shiftsWeekPrev" aria-label="Предыдущая неделя">‹</button>
@@ -1209,6 +1239,17 @@
     </div>
     <div id="shiftsDaysList"><div class="load-note">Загрузка…</div></div>
     <div class="modal-msg" id="shiftsMsg"></div>
+    <details class="names-editor" id="namesEditor">
+      <summary>Имена сотрудников (ник в Telegram → имя)</summary>
+      <p class="names-hint">Смены и напоминания работают по нику, имя — для удобства. Новый человек: впишите ник и имя внизу.</p>
+      <div id="namesList"></div>
+      <div class="name-row">
+        <input type="text" id="newNameNick" placeholder="ник, например ivan_actor" autocomplete="off" style="flex:0 1 160px;">
+        <input type="text" id="newNameName" placeholder="Имя" autocomplete="off">
+        <button type="button" class="btn-secondary" id="newNameSave">Добавить</button>
+      </div>
+      <div class="modal-msg" id="namesMsg"></div>
+    </details>
   </div>
 </div>
 <!-- 23.09.2026: the #knownActorsList <datalist> that used to sit here was
@@ -1231,14 +1272,14 @@
 <div class="modal-overlay" id="actorPickerOverlay">
   <div class="modal-box" style="max-width:420px;">
     <button class="modal-close-x" data-close="actorPicker">✕</button>
-    <h2>Выбрать сотрудника</h2>
+    <h2>Кто в смене</h2>
     <div class="detail-field">
-      <label>Логин в Telegram</label>
-      <input type="text" id="actorPickerSearch" placeholder="Поиск, или введите новый username" autocomplete="off">
+      <label>Поиск по имени или нику</label>
+      <input type="text" id="actorPickerSearch" placeholder="Например: Миша или shiz1k_121" autocomplete="off">
     </div>
     <div class="actor-picker-list" id="actorPickerList"></div>
     <div class="modal-actions">
-      <button class="btn" id="actorPickerUseTyped">Использовать это имя</button>
+      <button class="btn" id="actorPickerUseTyped">Поставить по нику из поиска</button>
       <button class="btn-secondary" data-close="actorPicker">Отмена</button>
     </div>
   </div>
@@ -2430,6 +2471,48 @@
     document.getElementById(id).addEventListener('input', updateSverkaPayTotal);
   });
 
+  // 07.10.2026: «кто вёл игру» — актёры отмечают прямо при сверке. Список людей
+  // и подсказка «кто стоял в смене на это время» берутся из расписания смен.
+  const sverkaPeopleCache = {};
+  async function sverkaLoadPeople(dateISO){
+    if (sverkaPeopleCache[dateISO]) return sverkaPeopleCache[dateISO];
+    try{
+      const res = await fetch(`/api/admin/shifts?from=${dateISO}&days=1`, { headers: authHeaders(), cache:'no-store' });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) return null;
+      const data = { actors: out.actors || {}, slots: (out.shifts || {})[dateISO] || {} };
+      sverkaPeopleCache[dateISO] = data;
+      return data;
+    } catch(err){ return null; }
+  }
+  function sverkaShiftName(data, role, time){
+    if (!data) return '';
+    const ids = role === 'actor' ? ['actor-1', 'actor-2'] : ['actress-1', 'actress-2'];
+    for (const id of ids){
+      const s = data.slots[id];
+      if (s && s.actorUsername && s.start <= time && time < s.end){
+        const a = data.actors[s.actorUsername];
+        return (a && (a.name || a.displayName)) || s.actorUsername;
+      }
+    }
+    return '';
+  }
+  function sverkaFillWorked(sel, data, current, placeholder){
+    const names = data ? [...new Set(Object.values(data.actors).map(a => a.name || a.displayName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')) : [];
+    if (current && !names.includes(current)) names.unshift(current);
+    sel.innerHTML = `<option value="">${placeholder}</option>` + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    sel.value = current || '';
+  }
+  async function sverkaPrepareWorked(b){
+    const selA = document.getElementById('sverkaWorkedActor'), selB = document.getElementById('sverkaWorkedActress');
+    sverkaFillWorked(selA, null, b.workedActor || '', '— не указан —');
+    sverkaFillWorked(selB, null, b.workedActress || '', '— не указана —');
+    const data = await sverkaLoadPeople(b.dateISO);
+    if (!activeBooking || activeBooking.id !== b.id) return;
+    sverkaFillWorked(selA, data, b.workedActor || sverkaShiftName(data, 'actor', b.time), '— не указан —');
+    sverkaFillWorked(selB, data, b.workedActress || sverkaShiftName(data, 'actress', b.time), '— не указана —');
+  }
+
   document.getElementById('openSverkaBtn').addEventListener('click', () => {
     if (!activeBooking) return;
     const mc = activeBooking.manualCloseout;
@@ -2446,6 +2529,7 @@
     sverkaMsg.textContent = '';
     sverkaForm.style.display = 'block';
     document.getElementById('detailActiveActions').style.display = 'none';
+    sverkaPrepareWorked(activeBooking);
   });
   document.getElementById('cancelSverkaFormBtn').addEventListener('click', () => {
     sverkaForm.style.display = 'none';
@@ -2466,6 +2550,8 @@
       payCash: document.getElementById('sverkaPayCash').value,
       payCard: document.getElementById('sverkaPayCard').value,
       payErip: document.getElementById('sverkaPayErip').value,
+      workedActor: document.getElementById('sverkaWorkedActor').value,
+      workedActress: document.getElementById('sverkaWorkedActress').value,
       confirmedBy,
     };
     const btn = document.getElementById('saveSverkaBtn');
@@ -4394,20 +4480,33 @@
   let actorPickerTargetInput = null;
 
   function renderActorPickerList(){
-    const q = actorPickerSearch.value.trim().toLowerCase();
-    const usernames = Object.keys(shiftsActors);
-    const matches = q ? usernames.filter(u => u.toLowerCase().includes(q)) : usernames;
-    actorPickerList.innerHTML = matches.length
-      ? matches.map(u => `<button type="button" class="actor-picker-item" data-username="${escapeHtml(u)}">${escapeHtml(u)}</button>`).join('')
-      : '<div class="load-note">Совпадений нет — введите имя выше и нажмите «Использовать это имя».</div>';
+    const q = actorPickerSearch.value.trim().toLowerCase().replace(/^@/, '');
+    const usernames = Object.keys(shiftsActors).sort((a, b) => (actorNameFor(a) || a).localeCompare(actorNameFor(b) || b, 'ru'));
+    const matches = q ? usernames.filter(u => u.toLowerCase().includes(q) || actorNameFor(u).toLowerCase().includes(q)) : usernames;
+    const current = actorPickerTargetInput ? actorPickerTargetInput.value : '';
+    const noneItem = current ? '<button type="button" class="actor-picker-item none" data-username="">Никого — освободить смену</button>' : '';
+    actorPickerList.innerHTML = noneItem + (matches.length
+      ? matches.map(u => `<button type="button" class="actor-picker-item" data-username="${escapeHtml(u)}"><b>${escapeHtml(actorNameFor(u) || '@' + u)}</b><small>@${escapeHtml(u)}${shiftsActors[u] && shiftsActors[u].registered ? '' : ' · ещё не писал(а) боту'}</small>${u === current ? ' <small>· сейчас в смене</small>' : ''}</button>`).join('')
+      : '<div class="load-note">Никого не нашли. Можно вписать ник и нажать «Поставить по нику из поиска».</div>');
   }
   actorPickerSearch.addEventListener('input', renderActorPickerList);
 
   function openActorPicker(input){
     actorPickerTargetInput = input;
-    actorPickerSearch.value = input.value || '';
+    actorPickerSearch.value = '';
     renderActorPickerList();
     actorPickerOverlay.classList.add('show');
+  }
+  // 07.10.2026: выбрали человека — сразу сохраняем смену (если время уже стоит),
+  // так «поменять актёра» — это два нажатия: на имя и на нового человека.
+  function applyPickedActor(input, username){
+    input.value = username;
+    const row = input.closest('.shift-slot-row');
+    if (!row) return;
+    row.querySelector('.shift-person').innerHTML = personLabelHtml(username);
+    const start = row.querySelector('.shift-slot-start').value, end = row.querySelector('.shift-slot-end').value;
+    if (start && end) saveShiftSlot(row.querySelector('.shift-slot-save'));
+    else { shiftsMsg.textContent = 'Укажите время смены и нажмите «Сохранить».'; shiftsMsg.className = 'modal-msg'; }
   }
   function closeActorPicker(){
     actorPickerOverlay.classList.remove('show');
@@ -4416,18 +4515,61 @@
   actorPickerList.addEventListener('click', (e) => {
     const item = e.target.closest('.actor-picker-item');
     if (!item || !actorPickerTargetInput) return;
-    actorPickerTargetInput.value = item.dataset.username;
+    const input = actorPickerTargetInput;
     closeActorPicker();
+    applyPickedActor(input, item.dataset.username);
   });
   document.getElementById('actorPickerUseTyped').addEventListener('click', () => {
     if (!actorPickerTargetInput) return;
-    actorPickerTargetInput.value = actorPickerSearch.value.trim().replace(/^@/, '');
+    const input = actorPickerTargetInput;
+    const typed = actorPickerSearch.value.trim().replace(/^@/, '').toLowerCase();
     closeActorPicker();
+    if (typed) applyPickedActor(input, typed);
   });
   document.querySelectorAll('[data-close="actorPicker"]').forEach(b => b.addEventListener('click', closeActorPicker));
   actorPickerOverlay.addEventListener('click', e => { if (e.target === actorPickerOverlay) closeActorPicker(); });
 
+  // 07.10.2026: имя человека по нику (имена — api/_names.js, правятся внизу окна)
+  function actorNameFor(u){ const a = shiftsActors[u]; return (a && (a.name || a.displayName)) || ''; }
+  function personLabelHtml(u){
+    if (!u) return '<span class="ph">+ выбрать человека</span>';
+    const name = actorNameFor(u);
+    return name ? `<b>${escapeHtml(name)}</b><small>@${escapeHtml(u)}</small>` : `<b>@${escapeHtml(u)}</b><small>имя не задано</small>`;
+  }
+  function renderNamesEditor(){
+    const box = document.getElementById('namesList'); if (!box) return;
+    const users = Object.keys(shiftsActors).sort((a, b) => (actorNameFor(a) || a).localeCompare(actorNameFor(b) || b, 'ru'));
+    box.innerHTML = users.map(u => `<div class="name-row" data-u="${escapeHtml(u)}">
+        <span class="nick">@${escapeHtml(u)}</span>
+        <input type="text" value="${escapeHtml((shiftsActors[u] && shiftsActors[u].name) || '')}" placeholder="${escapeHtml((shiftsActors[u] && shiftsActors[u].tgName) || 'Имя')}" maxlength="40">
+        <button type="button" class="btn-secondary">Сохранить</button>
+      </div>`).join('') || '<div class="load-note">Пока никого нет.</div>';
+    box.querySelectorAll('.name-row button').forEach(b => b.addEventListener('click', () => {
+      const row = b.closest('.name-row'); saveActorName(row.dataset.u, row.querySelector('input').value, b);
+    }));
+  }
+  async function saveActorName(username, name, btn){
+    const msg = document.getElementById('namesMsg');
+    if (btn) btn.disabled = true;
+    try{
+      const res = await fetch('/api/admin/shifts', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'setActorName', username, name }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ msg.textContent = out.error || 'Не удалось сохранить имя.'; msg.className = 'modal-msg err'; return false; }
+      msg.textContent = 'Сохранено.'; msg.className = 'modal-msg ok';
+      await loadShifts();
+      return true;
+    } catch(err){ msg.textContent = 'Ошибка сети.'; msg.className = 'modal-msg err'; return false; }
+    finally { if (btn) btn.disabled = false; }
+  }
+  document.getElementById('newNameSave').addEventListener('click', async (e) => {
+    const nick = document.getElementById('newNameNick').value.trim().replace(/^@/, '');
+    const name = document.getElementById('newNameName').value.trim();
+    if (!nick || !name){ const m = document.getElementById('namesMsg'); m.textContent = 'Впишите ник и имя.'; m.className = 'modal-msg err'; return; }
+    if (await saveActorName(nick, name, e.currentTarget)){ document.getElementById('newNameNick').value = ''; document.getElementById('newNameName').value = ''; }
+  });
+
   function renderShiftsDays(){
+    renderNamesEditor();
     const dates = shiftsWeekDates();
     shiftsWeekLabel.textContent = `${formatDateHeading(dates[0])} — ${formatDateHeading(dates[dates.length - 1])}`;
 
@@ -4449,7 +4591,8 @@
             <input type="time" class="shift-slot-start" step="900" value="${escapeHtml(s.start || '')}">
             <span class="shift-dash">–</span>
             <input type="time" class="shift-slot-end" step="900" value="${escapeHtml(s.end || '')}">
-            <input type="text" class="shift-slot-actor" placeholder="username" autocomplete="off" value="${escapeHtml(s.actorUsername || '')}">
+            <input type="hidden" class="shift-slot-actor" value="${escapeHtml(s.actorUsername || '')}">
+            <button type="button" class="shift-person" title="Выбрать или поменять человека">${personLabelHtml(s.actorUsername)}</button>
             <button type="button" class="btn-secondary shift-slot-save">Сохранить</button>
             ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-closeout" title="Отправить актёру сверку по броням этой смены прямо сейчас — не дожидаясь конца смены и автоматики. Отправит ЕЩЁ РАЗ, даже если сверка уже была отправлена, но не пришла — не отправит только по игре, на которую актёр уже точно ответил.">Сверка сейчас</button>' : ''}
             ${canRunNow ? '<button type="button" class="btn-secondary shift-slot-cancel-closeout" style="border-color:var(--danger-bright); color:var(--danger-bright);" title="Сбросить результат уже полученной сверки (оплату и кто отыграл) по всем броням этой смены, чтобы актёр мог пройти её заново — только для тех броней, где сверка уже завершена.">Отменить сверку</button>' : ''}
@@ -4465,6 +4608,9 @@
 
     shiftsDaysList.querySelectorAll('.shift-slot-save').forEach(btn => {
       btn.addEventListener('click', () => saveShiftSlot(btn));
+    });
+    shiftsDaysList.querySelectorAll('.shift-person').forEach(btn => {
+      btn.addEventListener('click', () => openActorPicker(btn.closest('.shift-slot-row').querySelector('.shift-slot-actor')));
     });
     shiftsDaysList.querySelectorAll('.shift-slot-closeout').forEach(btn => {
       btn.addEventListener('click', () => runCloseoutNow(btn));

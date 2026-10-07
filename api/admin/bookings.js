@@ -582,7 +582,11 @@ export default async function handler(req, res) {
       const payCard = typeof body.payCard === 'string' || typeof body.payCard === 'number' ? String(body.payCard).trim() : undefined;
       const payErip = typeof body.payErip === 'string' || typeof body.payErip === 'number' ? String(body.payErip).trim() : undefined;
 
-      const result = await setManualCloseout(cleanDateISO, cleanTime, { played, price, players, discountNote, payCash, payCard, payErip, confirmedBy });
+      // 07.10.2026: кто вёл игру — актёры отмечают прямо при сверке
+      const workedActor = typeof body.workedActor === 'string' ? body.workedActor.trim().slice(0, 60) : undefined;
+      const workedActress = typeof body.workedActress === 'string' ? body.workedActress.trim().slice(0, 60) : undefined;
+
+      const result = await setManualCloseout(cleanDateISO, cleanTime, { played, price, players, discountNote, payCash, payCard, payErip, confirmedBy, workedActor, workedActress });
       if (!result.ok) {
         const status = result.reason === 'no-booking' ? 404 : 400;
         return res.status(status).json({ error: result.message });

@@ -57,6 +57,7 @@
 
 import { kv } from '../_kv.js';
 import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS, scheduleReminder } from '../_reminders.js';
+import { getActorNames, setActorName, cleanUsername } from '../_names.js';
 import { runCloseoutForSlot, cancelCloseoutForSlot, scheduleGameCloseout } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
@@ -151,10 +152,15 @@ export default async function handler(req, res) {
       shiftsByDate[iso] = await getShiftsForDate(iso);
     }));
 
-    const actorsRaw = await getActorsMap();
+    const [actorsRaw, names] = await Promise.all([getActorsMap(), getActorNames()]);
     const actors = {};
     Object.entries(actorsRaw).forEach(([username, info]) => {
-      actors[username] = { displayName: info.displayName || '', registered: Boolean(info.chatId) };
+      actors[username] = { displayName: info.displayName || '', name: names[username] || '', tgName: info.tgName || '', registered: Boolean(info.chatId) };
+    });
+    // 07.10.2026: люди, у которых есть имя, но которые ещё не писали боту, —
+    // тоже в списке (их можно ставить в смену; напоминания пойдут после /start).
+    Object.entries(names).forEach(([username, name]) => {
+      if (!actors[username]) actors[username] = { displayName: name, name, tgName: '', registered: false };
     });
 
     return res.status(200).json({ shifts: shiftsByDate, actors });
@@ -224,6 +230,16 @@ export default async function handler(req, res) {
       await backfillScheduling(cleanDateISO, shiftsMap[slot]);
 
       return res.status(200).json({ ok: true, shifts: shiftsMap });
+    }
+
+    // 07.10.2026: имя сотрудника для ника (пустое имя — вернуть по умолчанию)
+    if (body.action === 'setActorName') {
+      const username = cleanUsername(body.username);
+      if (!username || !/^[a-z0-9_]{3,40}$/.test(username)) {
+        return res.status(400).json({ error: 'Укажите ник в Telegram (латиница, цифры, _).' });
+      }
+      await setActorName(username, typeof body.name === 'string' ? body.name : '');
+      return res.status(200).json({ ok: true, names: await getActorNames() });
     }
 
     if (body.action === 'runCloseoutNow') {

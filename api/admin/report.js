@@ -28,6 +28,7 @@ import { toAmount, getSettledMarkers } from '../_finance.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO, businessDateTime } from '../_time.js';
 import { getActorsMap, resolveActorUsernamesForSlotSync } from '../_reminders.js';
+import { getNameAliases } from '../_names.js';
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 92;
@@ -185,7 +186,12 @@ export default async function handler(req, res) {
   // 06.10.2026: which exact games each person played (date + time), not just
   // how many — for Бухгалтерия's "кто сколько отыграл" with days and payouts.
   const actorGames = {};
-  const addActorGame = (name, dateISO, record, via) => {
+  // 07.10.2026: старые подписи (имя из профиля Telegram, сам ник) считаются
+  // тем же человеком, что и его имя — см. api/_names.js.
+  const aliases = await getNameAliases();
+  const canon = (n) => aliases[n] || n;
+  const addActorGame = (rawName, dateISO, record, via) => {
+    const name = canon(rawName);
     if (!actorTotals[name]) actorTotals[name] = 0;
     actorTotals[name] += 1;
     (actorGames[name] = actorGames[name] || []).push({
@@ -352,7 +358,7 @@ export default async function handler(req, res) {
           createdAt: c.createdAt || '', paidGames: Array.isArray(c.paidGames) ? c.paidGames : [],
           selfReported: !!c.selfReported,
         };
-        if (c.actor) (payoutsOut[c.actor] = payoutsOut[c.actor] || []).push(item);
+        if (c.actor) (payoutsOut[canon(c.actor)] = payoutsOut[canon(c.actor)] || []).push(item);
         // Update 91: инкассации (payroll without a person, not named "ЗП…")
         // aren't salaries — keep them out of "ЗП без привязки к дням".
         else if (/(^|[\s(«"])(зп|з\/п|зарплат)/i.test(item.label)) unlinkedPayroll.push(item);
@@ -362,7 +368,7 @@ export default async function handler(req, res) {
     // moved, the register isn't affected.
     (await getSettledMarkers()).forEach((m) => {
       if (!m || !m.actor || !Array.isArray(m.paidGames)) return;
-      (payoutsOut[m.actor] = payoutsOut[m.actor] || []).push({
+      (payoutsOut[canon(m.actor)] = payoutsOut[canon(m.actor)] || []).push({
         id: m.id, dateISO: m.dateISO || String(m.createdAt || '').slice(0, 10) || today, amount: 0,
         label: m.label || 'Отмечено как выплаченное ранее', createdAt: m.createdAt || '',
         paidGames: m.paidGames, selfReported: false, settled: true,
