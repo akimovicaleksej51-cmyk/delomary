@@ -108,7 +108,7 @@ import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManua
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime, todayISO as businessTodayISO } from '../_time.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
-import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, cancelRoomCloseout, uniqueRoomRecords } from '../_rooms.js';
+import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, cancelRoomCloseout, uniqueRoomRecords, roomSourceOf, ROOM_SOURCES } from '../_rooms.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -939,12 +939,19 @@ export default async function handler(req, res) {
         kvPipeline(dates.map((iso) => ['HGETALL', `roombookings:${iso}`])),
       ]);
       // комната: сколько броней, часов и на какую сумму (не состоявшиеся — отдельно)
-      const room = { count: 0, hours: 0, total: 0, notPlayed: 0 };
+      // 09.10.2026: + из какого источника каждая бронь (сайт / телефон /
+      // Instagram / Мир Квестов / ExtraReality) — сколько броней и на сколько.
+      const room = { count: 0, hours: 0, total: 0, notPlayed: 0, bySource: {} };
+      ROOM_SOURCES.forEach((src) => { room.bySource[src] = { count: 0, total: 0 }; });
       (roomResults || []).forEach((entry) => {
         uniqueRoomRecords(entry && entry.result).forEach((rec) => {
           if (rec.closeout && rec.closeout.played === false) { room.notPlayed += 1; return; }
+          const price = parseFloat(String(rec.price || '0').replace(',', '.')) || 0;
           room.count += 1; room.hours += Number(rec.hours) || 0;
-          room.total += parseFloat(String(rec.price || '0').replace(',', '.')) || 0;
+          room.total += price;
+          const src = roomSourceOf(rec);
+          if (!room.bySource[src]) room.bySource[src] = { count: 0, total: 0 };
+          room.bySource[src].count += 1; room.bySource[src].total += price;
         });
       });
       let revenue = 0;

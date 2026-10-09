@@ -463,6 +463,7 @@
   .room-price{font-weight:800; color:var(--ochre-bright); font-size:14px;}
   .room-who{font-size:14px; margin-top:4px;}
   .room-who a{color:var(--paper);}
+  .room-src{display:inline-block; font-size:11px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:var(--muted); border:1px solid #333; border-radius:999px; padding:2px 8px; margin-left:6px; vertical-align:middle;}
   .room-meta{font-size:12.5px; color:var(--muted); margin-top:4px; white-space:pre-wrap; word-break:break-word;}
   .room-game{display:inline-block; margin-top:6px; font-size:11px; font-weight:800; text-transform:uppercase; padding:3px 9px; border-radius:999px; background:rgba(245,197,24,.14); color:var(--ochre-bright);}
   .room-sverka{margin-top:8px; font-size:13px;}
@@ -2473,7 +2474,7 @@
           <span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span>
           <span class="room-price">${roomNum(b.price)} Br · ${roomHoursWord(Number(b.hours) || 0)}</span>
         </div>
-        <div class="room-who">${escapeHtml(b.name || 'Без имени')} · <a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone || '')}</a></div>
+        <div class="room-who">${escapeHtml(b.name || 'Без имени')}${b.phone ? ` · <a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone)}</a>` : ''}<span class="room-src">${escapeHtml(b.channel || 'Сайт')}</span></div>
         ${b.hostGameLabel ? `<span class="room-game">${escapeHtml(b.hostGameLabel)} — цену уточнить</span>` : ''}
         ${b.comment ? `<div class="room-meta">${escapeHtml(b.comment)}</div>` : ''}
         ${done && b.closeout.note ? `<div class="room-meta">Сверка: ${escapeHtml(b.closeout.note)}</div>` : ''}

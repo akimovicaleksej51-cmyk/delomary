@@ -25,7 +25,7 @@
 import { kv, kvPipeline, isKvConfigured } from './_kv.js';
 import { isSlotClosingSoon, businessToday } from './_time.js';
 import { isWeekendISO } from './_pricing.js';
-import { escapeTgHtml, formatDateRu, urgencyLead } from './_telegram.js';
+import { escapeTgHtml, formatDateRu, roomUrgencyLead } from './_telegram.js';
 
 // 10:00 … 22:00 — 13 one-hour slots; the 22:00 slot runs until 23:00.
 export const ROOM_SLOTS = Array.from({ length: 13 }, (_, i) => `${String(10 + i).padStart(2, '0')}:00`);
@@ -129,8 +129,22 @@ function hoursLabel(n) {
   return `${n} ч`;
 }
 
-// Who can add a booking from the admin panel and how the guest reached us.
-export const ROOM_ADMIN_CHANNELS = ['Телефон', 'Instagram', 'Telegram', 'Пришли без брони', 'Другое'];
+// Откуда пришла бронь комнаты (поле channel в записи брони):
+//   'Сайт'          — форма на loonyroom.html
+//   'Телефон', 'Instagram' — менеджер внёс вручную в админке
+//   'Мир Квестов', 'ExtraReality' — агрегаторы (api/mirkvestov.js и
+//                     api/extrareality.js с параметром ?room=1)
+// 09.10.2026: в админке оставлены только «Телефон» и «Instagram».
+export const ROOM_ADMIN_CHANNELS = ['Телефон', 'Instagram'];
+export const ROOM_AGGREGATOR_CHANNELS = ['Мир Квестов', 'ExtraReality'];
+export const ROOM_SOURCES = ['Сайт', ...ROOM_ADMIN_CHANNELS, ...ROOM_AGGREGATOR_CHANNELS];
+// Источник брони для статистики. Старые брони, внесённые до 09.10.2026 с
+// источником «Telegram» / «Пришли без брони» / «Другое», считаются «Другое».
+export function roomSourceOf(rec) {
+  const c = rec && rec.channel;
+  if (!c) return 'Сайт';
+  return ROOM_SOURCES.includes(c) ? c : 'Другое';
+}
 
 // Returns { ok:true, record } or { ok:false, status, error, conflict? }.
 // Pure validation — touches nothing.
@@ -255,13 +269,16 @@ export function roomBookingTelegramText(record) {
     Number(record.price) === record.rate * record.hours
       ? `Цена: ${record.price} Br (${hoursLabel(record.hours)} × ${record.rate} Br)`
       : `Цена: ${record.price} Br (договорная; по тарифу было бы ${record.rate * record.hours} Br)`,
-    record.createdBy === 'admin' ? `Откуда: ${escapeTgHtml(record.channel || '')}` : null,
+    record.createdBy === 'admin' || ROOM_AGGREGATOR_CHANNELS.includes(record.channel) ? `Откуда: ${escapeTgHtml(record.channel || '')}` : null,
+    record.email ? `Email: ${escapeTgHtml(record.email)}` : null,
     record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
     attributionLabel(record.attribution || {}) ? `Источник: ${escapeTgHtml(attributionLabel(record.attribution))}` : null,
   ].filter((l) => l !== null).join('\n');
   // Same-day urgency lead first, exactly like a new quest booking.
-  const title = record.createdBy === 'admin' ? 'Новая бронь — Loony Room (добавлена в админке)' : 'Новая бронь — Loony Room';
-  return `${urgencyLead(record.dateISO, record.startTime)}${title.toUpperCase()}\n\n${fields}`;
+  const title = record.createdBy === 'admin' ? 'Новая бронь — Loony Room (добавлена в админке)'
+    : ROOM_AGGREGATOR_CHANNELS.includes(record.channel) ? `Новая бронь — Loony Room · ${record.channel}`
+      : 'Новая бронь — Loony Room';
+  return `${roomUrgencyLead(record.dateISO, record.startTime)}${title.toUpperCase()}\n\n${fields}`;
 }
 
 export async function sendRoomTelegram(text) {
@@ -327,14 +344,145 @@ export async function cancelRoomBooking(dateISO, bookingId) {
   return record;
 }
 
-export function roomCancelTelegramText(record) {
+export function roomCancelTelegramText(record, via = '') {
   const fields = [
     `Дата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>`,
     `Время: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b>`,
     record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
     record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
+    via ? `Отменено через: ${escapeTgHtml(via)}` : null,
   ].filter((l) => l !== null).join('\n');
   return `${'Бронь Loony Room отменена'.toUpperCase()}\n\n${fields}`;
+}
+
+// ---------- 09.10.2026: агрегаторы (Мир Квестов, ExtraReality) ----------
+//
+// Почва для синхронизации брони комнаты с агрегаторами. Включается, когда
+// агрегатору дают отдельный адрес для комнаты (с ?room=1) — см. шапки
+// api/mirkvestov.js и api/extrareality.js. Пока этот адрес никому не дан,
+// код просто не вызывается.
+//
+// Агрегаторы мыслят «сеансами»: время начала + цена. У комнаты почасовая
+// аренда, поэтому:
+//   - расписание: каждый час 10:00–22:00, is_free = этот час свободен;
+//     price = цена за 1 час; дополнительно — варианты «1 час / 2 часа / …»
+//     до следующей занятой брони или закрытия (тарифы у Мира Квестов,
+//     extraPrices у ExtraReality);
+//   - бронь: сколько часов, берём из выбранного тарифа («3 часа: 210 Br»),
+//     поля hours/duration, если агрегатор их пришлёт, или из цены (цена /
+//     тариф за час); иначе 1 час.
+
+// Занятые часы по датам: { 'YYYY-MM-DD': ['14:00', …] }.
+export async function roomTakenByDate(dates) {
+  const results = await kvPipeline(dates.map((iso) => ['HKEYS', roomKey(iso)]));
+  const out = {};
+  dates.forEach((iso, i) => {
+    const e = results && results[i];
+    out[iso] = e && Array.isArray(e.result) ? e.result : [];
+  });
+  return out;
+}
+
+// Сколько часов подряд свободно, начиная с startTime (0 — сам час занят).
+export function roomFreeRun(taken, startTime) {
+  const idx = ROOM_SLOTS.indexOf(startTime);
+  if (idx === -1) return 0;
+  let n = 0;
+  for (let i = idx; i < ROOM_SLOTS.length && !taken.includes(ROOM_SLOTS[i]); i++) n++;
+  return n;
+}
+
+function hoursWordRu(n) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return `${n} час`;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} часа`;
+  return `${n} часов`;
+}
+
+// Варианты длительности для одного часа начала: [{ hours, label, price }].
+export function roomPackagesFor(dateISO, startTime, taken) {
+  const rate = roomRateFor(dateISO);
+  const run = roomFreeRun(taken, startTime);
+  return Array.from({ length: run }, (_, i) => ({ hours: i + 1, label: hoursWordRu(i + 1), price: rate * (i + 1) }));
+}
+
+// Расписание для агрегатора: одна запись на каждый час.
+export async function roomAggregatorSchedule(daysAhead, now = new Date()) {
+  const dates = windowDates(0, Math.min(daysAhead, ROOM_DAYS_AHEAD));
+  const taken = await roomTakenByDate(dates);
+  const out = [];
+  for (const dateISO of dates) {
+    const t = taken[dateISO] || [];
+    for (const time of ROOM_SLOTS) {
+      const free = !t.includes(time) && !isSlotClosingSoon(dateISO, time, now);
+      out.push({
+        date: dateISO,
+        time,
+        is_free: free,
+        price: roomRateFor(dateISO),
+        packages: free ? roomPackagesFor(dateISO, time, t) : [],
+      });
+    }
+  }
+  return out;
+}
+
+// Сколько часов хочет гость, по тому, что прислал агрегатор.
+export function aggregatorHours({ hours, duration, tariff, price }, dateISO) {
+  const asInt = (v) => { const n = Number(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
+  const h = asInt(hours);
+  if (Number.isInteger(h) && h >= 1 && h <= ROOM_SLOTS.length) return h;
+  const d = asInt(duration);
+  if (Number.isFinite(d) && d > 0) {
+    const fromDur = d > ROOM_SLOTS.length ? Math.round(d / 60) : Math.round(d); // минуты или часы
+    if (fromDur >= 1 && fromDur <= ROOM_SLOTS.length) return fromDur;
+  }
+  const m = typeof tariff === 'string' ? tariff.match(/(\d+)\s*ч/i) : null;
+  if (m) { const n = Number(m[1]); if (n >= 1 && n <= ROOM_SLOTS.length) return n; }
+  const p = asInt(price);
+  const rate = roomRateFor(dateISO);
+  if (Number.isFinite(p) && p >= rate) { const n = Math.round(p / rate); if (n >= 1 && n <= ROOM_SLOTS.length) return n; }
+  return 1;
+}
+
+// Новая бронь комнаты от агрегатора. Проверки — те же, что у сайта
+// (validateRoomRequest), плюс защита от повтора: если агрегатор прислал
+// ту же бронь второй раз (тот же externalRef), отвечаем «ок» и не дублируем.
+// Возвращает { ok:true, record, duplicate? } или { ok:false, message }.
+export async function createAggregatorRoomBooking({ channel, name, phone, email, comment, dateISO, startTime, hours, price, externalRef }) {
+  if (!ROOM_AGGREGATOR_CHANNELS.includes(channel)) return { ok: false, message: 'Неизвестный источник.' };
+  if (externalRef && isRealCalendarDate(dateISO)) {
+    const same = uniqueRoomRecords(await kv('hgetall', roomKey(dateISO))).find((r) => r.externalRef === externalRef);
+    if (same) return { ok: true, record: same, duplicate: true };
+  }
+  const checked = validateRoomRequest({ name, phone, comment, dateISO, startTime, hours });
+  if (!checked.ok) return { ok: false, message: checked.error };
+  const record = checked.record;
+  record.channel = channel;
+  record.attribution = {};
+  if (email) record.email = String(email).trim().slice(0, 100);
+  if (externalRef) record.externalRef = externalRef;
+  const p = Number(String(price == null ? '' : price).replace(',', '.'));
+  if (Number.isFinite(p) && p > 0 && p <= 100000) record.price = Math.round(p * 100) / 100;
+  const reserved = await reserveRoomHours(record);
+  if (!reserved.ok) return { ok: false, message: reserved.conflict ? 'Указанное время занято' : (reserved.error || 'Внутренняя ошибка, попробуйте ещё раз.') };
+  if (reserved.unreserved) return { ok: false, message: 'Бронирование временно недоступно, попробуйте позже.' };
+  // Telegram — это то, как владелец узнаёт о брони; не дошло — откатываем, как у сайта.
+  const sent = await sendRoomTelegram(roomBookingTelegramText(record));
+  if (!sent.ok) {
+    await releaseRoomHours(record);
+    return { ok: false, message: 'Внутренняя ошибка, попробуйте ещё раз.' };
+  }
+  return { ok: true, record };
+}
+
+// Отмена брони комнаты по номеру брони агрегатора. Возвращает отменённую
+// запись или null (не нашли — значит уже отменена или это чужая бронь).
+export async function cancelRoomByExternalRef(dateISO, externalRef) {
+  if (!isRealCalendarDate(dateISO) || !externalRef) return null;
+  const rec = uniqueRoomRecords(await kv('hgetall', roomKey(dateISO))).find((r) => r.externalRef === externalRef);
+  if (!rec) return null;
+  return cancelRoomBooking(dateISO, rec.bookingId);
 }
 
 

@@ -113,6 +113,7 @@ import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
+import { roomAggregatorSchedule, roomTakenByDate, roomPackagesFor, aggregatorHours, createAggregatorRoomBooking } from './_rooms.js';
 
 const DAYS_AHEAD = 14; // Mir Kvestov's spec: "расписание на 2 недели"
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // same retention as every other booking
@@ -232,8 +233,7 @@ function parseBody(req) {
   }
 }
 
-function verifySignature(body) {
-  const secret = process.env.MIRKVESTOV_SECRET;
+function verifySignature(body, secret = process.env.MIRKVESTOV_SECRET) {
   if (!secret) return true; // not configured yet — skip check, endpoint still works
   const provided = typeof body.md5 === 'string' ? body.md5.trim().toLowerCase() : '';
   if (!provided) return true; // Mir Kvestov's own spec: sending no md5 at all is allowed
@@ -414,6 +414,63 @@ async function handleOrder(req, res) {
   }
 }
 
+// ===========================================================================
+// 09.10.2026: КОМНАТА ОТДЫХА (Loony Room) — тот же адрес с ?room=1:
+//   https://loonygames.by/api/mirkvestov?room=1
+// Его нужно дать Миру Квестов как адрес ОТДЕЛЬНОЙ карточки (комната — это
+// не квест, у неё свой список часов). Всё то же, что у квеста:
+//   GET                    -> расписание на 2 недели, каждый час 10:00–22:00
+//   GET ?date=…&time=…     -> тарифы: «1 час: 70 Br», «2 часа: 140 Br», … —
+//                             только столько часов, сколько свободно подряд
+//   POST                   -> бронь; сколько часов — из выбранного тарифа
+//                             (или из цены). Бронь попадает в «Комнату
+//                             отдыха» в админке с источником «Мир Квестов».
+// Подпись md5 проверяется так же, как у квеста; если Мир Квестов выдаст для
+// комнаты отдельный секрет — положите его в MIRKVESTOV_ROOM_SECRET.
+async function handleRoomTimetable(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  const list = await roomAggregatorSchedule(DAYS_AHEAD);
+  return res.status(200).json(list.map((x) => ({
+    date: x.date, time: x.time, is_free: x.is_free, price: x.price, our_slot_id: `room_${x.date}_${x.time}`,
+  })));
+}
+
+async function handleRoomTariffs(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  const q = req.query || {};
+  const dateISO = typeof q.date === 'string' ? q.date.trim() : '';
+  const time = typeof q.time === 'string' ? q.time.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO) || !/^\d{2}:\d{2}$/.test(time)) return res.status(200).json({});
+  const taken = (await roomTakenByDate([dateISO]))[dateISO] || [];
+  const out = {};
+  roomPackagesFor(dateISO, time, taken).forEach((p) => { out[`${p.label}: ${p.price} Br`] = p.price; });
+  return res.status(200).json(out);
+}
+
+async function handleRoomOrder(req, res) {
+  const clientIp = getClientIp(req);
+  const rate = await checkAndBumpRateLimit('mirkvestovattempts', clientIp, AGGREGATOR_RATE_MAX, AGGREGATOR_RATE_WINDOW_SECONDS);
+  if (rate.limited) return res.status(200).json({ success: false, message: 'Слишком много запросов подряд, попробуйте чуть позже.' });
+  const body = parseBody(req);
+  const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : (typeof v === 'number' ? String(v) : ''));
+  const name = [str(body.first_name, 60), str(body.family_name, 60)].filter(Boolean).join(' ');
+  const dateISO = /^\d{4}-\d{2}-\d{2}$/.test(str(body.date, 10)) ? str(body.date, 10) : '';
+  const time = /^\d{2}:\d{2}$/.test(str(body.time, 5)) ? str(body.time, 5) : '';
+  const tariff = str(body.tariff, 100);
+  if (!name || !str(body.phone, 40) || !dateISO || !time) {
+    return res.status(200).json({ success: false, message: 'Не хватает обязательных полей (имя, телефон, дата, время).' });
+  }
+  verifySignature(body, process.env.MIRKVESTOV_ROOM_SECRET || process.env.MIRKVESTOV_SECRET);
+  const hours = aggregatorHours({ hours: body.hours, duration: body.duration, tariff, price: body.price }, dateISO);
+  const uid = body.unique_id != null ? String(body.unique_id).slice(0, 100) : '';
+  const result = await createAggregatorRoomBooking({
+    channel: 'Мир Квестов', name, phone: str(body.phone, 40), email: str(body.email, 100),
+    comment: [str(body.comment, 400), tariff ? `Тариф: ${tariff}` : ''].filter(Boolean).join(' · '),
+    dateISO, startTime: time, hours, price: body.price, externalRef: uid ? `mirkvestov:${uid}` : '',
+  });
+  return res.status(200).json(result.ok ? { success: true } : { success: false, message: result.message });
+}
+
 export default async function handler(req, res) {
   // CORS — added 22.09.2026, mirroring the same fix on api/extrareality.js
   // after ExtraReality's own "Проверить" button turned out to be blocked
@@ -429,12 +486,14 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
+  const isRoom = ['1', 'true', 'yes'].includes(String((req.query && req.query.room) || '').toLowerCase());
   if (req.method === 'GET') {
     const q = req.query || {};
     const hasDateAndTime = typeof q.date === 'string' && typeof q.time === 'string';
+    if (isRoom) return hasDateAndTime ? handleRoomTariffs(req, res) : handleRoomTimetable(req, res);
     return hasDateAndTime ? handleTariffs(req, res) : handleTimetable(req, res);
   }
-  if (req.method === 'POST') return handleOrder(req, res);
+  if (req.method === 'POST') return isRoom ? handleRoomOrder(req, res) : handleOrder(req, res);
   res.setHeader('Allow', 'GET, POST, OPTIONS');
   return res.status(200).json({ success: false, message: 'Method not allowed' });
 }

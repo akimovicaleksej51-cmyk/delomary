@@ -147,6 +147,10 @@ import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from './_telegram.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
+import {
+  roomAggregatorSchedule, aggregatorHours, createAggregatorRoomBooking, cancelRoomBooking,
+  uniqueRoomRecords, roomKey, roomCancelTelegramText, sendRoomTelegram,
+} from './_rooms.js';
 
 const DAYS_AHEAD = 45; // was 14 (2 weeks) — extended to ~1.5 months, 22.09.2026
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
@@ -385,8 +389,7 @@ async function handleBook(req, res) {
   }
 }
 
-function verifyExtraRealitySignature(rawDatetime, providedSignature) {
-  const secret = process.env.EXTRAREALITY_SECRET;
+function verifyExtraRealitySignature(rawDatetime, providedSignature, secret = process.env.EXTRAREALITY_SECRET) {
   if (!secret) return true; // "секрет" field left blank in ExtraReality's panel — skip check, exactly like before
   const provided = typeof providedSignature === 'string' ? providedSignature.trim().toLowerCase() : '';
   if (!provided) return false; // a secret IS configured — a request with no signature at all can't be trusted
@@ -575,6 +578,73 @@ async function handleReviews(req, res) {
   }
 }
 
+// ===========================================================================
+// 09.10.2026: КОМНАТА ОТДЫХА (Loony Room) — те же адреса с room=1, для
+// ОТДЕЛЬНОЙ карточки комнаты в ExtraReality:
+//   Расписание (GET):    https://loonygames.by/api/extrareality?room=1
+//   Бронь (POST):        https://loonygames.by/api/extrareality?room=1
+//   Отмена брони (POST): https://loonygames.by/api/extrareality?action=cancel&room=1
+// Расписание — каждый час 10:00–22:00 на 45 дней (не дальше, чем открыт
+// календарь комнаты), price — за 1 час, extraPrices — «1 час / 2 часа / …»
+// столько, сколько свободно подряд. Бронь: сколько часов — из полей
+// hours/duration, если ExtraReality их пришлёт, иначе из цены (цена / тариф
+// за час). Подпись отмены — md5(datetime + секрет); если для комнаты будет
+// отдельный секрет — положите его в EXTRAREALITY_ROOM_SECRET.
+async function handleRoomSchedule(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  const list = await roomAggregatorSchedule(DAYS_AHEAD);
+  return res.status(200).json(list.map((x) => {
+    const extraPrices = {};
+    x.packages.forEach((p) => { extraPrices[p.label] = p.price; });
+    return { date: x.date, time: x.time, is_free: x.is_free, price: x.price, extraPrices, our_time_id: `room_${x.date}_${x.time}` };
+  }));
+}
+
+async function handleRoomBook(req, res) {
+  const clientIp = getClientIp(req);
+  const rate = await checkAndBumpRateLimit('extrarealityattempts', clientIp, AGGREGATOR_RATE_MAX, AGGREGATOR_RATE_WINDOW_SECONDS);
+  if (rate.limited) return res.status(200).json({ success: false, message: 'Слишком много запросов подряд, попробуйте чуть позже.' });
+  const body = parseBody(req);
+  const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : (typeof v === 'number' ? String(v) : ''));
+  const { dateISO, time } = splitDateTime(body.datetime);
+  if (!str(body.name, 100) || !str(body.phone, 40) || !dateISO || !time) {
+    return res.status(200).json({ success: false, message: 'Не хватает обязательных полей (имя, телефон, дата и время).' });
+  }
+  const hours = aggregatorHours({ hours: body.hours, duration: body.duration, tariff: str(body.tariff, 100), price: body.price }, dateISO);
+  const uid = body.uid != null ? String(body.uid).slice(0, 100) : '';
+  const players = body.players_num != null ? String(body.players_num).slice(0, 40) : '';
+  const result = await createAggregatorRoomBooking({
+    channel: 'ExtraReality', name: str(body.name, 100), phone: str(body.phone, 40), email: str(body.email, 100),
+    comment: [str(body.comment, 400), players ? `Гостей: ${players}` : ''].filter(Boolean).join(' · '),
+    dateISO, startTime: time, hours, price: body.price, externalRef: uid ? `extrareality:${uid}` : '',
+  });
+  return res.status(200).json(result.ok ? { success: true } : { success: false, message: result.message });
+}
+
+async function handleRoomCancel(req, res) {
+  const clientIp = getClientIp(req);
+  const rate = await checkAndBumpRateLimit('extrarealityattempts', clientIp, AGGREGATOR_RATE_MAX, AGGREGATOR_RATE_WINDOW_SECONDS);
+  if (rate.limited) return res.status(200).json({ success: false, message: 'Слишком много запросов подряд, попробуйте чуть позже.' });
+  const body = parseBody(req);
+  const rawDatetime = typeof body.datetime === 'string' ? body.datetime.trim() : '';
+  const uid = body.uid != null ? String(body.uid).trim().slice(0, 100) : '';
+  const { dateISO, time } = splitDateTime(rawDatetime);
+  if (!dateISO || !time) return res.status(200).json({ success: false, message: 'Не удалось распознать дату и время брони (datetime).' });
+  const secret = process.env.EXTRAREALITY_ROOM_SECRET || process.env.EXTRAREALITY_SECRET;
+  if (!verifyExtraRealitySignature(rawDatetime, typeof body.signature === 'string' ? body.signature : '', secret)) {
+    console.error(`ExtraReality room cancel: signature check failed — refused. datetime=${rawDatetime} uid=${uid}`);
+    return res.status(200).json({ success: false, message: 'Ошибка проверки подписи.' });
+  }
+  // Ищем бронь комнаты ExtraReality: по uid, а без uid — по времени начала.
+  const recs = uniqueRoomRecords(await kv('hgetall', roomKey(dateISO)));
+  const rec = recs.find((r) => uid && r.externalRef === `extrareality:${uid}`)
+    || (!uid ? recs.find((r) => r.channel === 'ExtraReality' && r.startTime === time) : null);
+  if (!rec) return res.status(200).json({ success: true }); // уже отменена / нечего отменять
+  const cancelled = await cancelRoomBooking(dateISO, rec.bookingId);
+  if (cancelled) await sendRoomTelegram(roomCancelTelegramText(cancelled, 'ExtraReality'));
+  return res.status(200).json({ success: true });
+}
+
 export default async function handler(req, res) {
   // CORS — added 22.09.2026. ExtraReality's own "Проверить" button next to
   // the "Расписание"/"Бронь" fields in their settings panel appears to call
@@ -600,13 +670,14 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
   const action = (req.query && req.query.action) || '';
+  const isRoom = ['1', 'true', 'yes'].includes(String((req.query && req.query.room) || '').toLowerCase());
   if (req.method === 'GET') {
     if (action === 'reviews') return handleReviews(req, res);
-    return handleSchedule(req, res);
+    return isRoom ? handleRoomSchedule(req, res) : handleSchedule(req, res);
   }
   if (req.method === 'POST') {
-    if (action === 'cancel') return handleCancel(req, res);
-    return handleBook(req, res);
+    if (action === 'cancel') return isRoom ? handleRoomCancel(req, res) : handleCancel(req, res);
+    return isRoom ? handleRoomBook(req, res) : handleBook(req, res);
   }
   res.setHeader('Allow', 'GET, POST, OPTIONS');
   return res.status(200).json({ success: false, message: 'Method not allowed' });

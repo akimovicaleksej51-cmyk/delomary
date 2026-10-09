@@ -98,6 +98,22 @@ export function dateTimeBlock(dateISO, timeStr, now = new Date()) {
 // booking isn't for today (sameDayUrgencyNote() already returns '' then).
 // 23.09.2026: owner's request — this note used to sit between Дата and
 // Время further down; now it leads the entire message instead.
+// 09.10.2026: то же «‼️…‼️» для броней комнаты отдыха, но про комнату,
+// а не про игру. Плюс четвёртый случай: бронь на час, который уже идёт
+// (менеджер вносит гостей, пришедших без брони).
+export function roomUrgencyLead(dateISO, timeStr, now = new Date()) {
+  if (dateISO !== todayISO()) return '';
+  const [hh, mm] = String(timeStr).split(':').map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm || 0)) return '';
+  const minutesLeft = (businessDateTime(dateISO, hh, mm || 0).getTime() - now.getTime()) / 60000;
+  let core;
+  if (minutesLeft <= 0) core = 'БРОНЬ КОМНАТЫ УЖЕ НАЧАЛАСЬ';
+  else if (minutesLeft <= 75) core = 'ДО БРОНИ КОМНАТЫ МЕНЬШЕ ЧАСА';
+  else if (minutesLeft <= 105) core = 'ДО БРОНИ КОМНАТЫ ПОЛТОРА ЧАСА';
+  else core = 'ДО БРОНИ КОМНАТЫ ОСТАЛОСЬ НЕСКОЛЬКО ЧАСОВ';
+  return `‼️‼️${core}‼️‼️\n\n`;
+}
+
 export function urgencyLead(dateISO, timeStr, now = new Date()) {
   const note = sameDayUrgencyNote(dateISO, timeStr, now);
   return note ? `${note}\n\n` : '';

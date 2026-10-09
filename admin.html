@@ -425,6 +425,10 @@
   .room-form-actions{display:flex; gap:8px; flex-wrap:wrap;}
   /* 09.10.2026: добавить бронь комнаты из админки */
   .room-add-btn{width:100%; margin:0 0 12px;}
+  .stats-room-src{display:flex; flex-wrap:wrap; gap:6px 8px; margin-top:8px;}
+  .stats-room-src span{font-size:12.5px; color:var(--muted); background:var(--black-2); border:1px solid #2c2c2c; border-radius:999px; padding:3px 10px;}
+  .stats-room-src b{color:var(--paper);}
+  .room-src{display:inline-block; font-size:11px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:var(--muted); border:1px solid #333; border-radius:999px; padding:2px 8px; margin-left:6px; vertical-align:middle;}
   .room-add-btn[hidden]{display:none;}
   .room-add{background:var(--black-3); border:1px solid #2e2e2e; border-radius:12px; padding:14px; margin-bottom:14px;}
   .room-add[hidden]{display:none;}
@@ -3547,7 +3551,7 @@
         <div class="stats-meter-track"><div class="stats-meter-fill" style="width:${decided > 0 ? Math.min(100, data.cancelRate) : 0}%"></div></div>
       </div>
       <div class="stats-source">Источник броней: через сайт — <b>${data.sourceSite}</b>, вручную в админке — <b>${data.sourceAdmin}</b>${data.revenue != null ? ` · сумма броней (без отмен): <b>${Math.round(data.revenue)} Br</b>` : ''}</div>
-      ${data.room ? `<div class="stats-room">Комната отдыха: <b>${data.room.count}</b> ${data.room.count % 10 === 1 && data.room.count % 100 !== 11 ? 'бронь' : (data.room.count % 10 >= 2 && data.room.count % 10 <= 4 && (data.room.count % 100 < 12 || data.room.count % 100 > 14)) ? 'брони' : 'броней'}, <b>${data.room.hours}</b> ч, на <b>${Math.round(data.room.total)} Br</b>${data.room.notPlayed ? ` · не состоялось: ${data.room.notPlayed}` : ''}</div>` : ''}
+      ${data.room ? `<div class="stats-room">Комната отдыха: <b>${data.room.count}</b> ${data.room.count % 10 === 1 && data.room.count % 100 !== 11 ? 'бронь' : (data.room.count % 10 >= 2 && data.room.count % 10 <= 4 && (data.room.count % 100 < 12 || data.room.count % 100 > 14)) ? 'брони' : 'броней'}, <b>${data.room.hours}</b> ч, на <b>${Math.round(data.room.total)} Br</b>${data.room.notPlayed ? ` · не состоялось: ${data.room.notPlayed}` : ''}${data.room.bySource ? `<div class="stats-room-src">${Object.entries(data.room.bySource).filter(([k, v]) => v.count || k !== 'Другое').map(([k, v]) => `<span>${escapeHtml(k)} — <b>${v.count}</b>${v.count ? ` · ${Math.round(v.total)} Br` : ''}</span>`).join('')}</div>` : ''}</div>` : ''}
       <div class="stats-chart-head">
         <span class="stats-chart-title">${data.period ? `${escapeHtml(formatDateHeading(data.from))} — ${escapeHtml(formatDateHeading(data.to))}${data.byDay.length > 62 ? ' (по неделям)' : ''}` : 'Последние 21 день'}</span>
         <div class="stats-legend">
@@ -5003,7 +5007,7 @@
           <span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span>
           <span class="room-price">${roomNum(b.price)} Br · ${roomHoursWord(Number(b.hours) || 0)}</span>
         </div>
-        <div class="room-who">${escapeHtml(b.name || 'Без имени')} · <a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone || '')}</a></div>
+        <div class="room-who">${escapeHtml(b.name || 'Без имени')}${b.phone ? ` · <a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone)}</a>` : ''}<span class="room-src">${escapeHtml(b.channel || 'Сайт')}</span></div>
         ${b.hostGameLabel ? `<span class="room-game">${escapeHtml(b.hostGameLabel)} — цену уточнить</span>` : ''}
         ${b.comment ? `<div class="room-meta">${escapeHtml(b.comment)}</div>` : ''}
         ${done && b.closeout.note ? `<div class="room-meta">Сверка: ${escapeHtml(b.closeout.note)}</div>` : ''}
@@ -5089,7 +5093,7 @@
   // ---- 09.10.2026: добавить бронь комнаты вручную (позвонили, написали в Instagram, пришли без брони) ----
   const ROOM_SLOT_HOURS = Array.from({ length: 13 }, (_, i) => 10 + i);   // 10:00 … 22:00, закрытие в 23:00
   const ROOM_RATE_WD = 70, ROOM_RATE_WE = 90;                            // как в api/_rooms.js
-  const ROOM_CHANNELS = ['Телефон', 'Instagram', 'Telegram', 'Пришли без брони', 'Другое'];
+  const ROOM_CHANNELS = ['Телефон', 'Instagram'];
   const roomAddBox = document.getElementById('roomAddBox');
   const roomAddBtn = document.getElementById('roomAddBtn');
   function roomShiftISO(iso, days){ const [y, m, d] = iso.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + days)); return t.toISOString().slice(0, 10); }
