@@ -4940,11 +4940,12 @@
     if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' часа';
     return n + ' часов';
   }
+  function roomSessWord(n){ const m10 = n % 10, m100 = n % 100; return n + (m10 === 1 && m100 !== 11 ? ' сеанс' : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? ' сеанса' : ' сеансов'); }
   function roomNum(v){ const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : 0; }
   function roomStarted(b){
     const [y, m, d] = String(b.dateISO).split('-').map(Number);
-    const hh = Number(String(b.startTime || '0').slice(0, 2));
-    return Date.now() >= Date.UTC(y, m - 1, d, hh, 0) - 3 * 3600 * 1000;
+    const hh = Number(String(b.startTime || '0').slice(0, 2)), mm = Number(String(b.startTime || '0:00').slice(3, 5)) || 0;
+    return Date.now() >= Date.UTC(y, m - 1, d, hh, mm) - 3 * 3600 * 1000;
   }
   function roomSverkaLine(b){
     const c = b.closeout;
@@ -5005,7 +5006,7 @@
       html += `<div class="room-card${done ? ' done' : ''}">
         <div class="room-card-top">
           <span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span>
-          <span class="room-price">${roomNum(b.price)} Br · ${roomHoursWord(Number(b.hours) || 0)}</span>
+          <span class="room-price">${roomNum(b.price)} Br · ${b.sessions ? roomSessWord(Number(b.sessions)) : roomHoursWord(Number(b.hours) || 0)}</span>
         </div>
         <div class="room-who">${escapeHtml(b.name || 'Без имени')}${b.phone ? ` · <a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone)}</a>` : ''}<span class="room-src">${escapeHtml(b.channel || 'Сайт')}</span></div>
         ${b.hostGameLabel ? `<span class="room-game">${escapeHtml(b.hostGameLabel)} — цену уточнить</span>` : ''}
@@ -5091,19 +5092,33 @@
     if (cn){ armOrRun(cn, 'Точно отменить? Нажмите ещё раз', () => roomPost({ action:'cancelRoomBooking', dateISO: cn.dataset.date, bookingId: cn.dataset.id }, 'Бронь отменена, часы снова свободны.', cn)); }
   });
   // ---- 09.10.2026: добавить бронь комнаты вручную (позвонили, написали в Instagram, пришли без брони) ----
-  const ROOM_SLOT_HOURS = Array.from({ length: 13 }, (_, i) => 10 + i);   // 10:00 … 22:00, закрытие в 23:00
+  // 09.10.2026: сеансы комнаты по 1 часу каждые 1,5 часа; бронь — сеансы подряд
+  // (2 сеанса с 18:00 = 18:00–20:30, оплата 2 × тариф). Как в api/_rooms.js.
+  const ROOM_STARTS = ['10:30', '12:00', '13:30', '15:00', '16:30', '18:00', '19:30', '21:00', '22:30'];
+  const ROOM_CLOSE_MIN = 23 * 60 + 30, ROOM_CLEANUP_MIN = 30, ROOM_STEP_MIN = 90;
+  const roomEndOf = (t, n) => roomTimeOf(roomMinOf(t) + n * ROOM_STEP_MIN - ROOM_CLEANUP_MIN);
+  const roomMinOf = (t) => { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+  const roomTimeOf = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   const ROOM_RATE_WD = 70, ROOM_RATE_WE = 90;                            // как в api/_rooms.js
   const ROOM_CHANNELS = ['Телефон', 'Instagram'];
   const roomAddBox = document.getElementById('roomAddBox');
   const roomAddBtn = document.getElementById('roomAddBtn');
   function roomShiftISO(iso, days){ const [y, m, d] = iso.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + days)); return t.toISOString().slice(0, 10); }
   function roomRateFor(iso){ const [y, m, d] = iso.split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return (w === 0 || w === 6) ? ROOM_RATE_WE : ROOM_RATE_WD; }
-  function roomTakenHours(iso){
-    const set = new Set();
-    roomBookingsData.filter(b => b.dateISO === iso).forEach(b => (b.times || []).forEach(t => set.add(Number(String(t).slice(0, 2)))));
-    return set;
+  function roomDayBookings(iso){ return roomBookingsData.filter(b => b.dateISO === iso && Number.isFinite(roomMinOf(b.startTime)) && Number.isFinite(roomMinOf(b.endTime))); }
+  function roomMaxHoursAt(iso, t){
+    const s0 = roomMinOf(t), busy = roomDayBookings(iso).map(b => [roomMinOf(b.startTime), roomMinOf(b.endTime) + ROOM_CLEANUP_MIN]);
+    if (busy.some(([bs, be]) => s0 >= bs && s0 < be)) return 0;
+    let limit = ROOM_CLOSE_MIN;
+    busy.forEach(([bs]) => { if (bs > s0) limit = Math.min(limit, bs - ROOM_CLEANUP_MIN); });
+    return Math.max(0, Math.floor((limit - s0 + ROOM_CLEANUP_MIN) / ROOM_STEP_MIN));
   }
-  const roomHH = (h) => String(h).padStart(2, '0') + ':00';
+  function roomSessionsWord(n){
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return n + ' сеанс';
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' сеанса';
+    return n + ' сеансов';
+  }
   function openRoomAdd(){
     const today = todayISO();
     roomAddBox.innerHTML = `<h3>Новая бронь комнаты</h3>
@@ -5111,7 +5126,7 @@
         <div class="ra-grid">
           <div class="room-form-row ra-date"><span class="rf-label">Дата</span><input type="date" class="ra-date-in" value="${today}" min="${roomShiftISO(today, -31)}" max="${roomShiftISO(today, 59)}"></div>
           <div class="room-form-row"><span class="rf-label">Начало</span><select class="ra-start"></select></div>
-          <div class="room-form-row"><span class="rf-label">Сколько часов</span><select class="ra-hours"></select></div>
+          <div class="room-form-row"><span class="rf-label">До скольки</span><select class="ra-hours"></select></div>
         </div>
         <div class="ra-busy"></div>
         <div class="ra-grid2">
@@ -5137,24 +5152,23 @@
       if (!iso || !n) { q('.ra-hint').textContent = ''; return; }
       const rate = roomRateFor(iso), byRate = rate * n;
       if (!priceTouched) q('.ra-price').value = String(byRate);
-      q('.ra-hint').innerHTML = `По тарифу: <b>${byRate} Br</b> (${roomHoursWord(n)} × ${rate} Br, ${rate === ROOM_RATE_WE ? 'выходной' : 'будний день'}). Цену можно поменять — например, при скидке.`;
+      q('.ra-hint').innerHTML = `По тарифу: <b>${byRate} Br</b> (${roomSessionsWord(n)} × ${rate} Br, ${rate === ROOM_RATE_WE ? 'выходной' : 'будний день'}). Цену можно поменять — например, при скидке.`;
     };
     const fillHours = () => {
-      const iso = q('.ra-date-in').value, start = Number(q('.ra-start').value);
-      const taken = roomTakenHours(iso), prev = Number(q('.ra-hours').value) || 2;
-      let max = 0;
-      for (let h = start; h <= 22 && !taken.has(h); h++) max++;
-      q('.ra-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(prev, max) ? ' selected' : ''}>${i + 1} ч · до ${roomHH(start + i + 1)}</option>`).join('') : '<option value="">занято</option>';
+      const iso = q('.ra-date-in').value, start = q('.ra-start').value;
+      const prev = Number(q('.ra-hours').value) || 2;
+      const max = start ? roomMaxHoursAt(iso, start) : 0;
+      q('.ra-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(prev, max) ? ' selected' : ''}>до ${roomEndOf(start, i + 1)} · ${roomSessionsWord(i + 1)}</option>`).join('') : '<option value="">занято</option>';
       updatePrice();
     };
     const fillStarts = () => {
-      const iso = q('.ra-date-in').value, taken = roomTakenHours(iso), prev = Number(q('.ra-start').value) || 0;
-      const free = ROOM_SLOT_HOURS.filter(h => !taken.has(h));
-      q('.ra-start').innerHTML = ROOM_SLOT_HOURS.map(h => `<option value="${h}"${taken.has(h) ? ' disabled' : ''}>${roomHH(h)}${taken.has(h) ? ' — занято' : ''}</option>`).join('');
-      const pick = free.includes(prev) ? prev : (free.includes(18) ? 18 : free[0]);
-      if (pick !== undefined) q('.ra-start').value = String(pick);
-      const busy = [...taken].sort((a, b) => a - b);
-      q('.ra-busy').innerHTML = !iso ? '' : busy.length ? `Уже занято в этот день: <b>${busy.map(roomHH).join(', ')}</b>` : 'В этот день комната свободна весь день.';
+      const iso = q('.ra-date-in').value, prev = q('.ra-start').value;
+      const free = ROOM_STARTS.filter(t => roomMaxHoursAt(iso, t) > 0);
+      q('.ra-start').innerHTML = ROOM_STARTS.map(t => { const off = !free.includes(t); return `<option value="${t}"${off ? ' disabled' : ''}>${t}${off ? ' — занято' : ''}</option>`; }).join('');
+      const pick = free.includes(prev) ? prev : (free.includes('18:00') ? '18:00' : free[0]);
+      if (pick !== undefined) q('.ra-start').value = pick;
+      const busy = roomDayBookings(iso).sort((a, b) => roomMinOf(a.startTime) - roomMinOf(b.startTime)).map(b => `${b.startTime}–${b.endTime}`);
+      q('.ra-busy').innerHTML = !iso ? '' : busy.length ? `Уже занято в этот день: <b>${busy.join(', ')}</b>` : 'В этот день комната свободна весь день.';
       if (!free.length) q('.ra-busy').innerHTML = '<b>В этот день комната занята полностью.</b>';
       fillHours();
     };
@@ -5165,7 +5179,7 @@
     q('.ra-close').addEventListener('click', closeRoomAdd);
     q('.ra-save').addEventListener('click', async (e) => {
       const btn = e.currentTarget, msg = q('.ra-msg');
-      const payload = { action:'createRoomBooking', dateISO: q('.ra-date-in').value, startTime: roomHH(q('.ra-start').value), hours: Number(q('.ra-hours').value),
+      const payload = { action:'createRoomBooking', dateISO: q('.ra-date-in').value, startTime: q('.ra-start').value, hours: Number(q('.ra-hours').value),
         name: q('.ra-name').value.trim(), phone: q('.ra-phone').value.trim(), channel: q('.ra-channel').value,
         price: q('.ra-price').value.trim(), hostGame: q('.ra-game').value, comment: q('.ra-comment').value.trim() };
       msg.className = 'modal-msg ra-msg err';

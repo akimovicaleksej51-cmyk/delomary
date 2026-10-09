@@ -584,7 +584,7 @@ async function handleReviews(req, res) {
 //   Расписание (GET):    https://loonygames.by/api/extrareality?room=1
 //   Бронь (POST):        https://loonygames.by/api/extrareality?room=1
 //   Отмена брони (POST): https://loonygames.by/api/extrareality?action=cancel&room=1
-// Расписание — каждый час 10:00–22:00 на 45 дней (не дальше, чем открыт
+// Расписание — сетка комнаты 10:30, 12:00 … 22:30 на 45 дней (не дальше, чем открыт
 // календарь комнаты), price — за 1 час, extraPrices — «1 час / 2 часа / …»
 // столько, сколько свободно подряд. Бронь: сколько часов — из полей
 // hours/duration, если ExtraReality их пришлёт, иначе из цены (цена / тариф

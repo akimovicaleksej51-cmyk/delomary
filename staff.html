@@ -2407,11 +2407,12 @@
     if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' часа';
     return n + ' часов';
   }
+  function roomSessWord(n){ const m10 = n % 10, m100 = n % 100; return n + (m10 === 1 && m100 !== 11 ? ' сеанс' : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? ' сеанса' : ' сеансов'); }
   function roomNum(v){ const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : 0; }
   function roomStarted(b){
     const [y, m, d] = String(b.dateISO).split('-').map(Number);
-    const hh = Number(String(b.startTime || '0').slice(0, 2));
-    return Date.now() >= Date.UTC(y, m - 1, d, hh, 0) - 3 * 3600 * 1000;
+    const hh = Number(String(b.startTime || '0').slice(0, 2)), mm = Number(String(b.startTime || '0:00').slice(3, 5)) || 0;
+    return Date.now() >= Date.UTC(y, m - 1, d, hh, mm) - 3 * 3600 * 1000;
   }
   function roomSverkaLine(b){
     const c = b.closeout;
@@ -2472,7 +2473,7 @@
       html += `<div class="room-card${done ? ' done' : ''}">
         <div class="room-card-top">
           <span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span>
-          <span class="room-price">${roomNum(b.price)} Br · ${roomHoursWord(Number(b.hours) || 0)}</span>
+          <span class="room-price">${roomNum(b.price)} Br · ${b.sessions ? roomSessWord(Number(b.sessions)) : roomHoursWord(Number(b.hours) || 0)}</span>
         </div>
         <div class="room-who">${escapeHtml(b.name || 'Без имени')}${b.phone ? ` · <a href="tel:${escapeHtml(tel)}">${escapeHtml(b.phone)}</a>` : ''}<span class="room-src">${escapeHtml(b.channel || 'Сайт')}</span></div>
         ${b.hostGameLabel ? `<span class="room-game">${escapeHtml(b.hostGameLabel)} — цену уточнить</span>` : ''}

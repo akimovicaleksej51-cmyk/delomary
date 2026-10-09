@@ -27,8 +27,20 @@ import { isSlotClosingSoon, businessToday } from './_time.js';
 import { isWeekendISO } from './_pricing.js';
 import { escapeTgHtml, formatDateRu, roomUrgencyLead } from './_telegram.js';
 
-// 10:00 … 22:00 — 13 one-hour slots; the 22:00 slot runs until 23:00.
-export const ROOM_SLOTS = Array.from({ length: 13 }, (_, i) => `${String(10 + i).padStart(2, '0')}:00`);
+// 09.10.2026: сетка брони комнаты — СЕАНСЫ. Каждый сеанс — 1 час, после него
+// 30 минут на уборку (гостям об этом не пишем), поэтому сеансы начинаются
+// каждые 1,5 часа. Бронь — один или несколько сеансов подряд; если гости
+// берут несколько, они не уходят между ними: 2 сеанса с 18:00 = 18:00–20:30,
+// 3 сеанса = 18:00–22:00. Платят за сеансы: 2 сеанса = 2 × тариф за час.
+// В записи брони `hours` = количество сеансов (оплачиваемых часов).
+// Последний сеанс 22:30–23:30.
+export const ROOM_STARTS = ['10:30', '12:00', '13:30', '15:00', '16:30', '18:00', '19:30', '21:00', '22:30'];
+export const ROOM_SLOTS = ROOM_STARTS; // старое имя — для совместимости
+export const ROOM_CLOSE = '23:30';
+export const ROOM_CLEANUP_MINUTES = 30;
+export const ROOM_SESSION_MINUTES = 60;
+export const ROOM_STEP_MINUTES = ROOM_SESSION_MINUTES + ROOM_CLEANUP_MINUTES; // 90
+export const ROOM_MAX_HOURS = ROOM_STARTS.length; // до 9 сеансов
 export const ROOM_RATE_WEEKDAY = 70; // Br per hour, Mon–Fri
 export const ROOM_RATE_WEEKEND = 90; // Br per hour, Sat–Sun (same weekend rule as the quest)
 export const ROOM_DAYS_AHEAD = 60;   // how far ahead the online calendar goes
@@ -51,10 +63,45 @@ export function roomKey(dateISO) {
   return `roombookings:${dateISO}`;
 }
 
-// "14:00" + 3 hours -> "17:00"
-export function endTimeFor(startTime, hours) {
-  const h = Number(String(startTime).slice(0, 2)) + Number(hours);
-  return `${String(h).padStart(2, '0')}:00`;
+// "18:00" + 3 hours -> "21:00"; "10:30" + 2 -> "12:30"
+export function roomMin(t) {
+  const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+}
+export function roomTime(min) {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+}
+// Конец брони из N сеансов: начало последнего сеанса + 1 час.
+// "18:00" + 1 -> "19:00", + 2 -> "20:30", + 3 -> "22:00".
+export function endTimeFor(startTime, sessions) {
+  return roomTime(roomMin(startTime) + Number(sessions) * ROOM_STEP_MINUTES - ROOM_CLEANUP_MINUTES);
+}
+
+// Занятые промежутки дня в минутах: [начало, конец + уборка] для каждой брони.
+// Работает и для старых броней (с почасовыми полями) — берёт startTime/endTime.
+export function roomBusyIntervals(records, exceptBookingId = '') {
+  return (records || [])
+    .filter((r) => r && r.bookingId !== exceptBookingId && Number.isFinite(roomMin(r.startTime)) && Number.isFinite(roomMin(r.endTime)))
+    .map((r) => [roomMin(r.startTime), roomMin(r.endTime) + ROOM_CLEANUP_MINUTES])
+    .sort((a, b) => a[0] - b[0]);
+}
+// Сколько сеансов подряд можно взять, начав в startTime (0 — нельзя начать).
+// Бронь вместе с уборкой после неё не должна задевать другие брони.
+export function roomMaxHours(busy, startTime) {
+  const s = roomMin(startTime);
+  if (!ROOM_STARTS.includes(startTime) || !Number.isFinite(s)) return 0;
+  if ((busy || []).some(([bs, be]) => s >= bs && s < be)) return 0;
+  let limit = roomMin(ROOM_CLOSE);          // конец брони — не позже закрытия
+  (busy || []).forEach(([bs]) => { if (bs > s) limit = Math.min(limit, bs - ROOM_CLEANUP_MINUTES); });
+  return Math.max(0, Math.floor((limit - s + ROOM_CLEANUP_MINUTES) / ROOM_STEP_MINUTES));
+}
+// Получасовые ячейки брони в Redis: от начала до конца + уборка. HSETNX по
+// ячейкам не даёт двум одновременным броням занять одно и то же время.
+export function roomCells(startTime, sessions) {
+  const s = roomMin(startTime), e = s + Number(sessions) * ROOM_STEP_MINUTES;
+  const out = [];
+  for (let m = s; m < e; m += 30) out.push(roomTime(m));
+  return out;
 }
 
 function isRealCalendarDate(iso) {
@@ -85,18 +132,29 @@ function lastBookableISO() {
 
 // ---------- public: availability ----------
 
-// { 'YYYY-MM-DD': ['14:00', '15:00', …taken hours] } for today .. +ROOM_DAYS_AHEAD.
-// Only ever exposes WHICH hours are taken (HKEYS), never who booked them —
-// same privacy rule as api/slots.js for the quest.
+// { busy: { 'YYYY-MM-DD': [[startMin, endMin], …] } } for today .. +ROOM_DAYS_AHEAD.
+// endMin уже включает 30 минут уборки. Отдаём только ЗАНЯТЫЕ ПРОМЕЖУТКИ,
+// никогда — кто забронировал (то же правило приватности, что у api/slots.js).
 export async function getRoomAvailability() {
   const dates = windowDates(0, ROOM_DAYS_AHEAD);
-  const results = await kvPipeline(dates.map((iso) => ['HKEYS', roomKey(iso)]));
-  const taken = {};
-  (results || []).forEach((entry, i) => {
-    const list = entry && Array.isArray(entry.result) ? entry.result : [];
-    if (list.length) taken[dates[i]] = list.filter((t) => ROOM_SLOTS.includes(t)).sort();
+  const busyByDate = await roomBusyByDate(dates);
+  const busy = {};
+  dates.forEach((iso) => { if (busyByDate[iso].length) busy[iso] = busyByDate[iso]; });
+  return {
+    busy, starts: ROOM_STARTS, close: ROOM_CLOSE, cleanup: ROOM_CLEANUP_MINUTES,
+    firstDateISO: dates[0], lastDateISO: dates[dates.length - 1],
+  };
+}
+
+// Занятые промежутки по датам: { 'YYYY-MM-DD': [[s, e], …] }.
+export async function roomBusyByDate(dates) {
+  const results = await kvPipeline(dates.map((iso) => ['HGETALL', roomKey(iso)]));
+  const out = {};
+  dates.forEach((iso, i) => {
+    const e = results && results[i];
+    out[iso] = roomBusyIntervals(uniqueRoomRecords(e && e.result));
   });
-  return { taken, slots: ROOM_SLOTS, firstDateISO: dates[0], lastDateISO: dates[dates.length - 1] };
+  return out;
 }
 
 // ---------- public: validation + booking ----------
@@ -177,16 +235,15 @@ export function validateRoomRequest(body, { admin = false } = {}) {
     return { ok: false, status: 400, error: 'Задним числом можно добавить бронь не раньше, чем месяц назад.' };
   }
 
-  const startIdx = ROOM_SLOTS.indexOf(startTime);
-  if (startIdx === -1) return { ok: false, status: 400, error: 'Некорректное время.' };
-  if (!Number.isInteger(hours) || hours < 1 || startIdx + hours > ROOM_SLOTS.length) {
+  if (!ROOM_STARTS.includes(startTime)) return { ok: false, status: 400, error: 'Некорректное время.' };
+  if (!Number.isInteger(hours) || hours < 1 || roomMin(endTimeFor(startTime, hours)) > roomMin(ROOM_CLOSE)) {
     return { ok: false, status: 400, error: 'Некорректная продолжительность.' };
   }
-  const times = ROOM_SLOTS.slice(startIdx, startIdx + hours);
+  const times = roomCells(startTime, hours);
 
   // Same hour-before cutoff as the quest (api/_time.js) — checking the
   // FIRST hour is enough, every later one starts even later.
-  if (!admin && isSlotClosingSoon(dateISO, times[0])) {
+  if (!admin && isSlotClosingSoon(dateISO, startTime)) {
     return {
       ok: false, status: 409, conflict: true,
       error: 'Онлайн-бронь этого времени уже закрыта — до начала меньше часа. Позвоните нам: +375 (29) 176-19-84.',
@@ -213,9 +270,10 @@ export function validateRoomRequest(body, { admin = false } = {}) {
     phone,
     comment,
     dateISO,
-    startTime: times[0],
-    endTime: endTimeFor(times[0], hours),
-    hours,
+    startTime,
+    endTime: endTimeFor(startTime, hours),
+    hours,      // количество сеансов (оплачиваемых часов)
+    sessions: hours,
     times,
     rate,
     price, // the room only — a hosted game is priced separately by phone
@@ -235,6 +293,15 @@ export function validateRoomRequest(body, { admin = false } = {}) {
 export async function reserveRoomHours(record) {
   const key = roomKey(record.dateISO);
   const value = JSON.stringify(record);
+  // 09.10.2026: сначала — пересечение с уже существующими бронями (с учётом
+  // 30 минут уборки), в том числе старыми почасовыми, у которых другие ячейки.
+  const existing = await kv('hgetall', key);
+  if (Array.isArray(existing) && existing.length) {
+    const busy = roomBusyIntervals(uniqueRoomRecords(existing), record.bookingId);
+    if (roomMaxHours(busy, record.startTime) < Number(record.hours)) {
+      return { ok: false, status: 409, conflict: true, error: 'Это время уже занято — выберите другое.' };
+    }
+  }
   const grabbed = [];
   for (const t of record.times) {
     // eslint-disable-next-line no-await-in-loop
@@ -242,7 +309,7 @@ export async function reserveRoomHours(record) {
     if (added === 1) { grabbed.push(t); continue; }
     if (grabbed.length) await kv('hdel', key, ...grabbed);
     if (added === 0) {
-      return { ok: false, status: 409, conflict: true, error: `Время ${t} уже занято — выберите другие часы.` };
+      return { ok: false, status: 409, conflict: true, error: 'Это время уже занято — выберите другое.' };
     }
     if (isKvConfigured()) {
       return { ok: false, status: 503, error: 'Временные неполадки с сервером. Попробуйте ещё раз через минуту.' };
@@ -364,33 +431,13 @@ export function roomCancelTelegramText(record, via = '') {
 //
 // Агрегаторы мыслят «сеансами»: время начала + цена. У комнаты почасовая
 // аренда, поэтому:
-//   - расписание: каждый час 10:00–22:00, is_free = этот час свободен;
+//   - расписание: каждое время сетки (10:30 … 22:30), is_free = можно начать хотя бы на 1 час;
 //     price = цена за 1 час; дополнительно — варианты «1 час / 2 часа / …»
 //     до следующей занятой брони или закрытия (тарифы у Мира Квестов,
 //     extraPrices у ExtraReality);
 //   - бронь: сколько часов, берём из выбранного тарифа («3 часа: 210 Br»),
 //     поля hours/duration, если агрегатор их пришлёт, или из цены (цена /
 //     тариф за час); иначе 1 час.
-
-// Занятые часы по датам: { 'YYYY-MM-DD': ['14:00', …] }.
-export async function roomTakenByDate(dates) {
-  const results = await kvPipeline(dates.map((iso) => ['HKEYS', roomKey(iso)]));
-  const out = {};
-  dates.forEach((iso, i) => {
-    const e = results && results[i];
-    out[iso] = e && Array.isArray(e.result) ? e.result : [];
-  });
-  return out;
-}
-
-// Сколько часов подряд свободно, начиная с startTime (0 — сам час занят).
-export function roomFreeRun(taken, startTime) {
-  const idx = ROOM_SLOTS.indexOf(startTime);
-  if (idx === -1) return 0;
-  let n = 0;
-  for (let i = idx; i < ROOM_SLOTS.length && !taken.includes(ROOM_SLOTS[i]); i++) n++;
-  return n;
-}
 
 function hoursWordRu(n) {
   const m10 = n % 10, m100 = n % 100;
@@ -399,22 +446,23 @@ function hoursWordRu(n) {
   return `${n} часов`;
 }
 
-// Варианты длительности для одного часа начала: [{ hours, label, price }].
-export function roomPackagesFor(dateISO, startTime, taken) {
+// Варианты для одного времени начала: [{ hours, label, price }], label —
+// «1 час · до 19:00», «2 часа · до 20:30» (агрегатор вернёт его в тарифе).
+export function roomPackagesFor(dateISO, startTime, busy) {
   const rate = roomRateFor(dateISO);
-  const run = roomFreeRun(taken, startTime);
-  return Array.from({ length: run }, (_, i) => ({ hours: i + 1, label: hoursWordRu(i + 1), price: rate * (i + 1) }));
+  const max = roomMaxHours(busy, startTime);
+  return Array.from({ length: max }, (_, i) => ({ hours: i + 1, label: `${hoursWordRu(i + 1)} · до ${endTimeFor(startTime, i + 1)}`, price: rate * (i + 1) }));
 }
 
-// Расписание для агрегатора: одна запись на каждый час.
+// Расписание для агрегатора: одна запись на каждое время начала из сетки.
 export async function roomAggregatorSchedule(daysAhead, now = new Date()) {
   const dates = windowDates(0, Math.min(daysAhead, ROOM_DAYS_AHEAD));
-  const taken = await roomTakenByDate(dates);
+  const busyByDate = await roomBusyByDate(dates);
   const out = [];
   for (const dateISO of dates) {
-    const t = taken[dateISO] || [];
-    for (const time of ROOM_SLOTS) {
-      const free = !t.includes(time) && !isSlotClosingSoon(dateISO, time, now);
+    const t = busyByDate[dateISO] || [];
+    for (const time of ROOM_STARTS) {
+      const free = roomMaxHours(t, time) > 0 && !isSlotClosingSoon(dateISO, time, now);
       out.push({
         date: dateISO,
         time,
@@ -431,17 +479,18 @@ export async function roomAggregatorSchedule(daysAhead, now = new Date()) {
 export function aggregatorHours({ hours, duration, tariff, price }, dateISO) {
   const asInt = (v) => { const n = Number(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
   const h = asInt(hours);
-  if (Number.isInteger(h) && h >= 1 && h <= ROOM_SLOTS.length) return h;
+  if (Number.isInteger(h) && h >= 1 && h <= ROOM_MAX_HOURS) return h;
   const d = asInt(duration);
   if (Number.isFinite(d) && d > 0) {
-    const fromDur = d > ROOM_SLOTS.length ? Math.round(d / 60) : Math.round(d); // минуты или часы
-    if (fromDur >= 1 && fromDur <= ROOM_SLOTS.length) return fromDur;
+    // минуты (18:00–20:30 = 150 мин = 2 сеанса) или число часов/сеансов
+    const fromDur = d > ROOM_MAX_HOURS ? Math.round((d + ROOM_CLEANUP_MINUTES) / ROOM_STEP_MINUTES) : Math.round(d);
+    if (fromDur >= 1 && fromDur <= ROOM_MAX_HOURS) return fromDur;
   }
   const m = typeof tariff === 'string' ? tariff.match(/(\d+)\s*ч/i) : null;
-  if (m) { const n = Number(m[1]); if (n >= 1 && n <= ROOM_SLOTS.length) return n; }
+  if (m) { const n = Number(m[1]); if (n >= 1 && n <= ROOM_MAX_HOURS) return n; }
   const p = asInt(price);
   const rate = roomRateFor(dateISO);
-  if (Number.isFinite(p) && p >= rate) { const n = Math.round(p / rate); if (n >= 1 && n <= ROOM_SLOTS.length) return n; }
+  if (Number.isFinite(p) && p >= rate) { const n = Math.round(p / rate); if (n >= 1 && n <= ROOM_MAX_HOURS) return n; }
   return 1;
 }
 

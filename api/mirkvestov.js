@@ -113,7 +113,7 @@ import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
-import { roomAggregatorSchedule, roomTakenByDate, roomPackagesFor, aggregatorHours, createAggregatorRoomBooking } from './_rooms.js';
+import { roomAggregatorSchedule, roomBusyByDate, roomPackagesFor, aggregatorHours, createAggregatorRoomBooking } from './_rooms.js';
 
 const DAYS_AHEAD = 14; // Mir Kvestov's spec: "расписание на 2 недели"
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // same retention as every other booking
@@ -419,7 +419,7 @@ async function handleOrder(req, res) {
 //   https://loonygames.by/api/mirkvestov?room=1
 // Его нужно дать Миру Квестов как адрес ОТДЕЛЬНОЙ карточки (комната — это
 // не квест, у неё свой список часов). Всё то же, что у квеста:
-//   GET                    -> расписание на 2 недели, каждый час 10:00–22:00
+//   GET                    -> расписание на 2 недели: 10:30, 12:00 … 22:30 (сетка комнаты)
 //   GET ?date=…&time=…     -> тарифы: «1 час: 70 Br», «2 часа: 140 Br», … —
 //                             только столько часов, сколько свободно подряд
 //   POST                   -> бронь; сколько часов — из выбранного тарифа
@@ -441,7 +441,7 @@ async function handleRoomTariffs(req, res) {
   const dateISO = typeof q.date === 'string' ? q.date.trim() : '';
   const time = typeof q.time === 'string' ? q.time.trim() : '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO) || !/^\d{2}:\d{2}$/.test(time)) return res.status(200).json({});
-  const taken = (await roomTakenByDate([dateISO]))[dateISO] || [];
+  const taken = (await roomBusyByDate([dateISO]))[dateISO] || [];
   const out = {};
   roomPackagesFor(dateISO, time, taken).forEach((p) => { out[`${p.label}: ${p.price} Br`] = p.price; });
   return res.status(200).json(out);
