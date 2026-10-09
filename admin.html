@@ -423,6 +423,20 @@
   .rf-total{font-size:13.5px; color:var(--muted);}
   .rf-total b{color:var(--ochre-bright);}
   .room-form-actions{display:flex; gap:8px; flex-wrap:wrap;}
+  /* 09.10.2026: добавить бронь комнаты из админки */
+  .room-add-btn{width:100%; margin:0 0 12px;}
+  .room-add-btn[hidden]{display:none;}
+  .room-add{background:var(--black-3); border:1px solid #2e2e2e; border-radius:12px; padding:14px; margin-bottom:14px;}
+  .room-add[hidden]{display:none;}
+  .room-add h3{margin:0 0 4px; font-size:16px;}
+  .room-add .room-form{margin-top:8px; padding-top:0; border-top:0;}
+  .ra-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;}
+  .ra-grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  @media (max-width:560px){ .ra-grid{grid-template-columns:1fr 1fr;} .ra-grid .ra-date{grid-column:1 / -1;} .ra-grid2{grid-template-columns:1fr;} }
+  .ra-hint{font-size:12.5px; color:var(--muted);}
+  .ra-hint b{color:var(--ochre-bright);}
+  .ra-busy{font-size:12.5px; color:var(--muted);}
+  .ra-busy b{color:var(--danger-bright); font-weight:700;}
   .room-form-actions button{flex:1 1 auto;}
   .modal-msg.err{color:var(--danger-bright);}
   .modal-msg.ok{color:var(--ochre-bright);}
@@ -1339,6 +1353,8 @@
     <button class="modal-close-x" data-close="roomBookings">✕</button>
     <h2>Комната отдыха — брони</h2>
     <p style="color:var(--muted); font-size:13px; margin:-6px 0 16px;">Почасовые брони Loony Room. После брони проведите сверку: была ли комната занята, сколько заплатили и как, кто был ответственный — деньги попадут в Кассу и Бухгалтерию.</p>
+    <button type="button" class="btn room-add-btn" id="roomAddBtn">+ Добавить бронь комнаты</button>
+    <div class="room-add" id="roomAddBox" hidden></div>
     <div class="room-tabs">
       <button type="button" class="room-tab active" data-room-tab="upcoming">Сегодня и дальше <span id="roomCountUpcoming"></span></button>
       <button type="button" class="room-tab" data-room-tab="past">Прошедшие <span id="roomCountPast"></span></button>
@@ -5070,6 +5086,113 @@
     const cn = e.target.closest('.room-cancel');
     if (cn){ armOrRun(cn, 'Точно отменить? Нажмите ещё раз', () => roomPost({ action:'cancelRoomBooking', dateISO: cn.dataset.date, bookingId: cn.dataset.id }, 'Бронь отменена, часы снова свободны.', cn)); }
   });
+  // ---- 09.10.2026: добавить бронь комнаты вручную (позвонили, написали в Instagram, пришли без брони) ----
+  const ROOM_SLOT_HOURS = Array.from({ length: 13 }, (_, i) => 10 + i);   // 10:00 … 22:00, закрытие в 23:00
+  const ROOM_RATE_WD = 70, ROOM_RATE_WE = 90;                            // как в api/_rooms.js
+  const ROOM_CHANNELS = ['Телефон', 'Instagram', 'Telegram', 'Пришли без брони', 'Другое'];
+  const roomAddBox = document.getElementById('roomAddBox');
+  const roomAddBtn = document.getElementById('roomAddBtn');
+  function roomShiftISO(iso, days){ const [y, m, d] = iso.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + days)); return t.toISOString().slice(0, 10); }
+  function roomRateFor(iso){ const [y, m, d] = iso.split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return (w === 0 || w === 6) ? ROOM_RATE_WE : ROOM_RATE_WD; }
+  function roomTakenHours(iso){
+    const set = new Set();
+    roomBookingsData.filter(b => b.dateISO === iso).forEach(b => (b.times || []).forEach(t => set.add(Number(String(t).slice(0, 2)))));
+    return set;
+  }
+  const roomHH = (h) => String(h).padStart(2, '0') + ':00';
+  function openRoomAdd(){
+    const today = todayISO();
+    roomAddBox.innerHTML = `<h3>Новая бронь комнаты</h3>
+      <div class="room-form">
+        <div class="ra-grid">
+          <div class="room-form-row ra-date"><span class="rf-label">Дата</span><input type="date" class="ra-date-in" value="${today}" min="${roomShiftISO(today, -31)}" max="${roomShiftISO(today, 59)}"></div>
+          <div class="room-form-row"><span class="rf-label">Начало</span><select class="ra-start"></select></div>
+          <div class="room-form-row"><span class="rf-label">Сколько часов</span><select class="ra-hours"></select></div>
+        </div>
+        <div class="ra-busy"></div>
+        <div class="ra-grid2">
+          <div class="room-form-row"><span class="rf-label">Имя гостя</span><input class="ra-name" maxlength="100" placeholder="Например: Марина"></div>
+          <div class="room-form-row"><span class="rf-label">Телефон (необязательно)</span><input class="ra-phone" type="tel" maxlength="40" placeholder="+375 29 …"></div>
+        </div>
+        <div class="ra-grid2">
+          <div class="room-form-row"><span class="rf-label">Откуда бронь</span><select class="ra-channel">${ROOM_CHANNELS.map(c => `<option>${escapeHtml(c)}</option>`).join('')}</select></div>
+          <div class="room-form-row"><span class="rf-label">Цена, Br</span><input class="ra-price" inputmode="decimal"></div>
+        </div>
+        <div class="ra-hint"></div>
+        <div class="room-form-row"><span class="rf-label">Доп. опция</span><select class="ra-game"><option value="">— нет —</option><option value="mafia">Мафия с ведущим</option><option value="bunker">Бункер с ведущим</option></select></div>
+        <div class="room-form-row"><span class="rf-label">Комментарий (необязательно)</span><input class="ra-comment" maxlength="500" placeholder="Например: день рождения, 8 человек"></div>
+        <div class="room-form-actions"><button type="button" class="btn ra-save">Сохранить бронь</button><button type="button" class="btn-secondary ra-close">Отмена</button></div>
+        <div class="modal-msg ra-msg"></div>
+      </div>`;
+    roomAddBox.hidden = false;
+    roomAddBtn.hidden = true;
+    const q = (sel) => roomAddBox.querySelector(sel);
+    let priceTouched = false;
+    const updatePrice = () => {
+      const iso = q('.ra-date-in').value, n = Number(q('.ra-hours').value) || 0;
+      if (!iso || !n) { q('.ra-hint').textContent = ''; return; }
+      const rate = roomRateFor(iso), byRate = rate * n;
+      if (!priceTouched) q('.ra-price').value = String(byRate);
+      q('.ra-hint').innerHTML = `По тарифу: <b>${byRate} Br</b> (${roomHoursWord(n)} × ${rate} Br, ${rate === ROOM_RATE_WE ? 'выходной' : 'будний день'}). Цену можно поменять — например, при скидке.`;
+    };
+    const fillHours = () => {
+      const iso = q('.ra-date-in').value, start = Number(q('.ra-start').value);
+      const taken = roomTakenHours(iso), prev = Number(q('.ra-hours').value) || 2;
+      let max = 0;
+      for (let h = start; h <= 22 && !taken.has(h); h++) max++;
+      q('.ra-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(prev, max) ? ' selected' : ''}>${i + 1} ч · до ${roomHH(start + i + 1)}</option>`).join('') : '<option value="">занято</option>';
+      updatePrice();
+    };
+    const fillStarts = () => {
+      const iso = q('.ra-date-in').value, taken = roomTakenHours(iso), prev = Number(q('.ra-start').value) || 0;
+      const free = ROOM_SLOT_HOURS.filter(h => !taken.has(h));
+      q('.ra-start').innerHTML = ROOM_SLOT_HOURS.map(h => `<option value="${h}"${taken.has(h) ? ' disabled' : ''}>${roomHH(h)}${taken.has(h) ? ' — занято' : ''}</option>`).join('');
+      const pick = free.includes(prev) ? prev : (free.includes(18) ? 18 : free[0]);
+      if (pick !== undefined) q('.ra-start').value = String(pick);
+      const busy = [...taken].sort((a, b) => a - b);
+      q('.ra-busy').innerHTML = !iso ? '' : busy.length ? `Уже занято в этот день: <b>${busy.map(roomHH).join(', ')}</b>` : 'В этот день комната свободна весь день.';
+      if (!free.length) q('.ra-busy').innerHTML = '<b>В этот день комната занята полностью.</b>';
+      fillHours();
+    };
+    q('.ra-date-in').addEventListener('change', fillStarts);
+    q('.ra-start').addEventListener('change', fillHours);
+    q('.ra-hours').addEventListener('change', updatePrice);
+    q('.ra-price').addEventListener('input', () => { priceTouched = true; });
+    q('.ra-close').addEventListener('click', closeRoomAdd);
+    q('.ra-save').addEventListener('click', async (e) => {
+      const btn = e.currentTarget, msg = q('.ra-msg');
+      const payload = { action:'createRoomBooking', dateISO: q('.ra-date-in').value, startTime: roomHH(q('.ra-start').value), hours: Number(q('.ra-hours').value),
+        name: q('.ra-name').value.trim(), phone: q('.ra-phone').value.trim(), channel: q('.ra-channel').value,
+        price: q('.ra-price').value.trim(), hostGame: q('.ra-game').value, comment: q('.ra-comment').value.trim() };
+      msg.className = 'modal-msg ra-msg err';
+      if (!payload.dateISO){ msg.textContent = 'Выберите дату.'; return; }
+      if (!payload.hours){ msg.textContent = 'На это время комната занята — выберите другое начало.'; return; }
+      if (!payload.name){ msg.textContent = 'Укажите имя гостя.'; q('.ra-name').focus(); return; }
+      btn.disabled = true; msg.textContent = ''; msg.className = 'modal-msg ra-msg';
+      try{
+        const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok){
+          msg.textContent = out.error || 'Не удалось сохранить бронь.'; msg.className = 'modal-msg ra-msg err'; btn.disabled = false;
+          if (res.status === 409) loadRoomBookings().then(fillStarts);   // кто-то успел занять — обновим часы
+          return;
+        }
+        roomBookingsData = out.roomBookings || roomBookingsData;
+        const b = out.booking || payload;
+        closeRoomAdd();
+        roomTab = b.dateISO < todayISO() ? 'past' : 'upcoming';
+        document.querySelectorAll('[data-room-tab]').forEach(t => t.classList.toggle('active', t.dataset.roomTab === roomTab));
+        renderRoomBookings();
+        roomBookingsMsg.textContent = `Бронь добавлена: ${formatDateHeading(b.dateISO)}, ${b.startTime}–${b.endTime || ''}.${b.dateISO < todayISO() ? ' Она уже прошла — проведите по ней сверку.' : ''}`;
+        roomBookingsMsg.className = 'modal-msg ok';
+      } catch(err){ msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg ra-msg err'; btn.disabled = false; }
+    });
+    fillStarts();
+    q('.ra-name').focus({ preventScroll: true });
+  }
+  function closeRoomAdd(){ roomAddBox.hidden = true; roomAddBox.innerHTML = ''; roomAddBtn.hidden = false; }
+  roomAddBtn.addEventListener('click', openRoomAdd);
+
   async function loadRoomPeople(){
     try{
       const res = await fetch(`/api/admin/shifts?from=${todayISO()}&days=1`, { headers: authHeaders(), cache:'no-store' });
@@ -5093,7 +5216,7 @@
       roomBookingsList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
     }
   }
-  document.getElementById('roomBookingsBtn').addEventListener('click', () => { roomBookingsOverlay.classList.add('show'); roomOpenForm = ''; loadRoomBookings(); });
+  document.getElementById('roomBookingsBtn').addEventListener('click', () => { roomBookingsOverlay.classList.add('show'); roomOpenForm = ''; closeRoomAdd(); loadRoomBookings(); });
   document.querySelectorAll('[data-close="roomBookings"]').forEach(b => b.addEventListener('click', () => roomBookingsOverlay.classList.remove('show')));
   roomBookingsOverlay.addEventListener('click', e => { if (e.target === roomBookingsOverlay) roomBookingsOverlay.classList.remove('show'); });
   document.querySelectorAll('[data-room-tab]').forEach(t => t.addEventListener('click', () => {

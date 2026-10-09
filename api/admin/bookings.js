@@ -106,9 +106,9 @@ import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryA
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
 import { toAmount } from '../_finance.js';
-import { businessToday, businessDateTime } from '../_time.js';
+import { businessToday, businessDateTime, todayISO as businessTodayISO } from '../_time.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
-import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, setRoomCloseout, cancelRoomCloseout, uniqueRoomRecords } from '../_rooms.js';
+import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, cancelRoomCloseout, uniqueRoomRecords } from '../_rooms.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -356,6 +356,22 @@ export default async function handler(req, res) {
     if (action === 'listRoomBookings') {
       const roomBookings = await listRoomBookings();
       return res.status(200).json({ ok: true, roomBookings });
+    }
+
+    // 09.10.2026: бронь комнаты, добавленная менеджером (по телефону, из
+    // Instagram, пришли без брони…). Те же часы, что и у сайта — занятые
+    // часы второй раз не забронировать.
+    if (action === 'createRoomBooking') {
+      const checked = validateRoomRequest(body, { admin: true });
+      if (!checked.ok) return res.status(checked.status).json({ error: checked.error });
+      const record = checked.record;
+      const reserved = await reserveRoomHours(record);
+      if (!reserved.ok) return res.status(reserved.status || 500).json({ error: reserved.error || 'Не удалось сохранить бронь.' });
+      if (reserved.unreserved) return res.status(503).json({ error: 'База данных не подключена — бронь не сохранена.' });
+      // Только для броней на сегодня и вперёд — о прошедших писать в Telegram незачем.
+      if (record.dateISO >= businessTodayISO()) await sendTelegram(roomBookingTelegramText(record), 'room admin create');
+      const roomBookings = await listRoomBookings();
+      return res.status(200).json({ ok: true, booking: record, roomBookings });
     }
 
     if (action === 'cancelRoomBooking') {

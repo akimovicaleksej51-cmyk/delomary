@@ -129,9 +129,15 @@ function hoursLabel(n) {
   return `${n} ч`;
 }
 
+// Who can add a booking from the admin panel and how the guest reached us.
+export const ROOM_ADMIN_CHANNELS = ['Телефон', 'Instagram', 'Telegram', 'Пришли без брони', 'Другое'];
+
 // Returns { ok:true, record } or { ok:false, status, error, conflict? }.
 // Pure validation — touches nothing.
-export function validateRoomRequest(body) {
+// 09.10.2026: { admin:true } — бронь, добавленная менеджером в админке:
+// телефон необязателен, можно задним числом (до месяца назад — чтобы потом
+// провести сверку) и без отсечки «за час до начала», цену можно поменять.
+export function validateRoomRequest(body, { admin = false } = {}) {
   const name = clean(body.name, 100);
   const phone = clean(body.phone, 40);
   const comment = clean(body.comment, 500);
@@ -140,10 +146,22 @@ export function validateRoomRequest(body) {
   const hours = Number(body.hours);
   const hostGame = typeof body.hostGame === 'string' && HOST_GAMES[body.hostGame] ? body.hostGame : '';
 
-  if (!name || !phone) return { ok: false, status: 400, error: 'Укажите имя и телефон.' };
-  if ((phone.match(/\d/g) || []).length < 9) return { ok: false, status: 400, error: 'Проверьте номер телефона.' };
+  if (admin) {
+    if (!name) return { ok: false, status: 400, error: 'Укажите имя гостя.' };
+    if (phone && (phone.match(/\d/g) || []).length < 7) return { ok: false, status: 400, error: 'Проверьте номер телефона.' };
+  } else {
+    if (!name || !phone) return { ok: false, status: 400, error: 'Укажите имя и телефон.' };
+    if ((phone.match(/\d/g) || []).length < 9) return { ok: false, status: 400, error: 'Проверьте номер телефона.' };
+  }
   if (!isRealCalendarDate(dateISO)) return { ok: false, status: 400, error: 'Некорректная дата.' };
-  if (dateISO > lastBookableISO()) return { ok: false, status: 400, error: 'На эту дату онлайн-бронь ещё не открыта — позвоните нам: +375 (29) 176-19-84.' };
+  if (dateISO > lastBookableISO()) {
+    return { ok: false, status: 400, error: admin
+      ? `Брони комнаты открыты на ${ROOM_DAYS_AHEAD} дней вперёд — эта дата пока дальше.`
+      : 'На эту дату онлайн-бронь ещё не открыта — позвоните нам: +375 (29) 176-19-84.' };
+  }
+  if (admin && dateISO < windowDates(-31, 1)[0]) {
+    return { ok: false, status: 400, error: 'Задним числом можно добавить бронь не раньше, чем месяц назад.' };
+  }
 
   const startIdx = ROOM_SLOTS.indexOf(startTime);
   if (startIdx === -1) return { ok: false, status: 400, error: 'Некорректное время.' };
@@ -154,7 +172,7 @@ export function validateRoomRequest(body) {
 
   // Same hour-before cutoff as the quest (api/_time.js) — checking the
   // FIRST hour is enough, every later one starts even later.
-  if (isSlotClosingSoon(dateISO, times[0])) {
+  if (!admin && isSlotClosingSoon(dateISO, times[0])) {
     return {
       ok: false, status: 409, conflict: true,
       error: 'Онлайн-бронь этого времени уже закрыта — до начала меньше часа. Позвоните нам: +375 (29) 176-19-84.',
@@ -162,7 +180,17 @@ export function validateRoomRequest(body) {
   }
 
   const rate = roomRateFor(dateISO);
-  const attribution = cleanAttribution(body.attribution);
+  const attribution = admin ? {} : cleanAttribution(body.attribution);
+  // Admin may set its own price (discount, deal by phone); empty -> by the rate.
+  let price = rate * hours;
+  if (admin && body.price !== undefined && String(body.price).trim() !== '') {
+    const p = Number(String(body.price).replace(',', '.').trim());
+    if (!Number.isFinite(p) || p < 0 || p > 100000) return { ok: false, status: 400, error: 'Проверьте цену.' };
+    price = Math.round(p * 100) / 100;
+  }
+  const channel = admin
+    ? (ROOM_ADMIN_CHANNELS.includes(body.channel) ? body.channel : 'Телефон')
+    : 'Сайт';
   const record = {
     type: 'room',
     room: ROOM_NAME,
@@ -176,13 +204,14 @@ export function validateRoomRequest(body) {
     hours,
     times,
     rate,
-    price: rate * hours, // the room only — a hosted game is priced separately by phone
+    price, // the room only — a hosted game is priced separately by phone
     hostGame,
     hostGameLabel: hostGame ? HOST_GAMES[hostGame] : '',
-    channel: 'Сайт',
+    channel,
     attribution,
     createdAt: new Date().toISOString(),
   };
+  if (admin) record.createdBy = 'admin';
   return { ok: true, record };
 }
 
@@ -223,12 +252,16 @@ export function roomBookingTelegramText(record) {
     `Имя: ${escapeTgHtml(record.name)}`,
     `Телефон: ${escapeTgHtml(record.phone)}`,
     record.hostGameLabel ? `Доп. опция: ${escapeTgHtml(record.hostGameLabel)} (цену уточнить)` : null,
-    `Цена: ${record.price} Br (${hoursLabel(record.hours)} × ${record.rate} Br)`,
+    Number(record.price) === record.rate * record.hours
+      ? `Цена: ${record.price} Br (${hoursLabel(record.hours)} × ${record.rate} Br)`
+      : `Цена: ${record.price} Br (договорная; по тарифу было бы ${record.rate * record.hours} Br)`,
+    record.createdBy === 'admin' ? `Откуда: ${escapeTgHtml(record.channel || '')}` : null,
     record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
     attributionLabel(record.attribution || {}) ? `Источник: ${escapeTgHtml(attributionLabel(record.attribution))}` : null,
   ].filter((l) => l !== null).join('\n');
   // Same-day urgency lead first, exactly like a new quest booking.
-  return `${urgencyLead(record.dateISO, record.startTime)}${'Новая бронь — Loony Room'.toUpperCase()}\n\n${fields}`;
+  const title = record.createdBy === 'admin' ? 'Новая бронь — Loony Room (добавлена в админке)' : 'Новая бронь — Loony Room';
+  return `${urgencyLead(record.dateISO, record.startTime)}${title.toUpperCase()}\n\n${fields}`;
 }
 
 export async function sendRoomTelegram(text) {
