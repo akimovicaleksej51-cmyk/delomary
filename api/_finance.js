@@ -36,6 +36,7 @@
 
 import { kv, kvPipeline, pairsToObject } from './_kv.js';
 import { getNameAliases } from './_names.js';
+import { uniqueRoomRecords, roomPaid } from './_rooms.js';
 
 const OPENING_KEY = 'cashRegisterOpening';
 const CASHOUTS_TTL_SECONDS = 60 * 60 * 24 * 400; // cashouts matter long-term for the register's history
@@ -163,10 +164,15 @@ async function sumCashInForDates(dates) {
   const results = await kvPipeline([
     ...dates.map((iso) => ['HGETALL', `bookings:${iso}`]),
     ...dates.map((iso) => ['HGETALL', `history:${iso}`]),
+    ...dates.map((iso) => ['HGETALL', `roombookings:${iso}`]),
   ]);
   if (!results) return 0;
   let total = 0;
-  results.forEach((entry) => {
+  // 09.10.2026: наличные за комнату (Loony Room) тоже идут в кассу
+  results.slice(dates.length * 2).forEach((entry) => {
+    uniqueRoomRecords(entry && entry.result).forEach((rec) => { total += roomPaid(rec).cash; });
+  });
+  results.slice(0, dates.length * 2).forEach((entry) => {
     const obj = pairsToObject(entry && entry.result);
     Object.values(obj).forEach((raw) => {
       try {
@@ -412,11 +418,12 @@ export async function buildCashLedger(fromISO, toISO, todayISOValue) {
     running = opening.balance + inBefore - outBefore;
   }
 
-  const [bookingRes, historyRes, cashoutRes, countRes] = await Promise.all([
+  const [bookingRes, historyRes, cashoutRes, countRes, roomRes] = await Promise.all([
     kvPipeline(range.map((iso) => ['HGETALL', `bookings:${iso}`])),
     kvPipeline(range.map((iso) => ['HGETALL', `history:${iso}`])),
     kvPipeline(range.map((iso) => ['GET', `cashouts:${iso}`])),
     kvPipeline(range.map((iso) => ['GET', `cashcount:${iso}`])),
+    kvPipeline(range.map((iso) => ['HGETALL', `roombookings:${iso}`])),
   ]);
 
   const days = range.map((iso, i) => {
@@ -428,6 +435,16 @@ export async function buildCashLedger(fromISO, toISO, todayISOValue) {
           const e = cashInEntry(JSON.parse(raw), key, where);
           if (e) ins.push(e);
         } catch { /* skip malformed */ }
+      });
+    });
+    // 09.10.2026: наличные за комнату (Loony Room)
+    uniqueRoomRecords(roomRes && roomRes[i] && roomRes[i].result).forEach((rec) => {
+      const paid = roomPaid(rec);
+      if (!paid.cash) return;
+      ins.push({
+        time: rec.startTime || '', name: `Комната · ${rec.name || ''}`.trim(), phone: rec.phone || '',
+        amount: paid.cash, price: toAmount(rec.price), payCard: paid.card, payErip: paid.erip,
+        channel: 'Loony Room', status: 'active', where: 'room', key: rec.bookingId, warning: '',
       });
     });
     ins.sort((a, b) => String(a.time).localeCompare(String(b.time)));

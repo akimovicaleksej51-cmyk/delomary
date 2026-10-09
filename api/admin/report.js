@@ -29,6 +29,7 @@ import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryA
 import { todayISO, businessDateTime } from '../_time.js';
 import { getActorsMap, resolveActorUsernamesForSlotSync } from '../_reminders.js';
 import { getNameAliases } from '../_names.js';
+import { uniqueRoomRecords, roomPaid } from '../_rooms.js';
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 92;
@@ -178,7 +179,7 @@ export default async function handler(req, res) {
 
   const byDay = {};
   dates.forEach((iso) => {
-    byDay[iso] = { dateISO: iso, bookings: 0, cash: 0, card: 0, erip: 0, expenses: 0, payroll: 0 };
+    byDay[iso] = { dateISO: iso, bookings: 0, cash: 0, card: 0, erip: 0, expenses: 0, payroll: 0, room: 0, roomCount: 0 };
   });
 
   const channelTotals = {};
@@ -305,6 +306,23 @@ export default async function handler(req, res) {
       try { ingestRecord(JSON.parse(raw), dates[i]); } catch { /* skip malformed */ }
     });
   });
+  // 09.10.2026: комната (Loony Room) — деньги за неё идут в те же Нал/Безнал/ЕРИП
+  // дня и отдельно в колонку «Комната». Брони, где сверка сказала «не
+  // состоялась», не считаются.
+  const roomResults = await kvPipeline(dates.map((iso) => ['HGETALL', `roombookings:${iso}`]));
+  const roomRows = [];
+  (roomResults || []).forEach((entry, i) => {
+    const day = byDay[dates[i]];
+    uniqueRoomRecords(entry && entry.result).forEach((rec) => {
+      if (wantDetailed) roomRows.push({ ...rec, dateISO: dates[i] });
+      if (!day || (rec.closeout && rec.closeout.played === false)) return;
+      const paid = roomPaid(rec);
+      day.cash += paid.cash; day.card += paid.card; day.erip += paid.erip;
+      day.room += paid.cash + paid.card + paid.erip;
+      day.roomCount += 1;
+    });
+  });
+
   (cashoutResults || []).forEach((entry, i) => {
     const raw = entry && entry.result;
     if (!raw) return;
@@ -384,6 +402,6 @@ export default async function handler(req, res) {
     actors: actorTotals,
     technicalCount,
     ...(String((req.query && req.query.actorDetails) || '') === '1' ? { actorGames, actorPayouts: payoutsOut, unlinkedPayroll } : {}),
-    ...(wantDetailed ? { bookings: detailedRows } : {}),
+    ...(wantDetailed ? { bookings: detailedRows, roomBookings: roomRows } : {}),
   });
 }

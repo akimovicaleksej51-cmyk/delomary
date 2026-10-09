@@ -255,7 +255,9 @@ export async function sendRoomTelegram(text) {
 // Every room booking from a week ago to ROOM_DAYS_AHEAD out, one entry per
 // booking (not per hour), sorted by date then start time.
 export async function listRoomBookings() {
-  const dates = windowDates(-7, 7 + ROOM_DAYS_AHEAD);
+  // 09.10.2026: месяц назад (было неделя) — чтобы можно было провести сверку
+  // по прошедшим броням комнаты
+  const dates = windowDates(-31, 31 + ROOM_DAYS_AHEAD);
   const results = await kvPipeline(dates.map((iso) => ['HGETALL', roomKey(iso)]));
   const byId = new Map();
   (results || []).forEach((entry) => {
@@ -300,4 +302,91 @@ export function roomCancelTelegramText(record) {
     record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
   ].filter((l) => l !== null).join('\n');
   return `${'Бронь Loony Room отменена'.toUpperCase()}\n\n${fields}`;
+}
+
+
+// ---------- 09.10.2026: сверка по комнате + деньги комнаты в Кассе/Бухгалтерии ----------
+//
+// Сверка хранится прямо в записи брони (она лежит копией на каждом часе —
+// поэтому переписываются все часы этой брони сразу):
+//   closeout: { done:true, played, at, responsible, note, priceBefore? }
+//   price, payCash, payCard, payErip — как у брони квеста.
+// played:false («не состоялась») — денег нет, способы оплаты очищаются.
+
+// Уникальные брони комнаты из ответа HGETALL (по bookingId).
+export function uniqueRoomRecords(hgetallResult) {
+  const raw = Array.isArray(hgetallResult) ? hgetallResult : [];
+  const byId = new Map();
+  for (let i = 0; i < raw.length - 1; i += 2) {
+    try {
+      const rec = JSON.parse(raw[i + 1]);
+      if (rec && rec.bookingId && !byId.has(rec.bookingId)) byId.set(rec.bookingId, rec);
+    } catch { /* skip */ }
+  }
+  return [...byId.values()];
+}
+
+// Деньги, которые реально пришли за комнату (0, если игра «не состоялась»).
+export function roomPaid(rec) {
+  const n = (v) => { const x = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(x) ? x : 0; };
+  if (!rec || (rec.closeout && rec.closeout.played === false)) return { cash: 0, card: 0, erip: 0 };
+  return { cash: n(rec.payCash), card: n(rec.payCard), erip: n(rec.payErip) };
+}
+
+async function rewriteRoomBooking(dateISO, bookingId, mutate) {
+  if (!isRealCalendarDate(dateISO) || typeof bookingId !== 'string' || !bookingId) return null;
+  const key = roomKey(dateISO);
+  const raw = await kv('hgetall', key);
+  if (!Array.isArray(raw)) return null;
+  const fields = [];
+  let record = null;
+  for (let i = 0; i < raw.length - 1; i += 2) {
+    try {
+      const rec = JSON.parse(raw[i + 1]);
+      if (rec && rec.bookingId === bookingId) { fields.push(raw[i]); record = record || rec; }
+    } catch { /* skip */ }
+  }
+  if (!record) return null;
+  const updated = mutate({ ...record });
+  const args = [];
+  fields.forEach((f) => { args.push(f, JSON.stringify(updated)); });
+  await kv('hset', key, ...args);
+  return updated;
+}
+
+export async function setRoomCloseout(dateISO, bookingId, { played, price, payCash, payCard, payErip, responsible, note } = {}) {
+  const clean = (v, max) => (v == null ? '' : String(v).trim().slice(0, max));
+  return rewriteRoomBooking(dateISO, bookingId, (rec) => {
+    const wasPlayed = played !== false;
+    const prev = rec.closeout && rec.closeout.done ? rec.closeout : null;
+    const closeout = {
+      done: true,
+      played: wasPlayed,
+      at: new Date().toISOString(),
+      responsible: clean(responsible, 60) || (prev ? prev.responsible : '') || '',
+      note: clean(note, 300),
+    };
+    if (prev && Object.prototype.hasOwnProperty.call(prev, 'priceBefore')) closeout.priceBefore = prev.priceBefore;
+    const nextPrice = wasPlayed && price != null && String(price).trim() !== '' ? clean(price, 12) : String(rec.price);
+    if (!closeout.priceBefore && nextPrice !== String(rec.price)) closeout.priceBefore = rec.price;
+    rec.closeout = closeout;
+    if (wasPlayed) {
+      rec.price = nextPrice;
+      rec.payCash = clean(payCash, 12);
+      rec.payCard = clean(payCard, 12);
+      rec.payErip = clean(payErip, 12);
+    } else {
+      rec.payCash = ''; rec.payCard = ''; rec.payErip = '';
+    }
+    return rec;
+  });
+}
+
+export async function cancelRoomCloseout(dateISO, bookingId) {
+  return rewriteRoomBooking(dateISO, bookingId, (rec) => {
+    if (rec.closeout && Object.prototype.hasOwnProperty.call(rec.closeout, 'priceBefore')) rec.price = rec.closeout.priceBefore;
+    delete rec.closeout;
+    rec.payCash = ''; rec.payCard = ''; rec.payErip = '';
+    return rec;
+  });
 }

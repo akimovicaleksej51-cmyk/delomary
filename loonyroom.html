@@ -153,9 +153,15 @@
   .tile.yellow .i{width:44px; height:44px;}
   .tile.yellow::after{content:""; position:absolute; right:-60px; bottom:-60px; width:220px; height:220px; border-radius:50%; border:28px solid rgba(21,16,4,.08);}
   .tile img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;}
+  .tile picture{position:absolute; inset:0; z-index:0;}
+  .tile.wide.has-photo{min-height:320px;}
+  .gallery picture{display:block; width:100%; height:100%;}
+  @media (max-width:860px){ .tile.wide.has-photo{min-height:240px;} }
   .tile.has-photo{cursor:zoom-in; color:#fff; border-color:var(--line);}
   .tile.has-photo::after{content:""; position:absolute; inset:0; z-index:0; border:0; border-radius:0; width:auto; height:auto; right:0; bottom:0; background:linear-gradient(180deg, transparent 40%, rgba(0,0,0,.78));}
-  .tile.has-photo > :not(img){position:relative; z-index:1;}
+  .tile.has-photo > :not(img):not(picture){position:relative; z-index:1;}
+  .tile.has-photo{background:#0d0b14;}
+  .tile.has-photo h3{color:#fff;}
   .tile.has-photo .i{display:none;}
   .tile.has-photo p{color:rgba(255,255,255,.8);}
 
@@ -517,7 +523,7 @@
          только загрузится хотя бы одно фото). Код менять не нужно. -->
     <div class="bento">
       <div class="tile wide yellow" data-photo>
-        <img src="assets/loonyroom/room-1.jpg" alt="Loony Room — общий вид комнаты" onload="lrPhoto(this)" onerror="this.remove()">
+        <picture><source srcset="assets/loonyroom/room-1.webp" type="image/webp"><img src="assets/loonyroom/room-1.jpg" alt="Loony Room — общий вид: зона с PlayStation, стол и сцена" onload="lrPhoto(this)" onerror="this.closest('picture').remove()" fetchpriority="high"></picture>
         <svg class="i" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>
         <div><h3>Караоке и сцена</h3><p>Микрофоны, колонки и небольшая сцена — она же фотозона</p></div>
       </div>
@@ -545,11 +551,11 @@
     <div class="kicker"><i></i>фото</div>
     <h2>Как выглядит комната</h2>
     <div class="gallery">
-      <figure data-photo><img src="assets/loonyroom/room-2.jpg" alt="Loony Room — фото 2" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
-      <figure data-photo><img src="assets/loonyroom/room-3.jpg" alt="Loony Room — фото 3" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
-      <figure data-photo><img src="assets/loonyroom/room-4.jpg" alt="Loony Room — фото 4" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
-      <figure data-photo><img src="assets/loonyroom/room-5.jpg" alt="Loony Room — фото 5" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
-      <figure data-photo><img src="assets/loonyroom/room-6.jpg" alt="Loony Room — фото 6" onload="lrPhoto(this)" onerror="this.parentNode.remove()"></figure>
+      <figure data-photo><picture><source srcset="assets/loonyroom/room-2.webp" type="image/webp"><img src="assets/loonyroom/room-2.jpg" alt="Loony Room — Кинозона: проектор, телевизор и кресла-мешки" decoding="async" onload="lrPhoto(this)" onerror="this.closest('figure').remove()"></picture></figure>
+      <figure data-photo><picture><source srcset="assets/loonyroom/room-3.webp" type="image/webp"><img src="assets/loonyroom/room-3.jpg" alt="Loony Room — Стол для застолья и сцена с неоновой вывеской" decoding="async" onload="lrPhoto(this)" onerror="this.closest('figure').remove()"></picture></figure>
+      <figure data-photo><picture><source srcset="assets/loonyroom/room-4.webp" type="image/webp"><img src="assets/loonyroom/room-4.jpg" alt="Loony Room — Зона для застолья и кухня" decoding="async" onload="lrPhoto(this)" onerror="this.closest('figure').remove()"></picture></figure>
+      <figure data-photo><picture><source srcset="assets/loonyroom/room-5.webp" type="image/webp"><img src="assets/loonyroom/room-5.jpg" alt="Loony Room — Уютный угол со столом и гирляндой" decoding="async" onload="lrPhoto(this)" onerror="this.closest('figure').remove()"></picture></figure>
+      <figure data-photo><picture><source srcset="assets/loonyroom/room-6.webp" type="image/webp"><img src="assets/loonyroom/room-6.jpg" alt="Loony Room — Сцена с подсветкой и стол" decoding="async" onload="lrPhoto(this)" onerror="this.closest('figure').remove()"></picture></figure>
     </div>
   </div>
 </section>

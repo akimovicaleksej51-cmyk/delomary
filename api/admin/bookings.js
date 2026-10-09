@@ -108,7 +108,7 @@ import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManua
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime } from '../_time.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
-import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText } from '../_rooms.js';
+import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, setRoomCloseout, cancelRoomCloseout, uniqueRoomRecords } from '../_rooms.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -364,6 +364,33 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Бронь не найдена — возможно, её уже отменили.' });
       }
       await sendTelegram(roomCancelTelegramText(record), 'room cancel');
+      const roomBookings = await listRoomBookings();
+      return res.status(200).json({ ok: true, roomBookings });
+    }
+
+    // 09.10.2026: сверка по комнате — состоялась ли, сколько денег, как оплатили,
+    // кто был ответственный. Деньги после сверки идут в Кассу и Бухгалтерию.
+    if (action === 'roomCloseout') {
+      const dateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const bookingId = typeof body.bookingId === 'string' ? body.bookingId : '';
+      if (!dateISO || !bookingId) return res.status(400).json({ error: 'Некорректный запрос.' });
+      const num = (v) => (typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '');
+      const updated = await setRoomCloseout(dateISO, bookingId, {
+        played: body.played !== false,
+        price: num(body.price), payCash: num(body.payCash), payCard: num(body.payCard), payErip: num(body.payErip),
+        responsible: typeof body.responsible === 'string' ? body.responsible : '',
+        note: typeof body.note === 'string' ? body.note : '',
+      });
+      if (!updated) return res.status(404).json({ error: 'Бронь комнаты не найдена.' });
+      const roomBookings = await listRoomBookings();
+      return res.status(200).json({ ok: true, booking: updated, roomBookings });
+    }
+    if (action === 'cancelRoomCloseout') {
+      const dateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const bookingId = typeof body.bookingId === 'string' ? body.bookingId : '';
+      if (!dateISO || !bookingId) return res.status(400).json({ error: 'Некорректный запрос.' });
+      const updated = await cancelRoomCloseout(dateISO, bookingId);
+      if (!updated) return res.status(404).json({ error: 'Бронь комнаты не найдена.' });
       const roomBookings = await listRoomBookings();
       return res.status(200).json({ ok: true, roomBookings });
     }
@@ -869,17 +896,42 @@ export default async function handler(req, res) {
       const CHART_DAYS = 21;
 
       const today = businessToday();
-      const dates = [];
-      for (let i = -STATS_DAYS_BACK; i <= STATS_DAYS_FORWARD; i++) {
-        const d = new Date(today);
-        d.setDate(today.getDate() + i);
-        dates.push(isoDate(d));
+      let dates = [];
+      // 09.10.2026: статистика за выбранный месяц или период (from/to, до 366 дней).
+      // Без from/to — как раньше: 60 дней назад и 30 вперёд, график за 21 день.
+      const periodMode = isValidDateISO(body.from) && isValidDateISO(body.to) && body.from <= body.to;
+      if (periodMode) {
+        const [fy, fm, fd] = body.from.split('-').map(Number);
+        const start = new Date(fy, fm - 1, fd);
+        for (let i = 0; i < 366; i++) {
+          const d = new Date(start); d.setDate(start.getDate() + i);
+          const iso = isoDate(d);
+          if (iso > body.to) break;
+          dates.push(iso);
+        }
+      } else {
+        for (let i = -STATS_DAYS_BACK; i <= STATS_DAYS_FORWARD; i++) {
+          const d = new Date(today);
+          d.setDate(today.getDate() + i);
+          dates.push(isoDate(d));
+        }
       }
 
-      const [bookingResults, historyResults] = await Promise.all([
+      const [bookingResults, historyResults, roomResults] = await Promise.all([
         kvPipeline(dates.map((iso) => ['HGETALL', `bookings:${iso}`])),
         kvPipeline(dates.map((iso) => ['HGETALL', `history:${iso}`])),
+        kvPipeline(dates.map((iso) => ['HGETALL', `roombookings:${iso}`])),
       ]);
+      // комната: сколько броней, часов и на какую сумму (не состоявшиеся — отдельно)
+      const room = { count: 0, hours: 0, total: 0, notPlayed: 0 };
+      (roomResults || []).forEach((entry) => {
+        uniqueRoomRecords(entry && entry.result).forEach((rec) => {
+          if (rec.closeout && rec.closeout.played === false) { room.notPlayed += 1; return; }
+          room.count += 1; room.hours += Number(rec.hours) || 0;
+          room.total += parseFloat(String(rec.price || '0').replace(',', '.')) || 0;
+        });
+      });
+      let revenue = 0;
 
       const now = new Date();
       let completed = 0;
@@ -898,6 +950,7 @@ export default async function handler(req, res) {
           if (record.type === 'technical') { technical++; return; }
 
           const dISO = record.dateISO || dates[i];
+          revenue += parseFloat(String(record.price || '0').replace(',', '.')) || 0;
           const recordTime = record.time || time;
           const [hh, mm] = recordTime.split(':').map(Number);
           // hh:mm is Minsk wall-clock time — businessDateTime() converts it
@@ -922,15 +975,22 @@ export default async function handler(req, res) {
           let record;
           try { record = JSON.parse(raw); } catch { return; }
           if (record.type === 'technical') return; // day open/close isn't a "cancellation" worth counting here
+          // 09.10.2026: перенос — не отмена (у перенесённой брони есть живая копия на новой дате)
+          if (record.status === 'rescheduled') return;
           cancelled++;
           const dISO = record.dateISO || dates[i];
           if (byDayMap[dISO]) byDayMap[dISO].cancelled++;
         });
       });
 
-      const todayIdx = STATS_DAYS_BACK;
-      const chartStart = Math.max(0, todayIdx - (CHART_DAYS - 1));
-      const byDay = dates.slice(chartStart, todayIdx + 1).map((iso) => ({ dateISO: iso, ...byDayMap[iso] }));
+      let byDay;
+      if (periodMode) {
+        byDay = dates.map((iso) => ({ dateISO: iso, ...byDayMap[iso] }));
+      } else {
+        const todayIdx = STATS_DAYS_BACK;
+        const chartStart = Math.max(0, todayIdx - (CHART_DAYS - 1));
+        byDay = dates.slice(chartStart, todayIdx + 1).map((iso) => ({ dateISO: iso, ...byDayMap[iso] }));
+      }
 
       const decided = completed + cancelled;
       const cancelRate = decided > 0 ? Math.round((cancelled / decided) * 1000) / 10 : 0;
@@ -938,6 +998,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         completed, cancelled, upcoming, technical,
         cancelRate, sourceSite, sourceAdmin, byDay,
+        revenue, room, from: dates[0], to: dates[dates.length - 1], period: periodMode,
       });
     }
 
