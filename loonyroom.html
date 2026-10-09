@@ -252,15 +252,6 @@
   .hour.sel small{color:rgba(21,16,4,.7);}
   .hour:disabled{opacity:.35; cursor:not-allowed;}
   .hour:disabled .h-time{text-decoration:line-through; text-decoration-thickness:1.5px;}
-  .dur{margin-top:16px; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:14px 16px; border-radius:var(--r-md); background:var(--card-2); border:1.5px solid var(--yellow);}
-  .dur-label{font-weight:800; font-size:15px;}
-  .dur-ctl{display:flex; align-items:center; gap:10px;}
-  .dur-btn{width:46px; height:46px; border-radius:50%; border:1.5px solid var(--line); background:var(--card); color:var(--paper); font-size:24px; font-weight:700; line-height:1; cursor:pointer; font-family:var(--sans);}
-  .dur-btn:hover:not(:disabled){border-color:var(--yellow);}
-  .dur-btn:disabled{opacity:.3; cursor:not-allowed;}
-  .dur-val{min-width:132px; text-align:center; display:flex; flex-direction:column;}
-  .dur-val b{font-family:var(--head); font-weight:600; font-size:20px;}
-  .dur-val small{font-size:14px; color:var(--muted); font-weight:700;}
   .legend{display:flex; flex-wrap:wrap; gap:18px; margin-top:16px; font-size:14.5px; font-weight:600; color:var(--muted);}
   .legend i{display:inline-block; width:16px; height:16px; border-radius:5px; margin-right:7px; vertical-align:-3px; border:1.5px solid var(--line); background:var(--card-2);}
   .legend .l-sel{background:var(--yellow); border-color:var(--yellow);}
@@ -442,6 +433,7 @@
   .game, .price{position:relative; overflow:hidden;}
   .game > *, .price > *{position:relative; z-index:1;}
   .btn-yellow, .submit, .rb-float, .nav-cta{position:relative; overflow:hidden;}
+  .rb-float{position:fixed;} /* 09.10.2026: правило выше случайно делало плашку обычной кнопкой внизу страницы */
   .btn-yellow::after, .submit::after, .rb-float::after, .nav-cta::after{content:""; position:absolute; top:0; bottom:0; left:0; width:45%; pointer-events:none;
     background:linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent); transform:translateX(-150%) skewX(-18deg); animation:btnShine 4.8s ease-in-out infinite;}
   .submit:disabled::after{display:none;}
@@ -689,7 +681,7 @@
 
         <div class="rb-step">
           <div class="step-title"><span class="n">2</span>Время <span class="sub" id="hoursDayLabel"></span></div>
-          <p class="hint">Выберите время начала, а ниже — до скольки.</p>
+          <p class="hint">Нажмите на первый и последний сеанс — выделится весь промежуток.</p>
           <div id="hoursWrap"><div class="empty">Сначала выберите день</div></div>
           <div class="legend"><span><i></i>свободно</span><span><i class="l-sel"></i>выбрано</span><span><i class="l-off"></i>занято</span></div>
         </div>
@@ -838,7 +830,7 @@
   const lastISO = addDays(todayISO, DAYS_AHEAD - 1);
   let busy = {};             // { iso: [[начало, конец+уборка], …] } в минутах — с сервера
   let selectedDate = null;   // 'YYYY-MM-DD'
-  let sel = null;            // { start: '18:00', hours: 3 }
+  let sel = null;            // { a, b } — индексы в STARTS, включительно
 
   // Сколько сеансов подряд можно взять, начав в `time` (0 — нельзя). То же, что roomMaxHours() на сервере.
   function maxHours(iso, time){
@@ -850,7 +842,7 @@
   }
   function isTaken(iso, time){ return maxHours(iso, time) === 0; }
   function canStart(iso, time){ return !isClosed(iso, time) && maxHours(iso, time) > 0; }
-  function selValid(){ return !!(sel && selectedDate && canStart(selectedDate, sel.start) && maxHours(selectedDate, sel.start) >= sel.hours); }
+  function selValid(){ return !!(sel && selectedDate && canStart(selectedDate, STARTS[sel.a]) && maxHours(selectedDate, STARTS[sel.a]) >= sel.b - sel.a + 1); }
   function dayFull(iso){ return !STARTS.some((t) => canStart(iso, t)); }
 
   async function loadAvailability(){
@@ -912,7 +904,12 @@
     }
   });
 
-  // ---- Время начала + сколько часов ----
+  // ---- Сеансы: как раньше — нажать первый и последний, выделится весь промежуток ----
+  // sel = { a, b } — индексы в STARTS (включительно); гости не уходят между сеансами,
+  // поэтому бронь 16:30 … 21:00 = 16:30–22:00 (4 сеанса). Как в api/_rooms.js.
+  function selCount(){ return sel ? sel.b - sel.a + 1 : 0; }
+  function selStart(){ return sel ? STARTS[sel.a] : ''; }
+  function rangeFree(iso, lo, hi){ return !isClosed(iso, STARTS[lo]) && maxHours(iso, STARTS[lo]) >= hi - lo + 1; }
   function renderHours(){
     const wrap = $('hoursWrap');
     if (!selectedDate){
@@ -922,44 +919,35 @@
     }
     $('hoursDayLabel').textContent = '· ' + dayLabel(selectedDate);
     let html = '<div class="hours">';
-    STARTS.forEach((t) => {
+    STARTS.forEach((t, i) => {
       const cl = isClosed(selectedDate, t);
       const tk = !cl && isTaken(selectedDate, t);
-      const on = sel && sel.start === t;
+      const inSel = sel && i >= sel.a && i <= sel.b;
       const cls = ['hour'];
       if (tk) cls.push('taken');
       if (cl) cls.push('closed');
-      if (on) cls.push('sel');
-      const note = tk ? 'занято' : cl ? 'закрыто' : on ? 'до ' + endOf(t, sel.hours) : 'свободно';
-      html += '<button type="button" class="' + cls.join(' ') + '" data-t="' + t + '"' + (tk || cl ? ' disabled' : '') +
-        ' aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="Начало в ' + t + (tk ? ', занято' : cl ? ', онлайн-бронь закрыта' : '') + '">' +
-        '<span class="h-time">' + t + '</span><small>' + note + '</small></button>';
+      if (inSel) cls.push('sel');
+      if (inSel && sel.a !== sel.b && i !== sel.a && i !== sel.b) cls.push('mid');
+      html += '<button type="button" class="' + cls.join(' ') + '" data-i="' + i + '"' + (tk || cl ? ' disabled' : '') +
+        ' aria-pressed="' + (inSel ? 'true' : 'false') + '" aria-label="' + t + '–' + endOf(t, 1) + (tk ? ', занято' : cl ? ', онлайн-бронь закрыта' : '') + '">' +
+        '<span class="h-time">' + t + '</span><small>' + (tk ? 'занято' : cl ? 'закрыто' : 'до ' + endOf(t, 1)) + '</small></button>';
     });
     html += '</div>';
-    if (sel){
-      const max = maxHours(selectedDate, sel.start);
-      html += '<div class="dur"><span class="dur-label">До скольки</span><div class="dur-ctl">' +
-        '<button type="button" class="dur-btn" data-d="-1" aria-label="Раньше"' + (sel.hours <= 1 ? ' disabled' : '') + '>−</button>' +
-        '<div class="dur-val" aria-live="polite"><b>до ' + endOf(sel.start, sel.hours) + '</b><small>' + sel.start + '–' + endOf(sel.start, sel.hours) + '</small></div>' +
-        '<button type="button" class="dur-btn" data-d="1" aria-label="Позже"' + (sel.hours >= max ? ' disabled' : '') + '>+</button>' +
-        '</div></div>';
-    }
     wrap.innerHTML = html;
   }
   $('hoursWrap').addEventListener('click', (e) => {
-    if (!selectedDate) return;
-    const d = e.target.closest('.dur-btn');
-    if (d && sel && !d.disabled){
-      const max = maxHours(selectedDate, sel.start);
-      sel.hours = Math.min(max, Math.max(1, sel.hours + Number(d.dataset.d)));
-      hideMsg(); renderHours(); renderSummary();
-      return;
+    const b = e.target.closest('.hour[data-i]');
+    if (!b || b.disabled || !selectedDate) return;
+    const i = Number(b.dataset.i);
+    if (!sel) sel = { a: i, b: i };
+    else if (sel.a === sel.b && i === sel.a) sel = null;
+    else if (i === sel.a) sel.a++;
+    else if (i === sel.b) sel.b--;
+    else if (i > sel.a && i < sel.b) sel.b = i;
+    else {
+      const lo = Math.min(sel.a, i), hi = Math.max(sel.b, i);
+      sel = rangeFree(selectedDate, lo, hi) ? { a: lo, b: hi } : { a: i, b: i };
     }
-    const b = e.target.closest('.hour[data-t]');
-    if (!b || b.disabled) return;
-    const t = b.dataset.t;
-    if (sel && sel.start === t) sel = null;
-    else sel = { start: t, hours: Math.min(sel ? sel.hours : 1, maxHours(selectedDate, t)) || 1 };
     hideMsg();
     renderHours(); renderSummary();
   });
@@ -986,8 +974,8 @@
       btn.disabled = true; btn.textContent = 'Выберите время';
       return;
     }
-    const hours = sel.hours;
-    const start = sel.start;
+    const hours = selCount();
+    const start = selStart();
     $('sumTime').textContent = start + '–' + endOf(start, hours);
     $('sumHint').textContent = (hours > 1 ? hours + ' × ' + rate + ' Br' : rate + ' Br') + (selectedGame() ? ' + ведущий отдельно' : '');
     setPrice(hours * rate);
@@ -1053,8 +1041,8 @@
       (name ? phoneEl : $('roomName')).focus();
       return;
     }
-    const hours = sel.hours;
-    const startTime = sel.start;
+    const hours = selCount();
+    const startTime = selStart();
     if (!selValid()){
       showMsg('Выбранное время уже недоступно — выберите заново.', true);
       sel = null; renderHours(); renderSummary();
