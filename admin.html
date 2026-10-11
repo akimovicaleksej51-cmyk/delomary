@@ -1566,13 +1566,13 @@
     const closeouts = Array.isArray(b.closeouts) ? b.closeouts : [];
     if (!closeouts.length) return null;
     return closeouts.map(c => {
-      if (c.sentStatus === 'awaiting') return `@${c.actorUsername}: отправлено, ждём ответа`;
-      if (c.sentStatus === 'send-failed') return `@${c.actorUsername}: ⚠️ не удалось отправить`;
-      if (c.sentStatus === 'actor-not-registered') return `@${c.actorUsername}: ⚠️ не подключил бота`;
-      if (c.status === 'scheduled') return `@${c.actorUsername}: запланировано${c.fireAt ? ', ' + formatReminderMoment(c.fireAt) : ''}`;
-      if (c.status === 'pending') return `@${c.actorUsername}: запланируется позже (бронь дальше чем на 7 дней)`;
-      if (c.status === 'actor-not-registered') return `@${c.actorUsername}: не подключил бота — сверка не запланирована`;
-      return `@${c.actorUsername}`;
+      if (c.sentStatus === 'awaiting') return `${personLabel(c.actorUsername)}: отправлено, ждём ответа`;
+      if (c.sentStatus === 'send-failed') return `${personLabel(c.actorUsername)}: ⚠️ не удалось отправить`;
+      if (c.sentStatus === 'actor-not-registered') return `${personLabel(c.actorUsername)}: ⚠️ не подключил бота`;
+      if (c.status === 'scheduled') return `${personLabel(c.actorUsername)}: запланировано${c.fireAt ? ', ' + formatReminderMoment(c.fireAt) : ''}`;
+      if (c.status === 'pending') return `${personLabel(c.actorUsername)}: запланируется позже (бронь дальше чем на 7 дней)`;
+      if (c.status === 'actor-not-registered') return `${personLabel(c.actorUsername)}: не подключил бота — сверка не запланирована`;
+      return `${personLabel(c.actorUsername)}`;
     }).join('; ');
   }
   // null → no shift/closeout ever touched this booking, so the row stays
@@ -1692,7 +1692,18 @@
   // ---------- loading & rendering the bookings list ----------
   const listContainer = document.getElementById('listContainer');
 
+  // 11.10.2026: имена сотрудников для карточки брони («Миша (@shiz1k_121)» вместо одного ника)
+  let staffNames = {}, staffNamesAt = 0;
+  function personLabel(u){ const a = staffNames[u]; const n = a && (a.name || a.displayName); return n ? `${n} (@${u})` : '@' + u; }
+  function refreshStaffNames(){
+    if (Date.now() - staffNamesAt < 5 * 60 * 1000) return;
+    staffNamesAt = Date.now();
+    fetch(`/api/admin/shifts?from=${todayISO()}&days=1`, { headers: authHeaders(), cache:'no-store' })
+      .then(r => r.ok ? r.json() : null).then(o => { if (o && o.actors) staffNames = o.actors; else staffNamesAt = 0; })
+      .catch(() => { staffNamesAt = 0; });
+  }
   async function loadBookings(){
+    refreshStaffNames();
     // 06.10.2026: при обновлении списка (после отмены, создания, сверки…)
     // список больше не подменяется на "Загрузка…" — из-за этого страница
     // на миг становилась короткой и прокрутка прыгала в самый верх, как
@@ -2255,18 +2266,18 @@
         dvReminder.textContent = reminders.map(r => {
           if (r.status === 'scheduled') {
             const when = r.fireAt ? formatReminderMoment(r.fireAt) : '';
-            return `@${r.actorUsername}${when ? ', ' + when : ''}`;
+            return `${personLabel(r.actorUsername)}${when ? ', ' + when : ''}`;
           }
           if (r.status === 'pending') {
-            return `@${r.actorUsername} — запланируется позже (бронь дальше чем на 7 дней)`;
+            return `${personLabel(r.actorUsername)} — запланируется позже (бронь дальше чем на 7 дней)`;
           }
           if (r.status === 'actor-not-registered') {
-            return `@${r.actorUsername} ещё не подключил бота — попросите отправить /start`;
+            return `${personLabel(r.actorUsername)} ещё не подключил бота — попросите отправить /start`;
           }
           if (r.status === 'missed') {
-            return `@${r.actorUsername} — не отправлено (время напоминания уже прошло)`;
+            return `${personLabel(r.actorUsername)} — не отправлено (время напоминания уже прошло)`;
           }
-          return `@${r.actorUsername}`;
+          return `${personLabel(r.actorUsername)}`;
         }).join('; ');
       }
     }
@@ -4877,6 +4888,11 @@
       }
       shiftsData[dateISO] = out.shifts;
       renderShiftsDays();
+      // 11.10.2026: брони этого дня пересобраны на сервере под новую смену —
+      // обновляем список, чтобы в карточках сразу был актуальный человек.
+      if (out.resynced){ shiftsMsg.textContent = `Смена сохранена. Обновлено броней: ${out.resynced} — напоминания теперь придут новому человеку.`; shiftsMsg.className = 'modal-msg ok'; }
+      staffNamesAt = 0;
+      loadBookings();
     } catch(err){
       shiftsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.';
       shiftsMsg.className = 'modal-msg err';

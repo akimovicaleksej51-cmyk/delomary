@@ -1174,7 +1174,18 @@
   // ---------- loading & rendering the bookings list ----------
   const listContainer = document.getElementById('listContainer');
 
+  // 11.10.2026: имена сотрудников для карточки брони («Миша (@shiz1k_121)» вместо одного ника)
+  let staffNames = {}, staffNamesAt = 0;
+  function personLabel(u){ const a = staffNames[u]; const n = a && (a.name || a.displayName); return n ? `${n} (@${u})` : '@' + u; }
+  function refreshStaffNames(){
+    if (Date.now() - staffNamesAt < 5 * 60 * 1000) return;
+    staffNamesAt = Date.now();
+    fetch(`/api/admin/shifts?from=${todayISO()}&days=1`, { headers: authHeaders(), cache:'no-store' })
+      .then(r => r.ok ? r.json() : null).then(o => { if (o && o.actors) staffNames = o.actors; else staffNamesAt = 0; })
+      .catch(() => { staffNamesAt = 0; });
+  }
   async function loadBookings(){
+    refreshStaffNames();
     // 06.10.2026: при обновлении списка (после отмены, создания, сверки…)
     // список больше не подменяется на "Загрузка…" — из-за этого страница
     // на миг становилась короткой и прокрутка прыгала в самый верх, как
@@ -1613,18 +1624,18 @@
         dvReminder.textContent = reminders.map(r => {
           if (r.status === 'scheduled') {
             const when = r.fireAt ? formatReminderMoment(r.fireAt) : '';
-            return `@${r.actorUsername}${when ? ', ' + when : ''}`;
+            return `${personLabel(r.actorUsername)}${when ? ', ' + when : ''}`;
           }
           if (r.status === 'pending') {
-            return `@${r.actorUsername} — запланируется позже (бронь дальше чем на 7 дней)`;
+            return `${personLabel(r.actorUsername)} — запланируется позже (бронь дальше чем на 7 дней)`;
           }
           if (r.status === 'actor-not-registered') {
-            return `@${r.actorUsername} ещё не подключил бота — попросите отправить /start`;
+            return `${personLabel(r.actorUsername)} ещё не подключил бота — попросите отправить /start`;
           }
           if (r.status === 'missed') {
-            return `@${r.actorUsername} — не отправлено (время напоминания уже прошло)`;
+            return `${personLabel(r.actorUsername)} — не отправлено (время напоминания уже прошло)`;
           }
-          return `@${r.actorUsername}`;
+          return `${personLabel(r.actorUsername)}`;
         }).join('; ');
       }
     }
@@ -2340,6 +2351,7 @@
       if (!res.ok){ msg.textContent = out.error || 'Не удалось сохранить.'; msg.className = 'modal-msg err'; it.disabled = false; return; }
       swapOverlay.classList.remove('show');
       await loadShiftsView();
+      loadBookings(); // 11.10.2026: в карточках броней — уже новый человек
     } catch(err){ msg.textContent = 'Ошибка сети.'; msg.className = 'modal-msg err'; it.disabled = false; }
   });
   document.querySelectorAll('[data-close="swap"]').forEach(b => b.addEventListener('click', () => swapOverlay.classList.remove('show')));

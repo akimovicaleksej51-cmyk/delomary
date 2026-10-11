@@ -25,7 +25,7 @@
 //       BACKFILLS: any booking already on this date that falls inside the
 //       new slot's time range, and doesn't yet have a reminder/sverka
 //       scheduled for this performer, gets one scheduled right now — see
-//       backfillScheduling() below. This matters a lot in practice: if a
+//       resyncShiftAssignments() below. This matters a lot in practice: if a
 //       booking gets entered (from the site or the admin panel) BEFORE the
 //       shift for that time is assigned, scheduleReminder()/
 //       scheduleGameCloseout() find no performer yet and schedule nothing
@@ -56,43 +56,70 @@
 //       'runCloseoutNow' (the "Сверка сейчас" button) afterwards for that.
 
 import { kv } from '../_kv.js';
-import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS, scheduleReminder } from '../_reminders.js';
+import { getShiftsForDate, saveShiftsForDate, getActorsMap, SHIFT_SLOTS, scheduleReminder, cancelReminder, resolveActorUsernamesForSlotSync } from '../_reminders.js';
 import { getActorNames, setActorName, cleanUsername } from '../_names.js';
-import { runCloseoutForSlot, cancelCloseoutForSlot, scheduleGameCloseout } from '../_closeout.js';
+import { runCloseoutForSlot, cancelCloseoutForSlot, scheduleGameCloseout, cancelGameCloseout } from '../_closeout.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
-import { todayISO } from '../_time.js';
+import { todayISO, businessDateTime } from '../_time.js';
 
-// Whenever a shift slot is (re)saved, catch up any booking on that date
-// that falls inside the slot's [start, end) range but is still missing a
-// reminder or sverka job for the performer now assigned there — see the
-// long comment above action 'setSlot'. Safe to call unconditionally and
-// repeatedly: scheduleReminder()/scheduleGameCloseout() never duplicate a
-// performer who already has one successfully scheduled.
-async function backfillScheduling(dateISO, slotData) {
-  if (!slotData || !slotData.start || !slotData.end) return;
+// 11.10.2026: после ЛЮБОГО изменения смены (поменяли человека, время, очистили
+// слот, «Поменять» в панели актёров) пересобираем, кто ведёт каждую бронь
+// этого дня — по ВСЕМ броням дня, а не только по попавшим в новый промежуток:
+//   • у кого смену забрали — его напоминание и сверка отменяются в QStash
+//     (раньше они оставались, и уведомление приходило прошлому человеку,
+//     а в карточке брони так и висел он);
+//   • новому человеку напоминание и сверка планируются сразу;
+//   • если время напоминания уже прошло — новый человек всё равно виден в
+//     карточке (с пометкой «не отправлено — время прошло»).
+// Брони, которые уже прошли, не трогаем — там «кто вёл игру» решает сверка.
+async function resyncShiftAssignments(dateISO, shiftsMap) {
   const hashKey = `bookings:${dateISO}`;
   const raw = await kv('hgetall', hashKey);
-  if (!Array.isArray(raw) || !raw.length) return;
-
+  if (!Array.isArray(raw) || !raw.length) return 0;
+  const nowMs = Date.now();
+  let changed = 0;
   await Promise.all(Array.from({ length: Math.floor(raw.length / 2) }, (_, i) => i).map(async (i) => {
-    const time = raw[i * 2];
+    const field = raw[i * 2];
     let record;
     try { record = JSON.parse(raw[i * 2 + 1]); } catch { return; }
     if (!record || record.type !== 'customer') return;
     if (record.status === 'cancelled' || record.status === 'rescheduled') return;
-    const resolvedTime = record.time || time;
-    if (!(slotData.start <= resolvedTime && resolvedTime < slotData.end)) return;
+    const time = record.time || field;
+    const startAt = businessDateTime(dateISO, Number(time.slice(0, 2)), Number(time.slice(3, 5)) || 0);
+    if (!startAt || startAt.getTime() <= nowMs) return; // игра уже началась/прошла
 
-    const fullRecord = { ...record, dateISO: record.dateISO || dateISO, time: resolvedTime };
-    const [reminderPatch, closeoutPatch] = await Promise.all([
-      scheduleReminder(fullRecord),
-      scheduleGameCloseout(fullRecord),
-    ]);
-    const patch = { ...reminderPatch, ...closeoutPatch };
-    if (Object.keys(patch).length) {
-      await kv('hset', hashKey, time, JSON.stringify({ ...record, ...patch }));
-    }
+    const current = resolveActorUsernamesForSlotSync(shiftsMap, time);
+    const oldRem = Array.isArray(record.reminders) ? record.reminders : [];
+    const oldClo = Array.isArray(record.closeouts) ? record.closeouts : [];
+    const goneRem = oldRem.filter((r) => r && !current.includes(r.actorUsername));
+    const goneClo = oldClo.filter((c) => c && !current.includes(c.actorUsername));
+    await Promise.all([cancelReminder({ reminders: goneRem }), cancelGameCloseout({ closeouts: goneClo })]);
+
+    const base = {
+      ...record, dateISO: record.dateISO || dateISO, time,
+      reminders: oldRem.filter((r) => r && current.includes(r.actorUsername)),
+      closeouts: oldClo.filter((c) => c && current.includes(c.actorUsername)),
+    };
+    const [remPatch, cloPatch] = await Promise.all([scheduleReminder(base), scheduleGameCloseout(base)]);
+    let reminders = remPatch.reminders || base.reminders;
+    const closeouts = cloPatch.closeouts || base.closeouts;
+    // Кого назначили, но напоминание поставить не удалось (время уже прошло и т.п.) —
+    // всё равно показываем в карточке, чтобы там был актуальный человек.
+    const reminderTimePassed = startAt.getTime() - 90 * 60 * 1000 <= nowMs;
+    current.forEach((u) => {
+      if (!reminders.some((r) => r && r.actorUsername === u)) {
+        reminders = [...reminders, { actorUsername: u, status: reminderTimePassed ? 'missed' : 'pending' }];
+      }
+    });
+    const before = JSON.stringify([oldRem, oldClo]);
+    const after = JSON.stringify([reminders, closeouts]);
+    if (before === after) return;
+    const updated = { ...record, reminders };
+    if (closeouts.length || oldClo.length) updated.closeouts = closeouts;
+    await kv('hset', hashKey, field, JSON.stringify(updated));
+    changed += 1;
   }));
+  return changed;
 }
 
 function checkAuth(req) {
@@ -192,7 +219,8 @@ export default async function handler(req, res) {
       if (!cleanStart && !cleanEnd && !cleanActor) {
         delete shiftsMap[slot];
         await saveShiftsForDate(cleanDateISO, shiftsMap);
-        return res.status(200).json({ ok: true, shifts: shiftsMap });
+        const resynced = await resyncShiftAssignments(cleanDateISO, shiftsMap);
+        return res.status(200).json({ ok: true, shifts: shiftsMap, resynced });
       }
 
       // 29.09.2026: actorUsername used to be REQUIRED alongside start/end —
@@ -225,11 +253,11 @@ export default async function handler(req, res) {
       // reminders/sverka messages for bookings in this time window, not
       // when those messages fire — EXCEPT for bookings that already exist
       // on this date and missed their scheduling because no shift covered
-      // them yet at the time they were made. backfillScheduling() catches
+      // them yet at the time they were made. resyncShiftAssignments() catches
       // those up immediately instead of leaving them for tomorrow's cron.
-      await backfillScheduling(cleanDateISO, shiftsMap[slot]);
+      const resynced = await resyncShiftAssignments(cleanDateISO, shiftsMap);
 
-      return res.status(200).json({ ok: true, shifts: shiftsMap });
+      return res.status(200).json({ ok: true, shifts: shiftsMap, resynced });
     }
 
     // 07.10.2026: имя сотрудника для ника (пустое имя — вернуть по умолчанию)
