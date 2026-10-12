@@ -23,6 +23,9 @@ export const WEEKEND_GRID_FROM = '2026-10-31';
 // Доплаты на выходной сетке: 21:40 — +10 Br, 23:00 — +15 Br сверх прежней
 // доплаты за поздний сеанс (20 Br), итого +35 Br.
 export const WEEKEND_SURCHARGES = { '21:40': 10, '23:00': LATE_SURCHARGE + 15 };
+// 12.10.2026: доплаты в БУДНИ (будняя сетка): 21:30 — +10 Br, 23:00 — +15 Br сверх
+// прежних +20, итого +35. Выходные со старой сеткой (до 31.10) — как было: 23:00 +20.
+export const WEEKDAY_SURCHARGES = { '21:30': 10, '23:00': LATE_SURCHARGE + 15 };
 // Будние дни, когда действуют цены выходного дня (сетка при этом будняя).
 export const WEEKEND_PRICE_RANGES = [['2026-11-02', '2026-11-06']];
 
@@ -41,6 +44,7 @@ export function tiersForDate(dateISO) {
 // Доплата за конкретный сеанс в этот день (к цене тарифа).
 export function slotSurcharge(dateISO, time) {
   if (slotsFor(dateISO) === WEEKEND_SLOTS) return WEEKEND_SURCHARGES[time] || 0;
+  if (!isWeekendISO(dateISO)) return WEEKDAY_SURCHARGES[time] || 0;
   return time === SLOTS[LATE_SLOT_INDEX] ? LATE_SURCHARGE : 0;
 }
 

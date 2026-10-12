@@ -115,7 +115,10 @@ import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 import { roomAggregatorSchedule, roomBusyByDate, roomPackagesFor, aggregatorHours, createAggregatorRoomBooking } from './_rooms.js';
 
-const DAYS_AHEAD = 14; // Mir Kvestov's spec: "расписание на 2 недели"
+// 12.10.2026: было 14 (их спецификация: «расписание на 2 недели») — но тогда у
+// Мира Квестов даты дальше двух недель стояли пустыми, и гости не могли
+// забронировать заранее. Теперь отдаём столько же, сколько бронь на сайте.
+const DAYS_AHEAD = 60;
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // same retention as every other booking
 
 // 26.09.2026: this endpoint (unlike api/book.js) had no rate limiting at
