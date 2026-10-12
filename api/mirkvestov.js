@@ -429,7 +429,7 @@ async function handleOrder(req, res) {
 
 // ===========================================================================
 // 09.10.2026: КОМНАТА ОТДЫХА (Loony Room) — тот же адрес с ?room=1:
-//   https://loonygames.by/api/mirkvestov?room=1
+//   https://loonygames.by/api/room/mirkvestov   (vercel.json → этот файл с ?room=1)
 // Его нужно дать Миру Квестов как адрес ОТДЕЛЬНОЙ карточки (комната — это
 // не квест, у неё свой список часов). Всё то же, что у квеста:
 //   GET                    -> расписание на 2 недели: 10:30, 12:00 … 22:30 (сетка комнаты)
@@ -484,6 +484,21 @@ async function handleRoomOrder(req, res) {
   return res.status(200).json(result.ok ? { success: true } : { success: false, message: result.message });
 }
 
+// 13.10.2026: адрес комнаты для агрегаторов — https://loonygames.by/api/room/<агрегатор>
+// (vercel.json переписывает его в этот же файл с ?room=1). На случай, если агрегатору
+// дали адрес с «?room=1» и он дописал свои параметры через второй «?»
+// (…?room=1?date=…&time=…), разбираем и такой вид.
+function roomQuery(req) {
+  const q = { ...(req.query || {}) };
+  let room = String(q.room || '');
+  if (room.includes('?')) {
+    const [r, rest] = room.split('?');
+    room = r;
+    for (const [k, v] of new URLSearchParams(rest)) if (q[k] === undefined) q[k] = v;
+  }
+  return { isRoom: ['1', 'true', 'yes'].includes(room.toLowerCase()), q };
+}
+
 export default async function handler(req, res) {
   // CORS — added 22.09.2026, mirroring the same fix on api/extrareality.js
   // after ExtraReality's own "Проверить" button turned out to be blocked
@@ -499,7 +514,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
-  const isRoom = ['1', 'true', 'yes'].includes(String((req.query && req.query.room) || '').toLowerCase());
+  const { isRoom, q: roomQ } = roomQuery(req);
+  if (isRoom) req.query = roomQ;
   if (req.method === 'GET') {
     const q = req.query || {};
     const hasDateAndTime = typeof q.date === 'string' && typeof q.time === 'string';

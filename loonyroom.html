@@ -509,7 +509,7 @@
       <p class="hero-sub">Комната для праздника,<br>где всё уже есть</p>
       <p class="hero-lede">День рождения, корпоратив или посиделки после квеста. Караоке, проектор, PlayStation, сцена и стол для застолья. Вам остаётся только собрать своих.</p>
       <div class="facts">
-        <div class="fact"><span class="dot"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span><b>10:30–23:30</b> каждый день</span></div>
+        <div class="fact"><span class="dot"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span><b>10:30–23:30</b> каждый день, в&nbsp;выходные до&nbsp;23:40</span></div>
         <div class="fact"><span class="dot"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.9.3 5 2.6 5 5.8"/></svg></span><span>до <b>10 гостей</b></span></div>
         <div class="fact"><span class="dot"><svg class="i" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg></span><span>от <b>70 Br</b> за час</span></div>
       </div>
@@ -654,7 +654,7 @@
         <div class="per">за час</div>
       </div>
     </div>
-    <p class="price-fine">От 1 часа, с 10:30 до 23:30. Например, с 18:00 до 20:30 в будний день — 140 Br.</p>
+    <p class="price-fine">От 1 часа, с 10:30 до 23:30 (в выходные до 23:40). Например, с 18:00 до 20:30 в будний день — 140 Br.</p>
   </div>
 </section>
 
@@ -768,10 +768,13 @@
   // несколько сеансов подряд (гости между ними не уходят): 2 сеанса с 18:00 = 18:00–20:30,
   // платят за 2 часа. Как в api/_rooms.js.
   const STARTS = ['10:30', '12:00', '13:30', '15:00', '16:30', '18:00', '19:30', '21:00', '22:30'];
+  // 13.10.2026: на выходных с 31.10 — своя сетка (сеансы чаще). Как в api/_rooms.js.
+  const WEEKEND_STARTS = ['10:30', '12:00', '13:20', '14:40', '16:00', '17:20', '18:40', '20:00', '21:20', '22:40'];
+  const WEEKEND_FROM = '2026-10-31';
   const SLOTS = STARTS;
-  const CLOSE_MIN = 23 * 60 + 30;   // комната до 23:30
-  const CLEANUP_MIN = 30;
-  const STEP_MIN = 90;
+  const SESSION_MIN = 60;
+  const CLEANUP_MIN = 20;   // минимальный перерыв между бронями
+  function startsFor(iso){ return iso && isWeekend(iso) && iso >= WEEKEND_FROM ? WEEKEND_STARTS : STARTS; }
   const RATE_WEEKDAY = 70;
   const RATE_WEEKEND = 90;
   const DAYS_AHEAD = 60;
@@ -809,7 +812,11 @@
     if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' часа';
     return n + ' часов';
   }
-  function endOf(time, n){ return fromMin(tMin(time) + n * STEP_MIN - CLEANUP_MIN); }
+  // Конец брони из n сеансов подряд, начиная с `time` в день `iso`: начало последнего + 1 час.
+  function endOf(time, n, iso){
+    const st = startsFor(iso || selectedDate), i = st.indexOf(time);
+    return i === -1 ? fromMin(tMin(time) + n * 90 - 30) : fromMin(tMin(st[Math.min(st.length - 1, i + n - 1)]) + SESSION_MIN);
+  }
 
   // ---- Метки рекламы (как на главной; sessionStorage общий для всего сайта) ----
   function getAdAttribution(){
@@ -834,16 +841,19 @@
 
   // Сколько сеансов подряд можно взять, начав в `time` (0 — нельзя). То же, что roomMaxHours() на сервере.
   function maxHours(iso, time){
+    const st = startsFor(iso), idx = st.indexOf(time);
     const s = tMin(time), b = busy[iso] || [];
-    if (b.some(([bs, be]) => s >= bs && s < be)) return 0;
-    let limit = CLOSE_MIN;
+    if (idx === -1 || b.some(([bs, be]) => s >= bs && s < be)) return 0;
+    let limit = Infinity;
     b.forEach(([bs]) => { if (bs > s) limit = Math.min(limit, bs - CLEANUP_MIN); });
-    return Math.max(0, Math.floor((limit - s + CLEANUP_MIN) / STEP_MIN));
+    let n = 0;
+    for (let k = idx; k < st.length && tMin(st[k]) + SESSION_MIN <= limit; k++) n++;
+    return n;
   }
   function isTaken(iso, time){ return maxHours(iso, time) === 0; }
   function canStart(iso, time){ return !isClosed(iso, time) && maxHours(iso, time) > 0; }
-  function selValid(){ return !!(sel && selectedDate && canStart(selectedDate, STARTS[sel.a]) && maxHours(selectedDate, STARTS[sel.a]) >= sel.b - sel.a + 1); }
-  function dayFull(iso){ return !STARTS.some((t) => canStart(iso, t)); }
+  function selValid(){ const st = startsFor(selectedDate); return !!(sel && selectedDate && canStart(selectedDate, st[sel.a]) && maxHours(selectedDate, st[sel.a]) >= sel.b - sel.a + 1); }
+  function dayFull(iso){ return !startsFor(iso).some((t) => canStart(iso, t)); }
 
   async function loadAvailability(){
     try {
@@ -860,7 +870,7 @@
     let html = '';
     for (let k = 0; k < DAYS_AHEAD; k++){
       const iso = addDays(todayISO, k);
-      const anyOpen = SLOTS.some((t) => !isClosed(iso, t));
+      const anyOpen = startsFor(iso).some((t) => !isClosed(iso, t));
       if (!anyOpen) continue; // сегодня все часы уже прошли — просто не показываем день
       const p = parts(iso);
       const full = dayFull(iso);
@@ -908,8 +918,8 @@
   // sel = { a, b } — индексы в STARTS (включительно); гости не уходят между сеансами,
   // поэтому бронь 16:30 … 21:00 = 16:30–22:00 (4 сеанса). Как в api/_rooms.js.
   function selCount(){ return sel ? sel.b - sel.a + 1 : 0; }
-  function selStart(){ return sel ? STARTS[sel.a] : ''; }
-  function rangeFree(iso, lo, hi){ return !isClosed(iso, STARTS[lo]) && maxHours(iso, STARTS[lo]) >= hi - lo + 1; }
+  function selStart(){ return sel ? startsFor(selectedDate)[sel.a] : ''; }
+  function rangeFree(iso, lo, hi){ const st = startsFor(iso); return !isClosed(iso, st[lo]) && maxHours(iso, st[lo]) >= hi - lo + 1; }
   function renderHours(){
     const wrap = $('hoursWrap');
     if (!selectedDate){
@@ -919,7 +929,7 @@
     }
     $('hoursDayLabel').textContent = '· ' + dayLabel(selectedDate);
     let html = '<div class="hours">';
-    STARTS.forEach((t, i) => {
+    startsFor(selectedDate).forEach((t, i) => {
       const cl = isClosed(selectedDate, t);
       const tk = !cl && isTaken(selectedDate, t);
       const inSel = sel && i >= sel.a && i <= sel.b;

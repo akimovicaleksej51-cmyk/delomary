@@ -1,6 +1,9 @@
 {
   "rewrites": [
-    { "source": "/loonyroom", "destination": "/loonyroom.html" }
+    { "source": "/loonyroom", "destination": "/loonyroom.html" },
+    { "source": "/api/room/mirkvestov", "destination": "/api/mirkvestov?room=1" },
+    { "source": "/api/room/extrareality", "destination": "/api/extrareality?room=1" },
+    { "source": "/api/room/extrareality-cancel", "destination": "/api/extrareality?room=1&action=cancel" }
   ],
   "crons": [
     {

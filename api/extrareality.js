@@ -590,9 +590,10 @@ async function handleReviews(req, res) {
 // ===========================================================================
 // 09.10.2026: КОМНАТА ОТДЫХА (Loony Room) — те же адреса с room=1, для
 // ОТДЕЛЬНОЙ карточки комнаты в ExtraReality:
-//   Расписание (GET):    https://loonygames.by/api/extrareality?room=1
-//   Бронь (POST):        https://loonygames.by/api/extrareality?room=1
-//   Отмена брони (POST): https://loonygames.by/api/extrareality?action=cancel&room=1
+//   Расписание (GET):    https://loonygames.by/api/room/extrareality
+//   Бронь (POST):        https://loonygames.by/api/room/extrareality
+//   Отмена брони (POST): https://loonygames.by/api/room/extrareality-cancel
+// (vercel.json переписывает их сюда с ?room=1 / ?room=1&action=cancel)
 // Расписание — сетка комнаты 10:30, 12:00 … 22:30 на 45 дней (не дальше, чем открыт
 // календарь комнаты), price — за 1 час, extraPrices — «1 час / 2 часа / …»
 // столько, сколько свободно подряд. Бронь: сколько часов — из полей
@@ -654,6 +655,21 @@ async function handleRoomCancel(req, res) {
   return res.status(200).json({ success: true });
 }
 
+// 13.10.2026: адрес комнаты для агрегаторов — https://loonygames.by/api/room/<агрегатор>
+// (vercel.json переписывает его в этот же файл с ?room=1). На случай, если агрегатору
+// дали адрес с «?room=1» и он дописал свои параметры через второй «?»
+// (…?room=1?date=…&time=…), разбираем и такой вид.
+function roomQuery(req) {
+  const q = { ...(req.query || {}) };
+  let room = String(q.room || '');
+  if (room.includes('?')) {
+    const [r, rest] = room.split('?');
+    room = r;
+    for (const [k, v] of new URLSearchParams(rest)) if (q[k] === undefined) q[k] = v;
+  }
+  return { isRoom: ['1', 'true', 'yes'].includes(room.toLowerCase()), q };
+}
+
 export default async function handler(req, res) {
   // CORS — added 22.09.2026. ExtraReality's own "Проверить" button next to
   // the "Расписание"/"Бронь" fields in their settings panel appears to call
@@ -678,8 +694,9 @@ export default async function handler(req, res) {
     // GET/POST through.
     return res.status(204).end();
   }
+  const { isRoom, q: roomQ } = roomQuery(req);
+  if (isRoom) req.query = roomQ;
   const action = (req.query && req.query.action) || '';
-  const isRoom = ['1', 'true', 'yes'].includes(String((req.query && req.query.room) || '').toLowerCase());
   if (req.method === 'GET') {
     if (action === 'reviews') return handleReviews(req, res);
     return isRoom ? handleRoomSchedule(req, res) : handleSchedule(req, res);

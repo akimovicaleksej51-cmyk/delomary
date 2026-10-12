@@ -34,13 +34,23 @@ import { escapeTgHtml, formatDateRu, roomUrgencyLead } from './_telegram.js';
 // 3 сеанса = 18:00–22:00. Платят за сеансы: 2 сеанса = 2 × тариф за час.
 // В записи брони `hours` = количество сеансов (оплачиваемых часов).
 // Последний сеанс 22:30–23:30.
+// 13.10.2026: на ВЫХОДНЫЕ (сб, вс) с 31.10.2026 — своя сетка, сеансы чаще
+// (перерыв 20 минут): 10:30, 12:00, 13:20 … 22:40. Последний сеанс 22:40–23:40.
+// Доплат за поздние сеансы у комнаты нет.
 export const ROOM_STARTS = ['10:30', '12:00', '13:30', '15:00', '16:30', '18:00', '19:30', '21:00', '22:30'];
+export const ROOM_WEEKEND_STARTS = ['10:30', '12:00', '13:20', '14:40', '16:00', '17:20', '18:40', '20:00', '21:20', '22:40'];
+export const ROOM_WEEKEND_FROM = '2026-10-31';
 export const ROOM_SLOTS = ROOM_STARTS; // старое имя — для совместимости
 export const ROOM_CLOSE = '23:30';
-export const ROOM_CLEANUP_MINUTES = 30;
 export const ROOM_SESSION_MINUTES = 60;
-export const ROOM_STEP_MINUTES = ROOM_SESSION_MINUTES + ROOM_CLEANUP_MINUTES; // 90
-export const ROOM_MAX_HOURS = ROOM_STARTS.length; // до 9 сеансов
+// Минимальный перерыв между бронями (уборка). Сетка сама даёт 30 мин в будни
+// и 20 мин на выходных; для старых/нестандартных броней держим не меньше 20 мин.
+export const ROOM_CLEANUP_MINUTES = 20;
+export const ROOM_STEP_MINUTES = 90; // шаг будней (для оценки длительности из минут)
+export const ROOM_MAX_HOURS = ROOM_WEEKEND_STARTS.length; // до 10 сеансов
+export function roomStartsFor(dateISO) {
+  return isWeekendISO(dateISO) && String(dateISO) >= ROOM_WEEKEND_FROM ? ROOM_WEEKEND_STARTS : ROOM_STARTS;
+}
 export const ROOM_RATE_WEEKDAY = 70; // Br per hour, Mon–Fri
 export const ROOM_RATE_WEEKEND = 90; // Br per hour, Sat–Sun (same weekend rule as the quest)
 export const ROOM_DAYS_AHEAD = 60;   // how far ahead the online calendar goes
@@ -72,9 +82,14 @@ export function roomTime(min) {
   return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 }
 // Конец брони из N сеансов: начало последнего сеанса + 1 час.
-// "18:00" + 1 -> "19:00", + 2 -> "20:30", + 3 -> "22:00".
-export function endTimeFor(startTime, sessions) {
-  return roomTime(roomMin(startTime) + Number(sessions) * ROOM_STEP_MINUTES - ROOM_CLEANUP_MINUTES);
+// Будни: "18:00" + 1 -> "19:00", + 2 -> "20:30". Выходные с 31.10: "13:20" + 2 -> "15:40".
+export function endTimeFor(startTime, sessions, dateISO = '') {
+  const starts = dateISO ? roomStartsFor(dateISO) : ROOM_STARTS;
+  const i = starts.indexOf(startTime) + Number(sessions) - 1;
+  if (starts.indexOf(startTime) === -1 || i >= starts.length) {
+    return roomTime(roomMin(startTime) + Number(sessions) * 90 - 30); // запасной расчёт (будняя сетка)
+  }
+  return roomTime(roomMin(starts[i]) + ROOM_SESSION_MINUTES);
 }
 
 // Занятые промежутки дня в минутах: [начало, конец + уборка] для каждой брони.
@@ -87,20 +102,25 @@ export function roomBusyIntervals(records, exceptBookingId = '') {
 }
 // Сколько сеансов подряд можно взять, начав в startTime (0 — нельзя начать).
 // Бронь вместе с уборкой после неё не должна задевать другие брони.
-export function roomMaxHours(busy, startTime) {
+export function roomMaxHours(busy, startTime, dateISO = '') {
+  const starts = dateISO ? roomStartsFor(dateISO) : ROOM_STARTS;
+  const idx = starts.indexOf(startTime);
   const s = roomMin(startTime);
-  if (!ROOM_STARTS.includes(startTime) || !Number.isFinite(s)) return 0;
+  if (idx === -1 || !Number.isFinite(s)) return 0;
   if ((busy || []).some(([bs, be]) => s >= bs && s < be)) return 0;
-  let limit = roomMin(ROOM_CLOSE);          // конец брони — не позже закрытия
+  let limit = Infinity;                      // конец брони + уборка — до начала следующей брони
   (busy || []).forEach(([bs]) => { if (bs > s) limit = Math.min(limit, bs - ROOM_CLEANUP_MINUTES); });
-  return Math.max(0, Math.floor((limit - s + ROOM_CLEANUP_MINUTES) / ROOM_STEP_MINUTES));
+  let n = 0;
+  for (let k = idx; k < starts.length && roomMin(starts[k]) + ROOM_SESSION_MINUTES <= limit; k++) n++;
+  return n;
 }
 // Получасовые ячейки брони в Redis: от начала до конца + уборка. HSETNX по
 // ячейкам не даёт двум одновременным броням занять одно и то же время.
-export function roomCells(startTime, sessions) {
-  const s = roomMin(startTime), e = s + Number(sessions) * ROOM_STEP_MINUTES;
+// 13.10.2026: ячейки по 10 минут (на выходных время начала — :20 и :40).
+export function roomCells(startTime, sessions, dateISO = '') {
+  const s = roomMin(startTime), e = roomMin(endTimeFor(startTime, sessions, dateISO)) + ROOM_CLEANUP_MINUTES;
   const out = [];
-  for (let m = s; m < e; m += 30) out.push(roomTime(m));
+  for (let m = s; m < e; m += 10) out.push(roomTime(m));
   return out;
 }
 
@@ -141,7 +161,8 @@ export async function getRoomAvailability() {
   const busy = {};
   dates.forEach((iso) => { if (busyByDate[iso].length) busy[iso] = busyByDate[iso]; });
   return {
-    busy, starts: ROOM_STARTS, close: ROOM_CLOSE, cleanup: ROOM_CLEANUP_MINUTES,
+    busy, starts: ROOM_STARTS, weekendStarts: ROOM_WEEKEND_STARTS, weekendFrom: ROOM_WEEKEND_FROM,
+    session: ROOM_SESSION_MINUTES, cleanup: ROOM_CLEANUP_MINUTES,
     firstDateISO: dates[0], lastDateISO: dates[dates.length - 1],
   };
 }
@@ -235,11 +256,12 @@ export function validateRoomRequest(body, { admin = false } = {}) {
     return { ok: false, status: 400, error: 'Задним числом можно добавить бронь не раньше, чем месяц назад.' };
   }
 
-  if (!ROOM_STARTS.includes(startTime)) return { ok: false, status: 400, error: 'Некорректное время.' };
-  if (!Number.isInteger(hours) || hours < 1 || roomMin(endTimeFor(startTime, hours)) > roomMin(ROOM_CLOSE)) {
+  const dayStarts = roomStartsFor(dateISO);
+  if (!dayStarts.includes(startTime)) return { ok: false, status: 400, error: 'Некорректное время.' };
+  if (!Number.isInteger(hours) || hours < 1 || dayStarts.indexOf(startTime) + hours > dayStarts.length) {
     return { ok: false, status: 400, error: 'Некорректная продолжительность.' };
   }
-  const times = roomCells(startTime, hours);
+  const times = roomCells(startTime, hours, dateISO);
 
   // Same hour-before cutoff as the quest (api/_time.js) — checking the
   // FIRST hour is enough, every later one starts even later.
@@ -271,7 +293,7 @@ export function validateRoomRequest(body, { admin = false } = {}) {
     comment,
     dateISO,
     startTime,
-    endTime: endTimeFor(startTime, hours),
+    endTime: endTimeFor(startTime, hours, dateISO),
     hours,      // количество сеансов (оплачиваемых часов)
     sessions: hours,
     times,
@@ -298,7 +320,7 @@ export async function reserveRoomHours(record) {
   const existing = await kv('hgetall', key);
   if (Array.isArray(existing) && existing.length) {
     const busy = roomBusyIntervals(uniqueRoomRecords(existing), record.bookingId);
-    if (roomMaxHours(busy, record.startTime) < Number(record.hours)) {
+    if (roomMaxHours(busy, record.startTime, record.dateISO) < Number(record.hours)) {
       return { ok: false, status: 409, conflict: true, error: 'Это время уже занято — выберите другое.' };
     }
   }
@@ -450,8 +472,8 @@ function hoursWordRu(n) {
 // «1 час · до 19:00», «2 часа · до 20:30» (агрегатор вернёт его в тарифе).
 export function roomPackagesFor(dateISO, startTime, busy) {
   const rate = roomRateFor(dateISO);
-  const max = roomMaxHours(busy, startTime);
-  return Array.from({ length: max }, (_, i) => ({ hours: i + 1, label: `${hoursWordRu(i + 1)} · до ${endTimeFor(startTime, i + 1)}`, price: rate * (i + 1) }));
+  const max = roomMaxHours(busy, startTime, dateISO);
+  return Array.from({ length: max }, (_, i) => ({ hours: i + 1, label: `${hoursWordRu(i + 1)} · до ${endTimeFor(startTime, i + 1, dateISO)}`, price: rate * (i + 1) }));
 }
 
 // Расписание для агрегатора: одна запись на каждое время начала из сетки.
@@ -461,8 +483,8 @@ export async function roomAggregatorSchedule(daysAhead, now = new Date()) {
   const out = [];
   for (const dateISO of dates) {
     const t = busyByDate[dateISO] || [];
-    for (const time of ROOM_STARTS) {
-      const free = roomMaxHours(t, time) > 0 && !isSlotClosingSoon(dateISO, time, now);
+    for (const time of roomStartsFor(dateISO)) {
+      const free = roomMaxHours(t, time, dateISO) > 0 && !isSlotClosingSoon(dateISO, time, now);
       out.push({
         date: dateISO,
         time,
@@ -483,7 +505,8 @@ export function aggregatorHours({ hours, duration, tariff, price }, dateISO) {
   const d = asInt(duration);
   if (Number.isFinite(d) && d > 0) {
     // минуты (18:00–20:30 = 150 мин = 2 сеанса) или число часов/сеансов
-    const fromDur = d > ROOM_MAX_HOURS ? Math.round((d + ROOM_CLEANUP_MINUTES) / ROOM_STEP_MINUTES) : Math.round(d);
+    const step = roomStartsFor(dateISO) === ROOM_WEEKEND_STARTS ? 80 : 90; // шаг сеансов в этот день
+    const fromDur = d > ROOM_MAX_HOURS ? Math.round((d + step - ROOM_SESSION_MINUTES) / step) : Math.round(d);
     if (fromDur >= 1 && fromDur <= ROOM_MAX_HOURS) return fromDur;
   }
   const m = typeof tariff === 'string' ? tariff.match(/(\d+)\s*ч/i) : null;

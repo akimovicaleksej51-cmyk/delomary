@@ -5164,8 +5164,12 @@
   // 09.10.2026: сеансы комнаты по 1 часу каждые 1,5 часа; бронь — сеансы подряд
   // (2 сеанса с 18:00 = 18:00–20:30, оплата 2 × тариф). Как в api/_rooms.js.
   const ROOM_STARTS = ['10:30', '12:00', '13:30', '15:00', '16:30', '18:00', '19:30', '21:00', '22:30'];
-  const ROOM_CLOSE_MIN = 23 * 60 + 30, ROOM_CLEANUP_MIN = 30, ROOM_STEP_MIN = 90;
-  const roomEndOf = (t, n) => roomTimeOf(roomMinOf(t) + n * ROOM_STEP_MIN - ROOM_CLEANUP_MIN);
+  // 13.10.2026: на выходных с 31.10 — своя сетка комнаты (как в api/_rooms.js)
+  const ROOM_WEEKEND_STARTS = ['10:30', '12:00', '13:20', '14:40', '16:00', '17:20', '18:40', '20:00', '21:20', '22:40'];
+  const ROOM_WEEKEND_FROM = '2026-10-31';
+  const ROOM_CLEANUP_MIN = 20, ROOM_SESSION_MIN = 60;
+  function roomStartsFor(iso){ if (!iso) return ROOM_STARTS; const [y, m, d] = iso.split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return (w === 0 || w === 6) && iso >= ROOM_WEEKEND_FROM ? ROOM_WEEKEND_STARTS : ROOM_STARTS; }
+  const roomEndOf = (t, n, iso) => { const st = roomStartsFor(iso), i = st.indexOf(t); return i === -1 ? roomTimeOf(roomMinOf(t) + n * 90 - 30) : roomTimeOf(roomMinOf(st[Math.min(st.length - 1, i + n - 1)]) + ROOM_SESSION_MIN); };
   const roomMinOf = (t) => { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
   const roomTimeOf = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   const ROOM_RATE_WD = 70, ROOM_RATE_WE = 90;                            // как в api/_rooms.js
@@ -5176,11 +5180,14 @@
   function roomRateFor(iso){ const [y, m, d] = iso.split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return (w === 0 || w === 6) ? ROOM_RATE_WE : ROOM_RATE_WD; }
   function roomDayBookings(iso){ return roomBookingsData.filter(b => b.dateISO === iso && Number.isFinite(roomMinOf(b.startTime)) && Number.isFinite(roomMinOf(b.endTime))); }
   function roomMaxHoursAt(iso, t){
+    const st = roomStartsFor(iso), idx = st.indexOf(t);
     const s0 = roomMinOf(t), busy = roomDayBookings(iso).map(b => [roomMinOf(b.startTime), roomMinOf(b.endTime) + ROOM_CLEANUP_MIN]);
-    if (busy.some(([bs, be]) => s0 >= bs && s0 < be)) return 0;
-    let limit = ROOM_CLOSE_MIN;
+    if (idx === -1 || busy.some(([bs, be]) => s0 >= bs && s0 < be)) return 0;
+    let limit = Infinity;
     busy.forEach(([bs]) => { if (bs > s0) limit = Math.min(limit, bs - ROOM_CLEANUP_MIN); });
-    return Math.max(0, Math.floor((limit - s0 + ROOM_CLEANUP_MIN) / ROOM_STEP_MIN));
+    let n = 0;
+    for (let k = idx; k < st.length && roomMinOf(st[k]) + ROOM_SESSION_MIN <= limit; k++) n++;
+    return n;
   }
   function roomSessionsWord(n){
     const m10 = n % 10, m100 = n % 100;
@@ -5227,13 +5234,13 @@
       const iso = q('.ra-date-in').value, start = q('.ra-start').value;
       const prev = Number(q('.ra-hours').value) || 2;
       const max = start ? roomMaxHoursAt(iso, start) : 0;
-      q('.ra-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(prev, max) ? ' selected' : ''}>до ${roomEndOf(start, i + 1)} · ${roomSessionsWord(i + 1)}</option>`).join('') : '<option value="">занято</option>';
+      q('.ra-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(prev, max) ? ' selected' : ''}>до ${roomEndOf(start, i + 1, iso)} · ${roomSessionsWord(i + 1)}</option>`).join('') : '<option value="">занято</option>';
       updatePrice();
     };
     const fillStarts = () => {
       const iso = q('.ra-date-in').value, prev = q('.ra-start').value;
-      const free = ROOM_STARTS.filter(t => roomMaxHoursAt(iso, t) > 0);
-      q('.ra-start').innerHTML = ROOM_STARTS.map(t => { const off = !free.includes(t); return `<option value="${t}"${off ? ' disabled' : ''}>${t}${off ? ' — занято' : ''}</option>`; }).join('');
+      const free = roomStartsFor(iso).filter(t => roomMaxHoursAt(iso, t) > 0);
+      q('.ra-start').innerHTML = roomStartsFor(iso).map(t => { const off = !free.includes(t); return `<option value="${t}"${off ? ' disabled' : ''}>${t}${off ? ' — занято' : ''}</option>`; }).join('');
       const pick = free.includes(prev) ? prev : (free.includes('18:00') ? '18:00' : free[0]);
       if (pick !== undefined) q('.ra-start').value = pick;
       const busy = roomDayBookings(iso).sort((a, b) => roomMinOf(a.startTime) - roomMinOf(b.startTime)).map(b => `${b.startTime}–${b.endTime}`);
