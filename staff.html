@@ -219,6 +219,13 @@
   /* Ручная сверка проведена — тихая зелёная плашка в уголке карточки, как
      просили: не мешает основному контенту (он весь по центру вертикали),
      но сразу видна. */
+  /* 12.10.2026: маленькая плашка «откуда бронь» в нижнем правом углу карточки */
+  .booking-row.has-src{margin-bottom:18px;}
+  .row-src{position:absolute; bottom:-7px; right:12px; font-size:9.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+    padding:1px 7px; border-radius:999px; line-height:1.45; white-space:nowrap; background:#121212; border:1px solid #3a3a3a; color:#b9b9b9; pointer-events:none;}
+  .row-src.site{color:var(--ochre-bright); border-color:rgba(245,197,24,.45); background:#17140a;}
+  .row-src.mk{color:#7fb2ff; border-color:rgba(127,178,255,.45); background:#0e1420;}
+  .row-src.er{color:#ff9fd0; border-color:rgba(255,159,208,.45); background:#1c0f17;}
   .row-sverka-badge{
     position:absolute; top:-7px; right:12px; font-size:10px; font-weight:800;
     text-transform:uppercase; letter-spacing:.03em; color:#5fe08a;
@@ -1309,6 +1316,15 @@
   // Each tab is already one status, so the row badge goes back to plain
   // TYPE (Клиент / Техническая) — repeating the status on every row was
   // exactly the clutter this tab split was meant to fix.
+  // 12.10.2026: откуда бронь — короткая метка на карточке (сайт / МК / Экстра / вручную)
+  function bookingSourceTag(b){
+    const raw = String(b.channel || '').trim(), low = raw.toLowerCase(), com = String(b.comment || '').toLowerCase();
+    if (low === 'мир квестов' || (!raw && /мир\s*квест/.test(com))) return { t: 'МК', c: 'mk', full: 'Мир Квестов' };
+    if (low === 'extrareality' || (!raw && /экстра|extra\s*reality/.test(com))) return { t: 'Экстра', c: 'er', full: 'ExtraReality' };
+    if (low === 'сайт' || (!raw && b.source !== 'admin')) return { t: 'Сайт', c: 'site', full: 'Сайт' };
+    if (!raw) return { t: 'Вручную', c: '', full: 'Внесена вручную в админке' };
+    return { t: raw.length > 12 ? raw.slice(0, 11) + '…' : raw, c: '', full: raw };
+  }
   function typeBadge(b){
     // A cancelled/rescheduled booking gets its own clearly-colored plaque
     // (red "Отменена" / blue "Перенесена") instead of just fading its
@@ -1422,9 +1438,10 @@
             : '';
           const badge = typeBadge(b);
           return `
-            <div class="booking-row${isHistory ? ' is-history' : ''}" data-id="${escapeHtml(b.id)}">
+            <div class="booking-row${isHistory ? ' is-history' : ''}${isTech ? '' : ' has-src'}" data-id="${escapeHtml(b.id)}">
               ${sverkaBadge}
               ${callBadge}
+              ${isTech ? '' : (() => { const st = bookingSourceTag(b); return `<span class="row-src ${st.c}" title="Источник брони: ${escapeHtml(st.full)}">${escapeHtml(st.t)}</span>`; })()}
               <div class="row-time">${escapeHtml(b.time)}</div>
               <div class="row-type ${badge.cls}">${badge.label}</div>
               <div class="row-main">
