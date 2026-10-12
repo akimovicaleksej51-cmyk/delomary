@@ -36,7 +36,7 @@ import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { isSlotClosingSoon } from './_time.js';
-import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, ANIMATOR_SURCHARGE, tiersFor, isWeekendISO } from './_pricing.js';
+import { ANIMATOR_SURCHARGE, slotsFor, tiersForDate, slotSurcharge, overlapsExisting } from './_pricing.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
 
@@ -146,7 +146,7 @@ export default async function handler(req, res) {
   if (!isRealCalendarDate(cleanDateISO)) {
     return res.status(400).json({ error: 'Некорректная дата.' });
   }
-  if (!SLOTS.includes(cleanTime)) {
+  if (!slotsFor(cleanDateISO).includes(cleanTime)) {
     return res.status(400).json({ error: 'Некорректное время сеанса.' });
   }
 
@@ -172,12 +172,12 @@ export default async function handler(req, res) {
   // here (it's the exact tier label the widget sends, e.g. "3–4 человека"
   // — see index.html), so an unrecognised value also means an unrecognised
   // team size, not just a cosmetic mismatch.
-  const matchedTier = tiersFor(isWeekendISO(cleanDateISO)).find((t) => t.people === cleanPlayers);
+  const matchedTier = tiersForDate(cleanDateISO).find((t) => t.people === cleanPlayers);
   if (!matchedTier) {
     return res.status(400).json({ error: 'Некорректное количество игроков.' });
   }
   const expectedPrice = matchedTier.price
-    + (cleanTime === SLOTS[LATE_SLOT_INDEX] ? LATE_SURCHARGE : 0)
+    + slotSurcharge(cleanDateISO, cleanTime)
     + (cleanAnimator ? ANIMATOR_SURCHARGE : 0);
   const submittedPrice = price != null ? String(price).slice(0, 20) : '';
   if (submittedPrice !== String(expectedPrice)) {
@@ -231,6 +231,14 @@ export default async function handler(req, res) {
     createdAt: new Date().toISOString(),
   };
 
+  // 12.10.2026: на днях с новой сеткой — сеанс, пересекающийся с бронью по прежней сетке, занят.
+  const existingTimes = await kv('hkeys', hashKey);
+  if (Array.isArray(existingTimes) && overlapsExisting(cleanDateISO, existingTimes, cleanTime)) {
+    return res.status(409).json({
+      conflict: true,
+      error: 'Это время только что заняли — пожалуйста, выберите другое.',
+    });
+  }
   const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));
   if (added === 0) {
     return res.status(409).json({

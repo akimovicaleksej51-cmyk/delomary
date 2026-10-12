@@ -66,12 +66,20 @@
     "latitude": 53.890180,
     "longitude": 27.573620
   },
-  "openingHoursSpecification": {
-    "@type": "OpeningHoursSpecification",
-    "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],
-    "opens": "11:00",
-    "closes": "23:59"
-  }
+  "openingHoursSpecification": [
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday"],
+      "opens": "11:00",
+      "closes": "23:59"
+    },
+    {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": ["Saturday","Sunday"],
+      "opens": "09:40",
+      "closes": "23:59"
+    }
+  ]
 }
 </script>
 <script type="application/ld+json">
@@ -1983,6 +1991,20 @@
 
   const slots = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
   const lateIdx = 8;
+  // 12.10.2026: своя сетка на выходные с 31.10, доплаты 21:40 (+10) и 23:00 (+35),
+  // цены выходного дня 2–6 ноября. Должно совпадать с api/_pricing.js (сервер
+  // всё равно сам пересчитывает цену и проверяет время).
+  const WEEKEND_SLOTS = ['09:40','11:00','12:20','13:40','15:00','16:20','17:40','19:00','20:20','21:40','23:00'];
+  const WEEKEND_GRID_FROM = '2026-10-31';
+  const WEEKEND_SURCHARGES = { '21:40': 10, '23:00': 35 };
+  const WEEKEND_PRICE_RANGES = [['2026-11-02', '2026-11-06']];
+  function slotsForDate(d){ return (d && isWeekend(d) && isoDate(d) >= WEEKEND_GRID_FROM) ? WEEKEND_SLOTS : slots; }
+  function isWeekendPrice(d){ const iso = isoDate(d); return isWeekend(d) || WEEKEND_PRICE_RANGES.some(([a, b]) => iso >= a && iso <= b); }
+  function slotSurchargeFor(d, t){
+    if (slotsForDate(d) === WEEKEND_SLOTS) return WEEKEND_SURCHARGES[t] || 0;
+    return t === slots[lateIdx] ? 20 : 0;
+  }
+  function currentSurcharge(){ return (selectedSlot && selectedDate) ? slotSurchargeFor(selectedDate, selectedSlot) : 0; }
 
   function isoDate(d){
     const y = d.getFullYear();
@@ -2122,7 +2144,7 @@
   let selectedTierIdx = 0;
   function buildPlayersOptions(){
     const list = tiersFor(selectedIsWeekend);
-    const surcharge = selectedSlotIsLate ? 20 : 0;
+    const surcharge = currentSurcharge();
     if(selectedTierIdx > list.length - 1) selectedTierIdx = 0;
     playersSelect.innerHTML = list.map((t,i) =>
       '<option value="'+i+'">Игра для '+t.people+': '+(t.price+surcharge)+' Br</option>'
@@ -2143,12 +2165,12 @@
     if(selectedSlot == null) return;
     buildPlayersOptions();
     const t = tiersFor(selectedIsWeekend)[selectedTierIdx];
-    const lateSurcharge = selectedSlotIsLate ? 20 : 0;
+    const lateSurcharge = currentSurcharge();
     const animatorSurcharge = animatorCheck.checked ? ANIMATOR_SURCHARGE : 0;
     const finalPrice = t.price + lateSurcharge + animatorSurcharge;
     priceOut.innerHTML = finalPrice + '<sup><span class="byn-icon"></span></sup>';
     const notes = [];
-    if(lateSurcharge) notes.push('доплата за поздний сеанс 23:00');
+    if(lateSurcharge) notes.push('доплата за сеанс ' + selectedSlot + ' +' + lateSurcharge + ' Br');
     if(animatorSurcharge) notes.push('аниматор +' + ANIMATOR_SURCHARGE + ' Br');
     document.getElementById('priceNote').textContent = t.label + (notes.length ? ' · ' + notes.join(' + ') : '');
     priceOut.classList.remove('bump'); void priceOut.offsetWidth; priceOut.classList.add('bump');
@@ -2233,10 +2255,11 @@
       // remaining slot is inside that window, the day still wasn't marked
       // `.full` and stayed clickable — the visitor only found out there was
       // nothing left to book after opening the day and its slot list.
+      const daySlots = slotsForDate(d);
       const unavailableForDay = bookable
-        ? slots.filter(s => bookedForDay.includes(s) || minutesUntilSlot(d, s) < CLOSE_SLOT_MINUTES_BEFORE).length
+        ? daySlots.filter(s => bookedForDay.includes(s) || minutesUntilSlot(d, s) < CLOSE_SLOT_MINUTES_BEFORE).length
         : 0;
-      const isFull = bookable && unavailableForDay >= slots.length;
+      const isFull = bookable && unavailableForDay >= daySlots.length;
       // 23.09.2026: по просьбе владельца — СЕГОДНЯШНИЙ день не закрывается
       // для клика вплоть до полуночи, даже если isFull. Раньше "занято"
       // почти всегда означало "до слота осталось меньше часа" (см.
@@ -2259,9 +2282,10 @@
         btn.addEventListener('click', ()=>{
           selectedDate = d;
           selectedDateLabel = dateLabel(d);
-          selectedIsWeekend = weekend;
+          selectedIsWeekend = isWeekendPrice(d); // тарифы выходного дня (сб/вс и особые даты)
           document.querySelectorAll('.day').forEach(el=>el.classList.remove('active'));
           btn.classList.add('active');
+          buildSlotRow(slotsForDate(d));
           openBookingModal();
           refreshSlotPrices();
           refreshSlotAvailability();
@@ -2295,10 +2319,17 @@
   const slotNote = document.getElementById('slotNote');
   let selectedSlot = null;
   let selectedSlotIsLate = false;
-  slots.forEach((s,i)=>{
+  // 12.10.2026: кнопки сеансов строятся под выбранный день (у выходных с 31.10 своя сетка)
+  let builtSlotsKey = '';
+  function buildSlotRow(list){
+    const key = list.join(',');
+    if (key === builtSlotsKey) return;
+    builtSlotsKey = key;
+    slotRow.innerHTML = '';
+  list.forEach((s,i)=>{
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'slot' + (i===lateIdx ? ' late' : '');
+    btn.className = 'slot' + ((selectedDate ? slotSurchargeFor(selectedDate, s) : (i===lateIdx ? 20 : 0)) ? ' late' : '');
     btn.dataset.time = s;
     btn.innerHTML = '<span class="slot-time">'+s+'</span><span class="slot-price"></span>';
     btn.addEventListener('click', ()=>{
@@ -2316,7 +2347,7 @@
         return;
       }
       selectedSlot = s;
-      selectedSlotIsLate = (i===lateIdx);
+      selectedSlotIsLate = (selectedDate ? slotSurchargeFor(selectedDate, s) : 0) > 0;
       document.querySelectorAll('.slot').forEach(el=>el.classList.remove('active'));
       btn.classList.add('active');
       slotNote.classList.remove('show');
@@ -2325,12 +2356,14 @@
     });
     slotRow.appendChild(btn);
   });
+  }
+  buildSlotRow(slots);
 
   function refreshSlotPrices(){
     document.querySelectorAll('.slot').forEach(btn=>{
-      const i = slots.indexOf(btn.dataset.time);
-      const isLate = i === lateIdx;
-      const base = tiersFor(selectedIsWeekend)[0].price + (isLate ? 20 : 0);
+      const extra = selectedDate ? slotSurchargeFor(selectedDate, btn.dataset.time) : (btn.dataset.time === slots[lateIdx] ? 20 : 0);
+      btn.classList.toggle('late', extra > 0);
+      const base = tiersFor(selectedIsWeekend)[0].price + extra;
       btn.querySelector('.slot-price').innerHTML = 'от ' + base + ' <span class="byn-icon"></span>';
     });
   }
@@ -2498,7 +2531,7 @@
     }
 
     const t = tiersFor(selectedIsWeekend)[selectedTierIdx];
-    const lateSurcharge = selectedSlotIsLate ? 20 : 0;
+    const lateSurcharge = currentSurcharge();
     const wantsAnimator = animatorCheck.checked;
     const animatorSurcharge = wantsAnimator ? ANIMATOR_SURCHARGE : 0;
     const totalPrice = t.price + lateSurcharge + animatorSurcharge;

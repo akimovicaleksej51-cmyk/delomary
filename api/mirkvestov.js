@@ -107,7 +107,7 @@
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
-import { SLOTS, LATE_SLOT_INDEX, LATE_SURCHARGE, startingPriceFor, tiersFor, isWeekendISO } from './_pricing.js';
+import { startingPriceFor, slotsFor, tiersForDate, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
@@ -161,7 +161,7 @@ async function handleTimetable(req, res) {
   if (results) {
     results.forEach((entry, i) => {
       const times = entry && entry.result;
-      takenByDate[dates[i]] = Array.isArray(times) ? times : [];
+      takenByDate[dates[i]] = Array.isArray(times) ? effectiveTakenTimes(dates[i], times) : [];
     });
   }
 
@@ -169,7 +169,7 @@ async function handleTimetable(req, res) {
   const out = [];
   for (const dateISO of dates) {
     const taken = takenByDate[dateISO] || [];
-    for (const time of SLOTS) {
+    for (const time of slotsFor(dateISO)) {
       // 22.09.2026: was just "already started" — now matches the site's own
       // hour-before cutoff (see isSlotClosingSoon in api/_time.js). The
       // owner caught ExtraReality still offering a slot 4 minutes before it
@@ -206,8 +206,9 @@ async function handleTariffs(req, res) {
     return res.status(200).json({});
   }
 
-  const tiers = tiersFor(isWeekendISO(dateISO));
-  const surcharge = time === SLOTS[LATE_SLOT_INDEX] ? LATE_SURCHARGE : 0;
+  if (!slotsFor(dateISO).includes(time)) return res.status(200).json({});
+  const tiers = tiersForDate(dateISO);
+  const surcharge = slotSurcharge(dateISO, time);
   const out = {};
   tiers.forEach((tier) => {
     const price = tier.price + surcharge;
@@ -356,6 +357,15 @@ async function handleOrder(req, res) {
   };
 
   const hashKey = `bookings:${cleanDateISO}`;
+  // 12.10.2026: время должно быть из сетки этого дня (у агрегатора могло остаться
+  // старое расписание) и не пересекаться с бронями по прежней сетке.
+  if (!slotsFor(cleanDateISO).includes(cleanTime)) {
+    return res.status(200).json({ success: false, message: 'Указанное время недоступно — обновите расписание и выберите другое.' });
+  }
+  const existingTimes = await kv('hkeys', hashKey);
+  if (Array.isArray(existingTimes) && overlapsExisting(cleanDateISO, existingTimes, cleanTime)) {
+    return res.status(200).json({ success: false, message: 'Указанное время занято' });
+  }
   const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));
   if (added === 0) {
     return res.status(200).json({ success: false, message: 'Указанное время занято' });

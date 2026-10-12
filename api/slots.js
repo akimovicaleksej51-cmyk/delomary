@@ -19,6 +19,7 @@
 // blocked until the database is connected.
 
 import { kvPipeline, isKvConfigured } from './_kv.js';
+import { effectiveTakenTimes } from './_pricing.js';
 import { businessToday } from './_time.js';
 
 const BOOKING_DAYS_AHEAD = 65; // small buffer beyond the site's 60-day window
@@ -73,7 +74,7 @@ export default async function handler(req, res) {
   results.forEach((entry, i) => {
     const times = entry && entry.result;
     if (Array.isArray(times) && times.length) {
-      out[dates[i]] = times;
+      out[dates[i]] = effectiveTakenTimes(dates[i], times); // + сеансы, пересекающиеся с бронями по прежней сетке
     }
   });
 

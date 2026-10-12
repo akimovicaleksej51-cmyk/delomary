@@ -141,7 +141,7 @@
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
-import { SLOTS, tiersFor, isWeekendISO, startingPriceFor, LATE_SLOT_INDEX, LATE_SURCHARGE } from './_pricing.js';
+import { startingPriceFor, slotsFor, tiersForDate, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
 import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
@@ -184,8 +184,8 @@ function isoDate(d) {
 }
 
 function extraPricesFor(dateISO, time) {
-  const tiers = tiersFor(isWeekendISO(dateISO));
-  const lateBonus = time === SLOTS[LATE_SLOT_INDEX] ? LATE_SURCHARGE : 0;
+  const tiers = tiersForDate(dateISO);
+  const lateBonus = slotSurcharge(dateISO, time);
   const out = {};
   tiers.forEach((tier) => { out[tier.people] = tier.price + lateBonus; });
   return out;
@@ -207,7 +207,7 @@ async function handleSchedule(req, res) {
   if (results) {
     results.forEach((entry, i) => {
       const times = entry && entry.result;
-      takenByDate[dates[i]] = Array.isArray(times) ? times : [];
+      takenByDate[dates[i]] = Array.isArray(times) ? effectiveTakenTimes(dates[i], times) : [];
     });
   }
 
@@ -215,7 +215,7 @@ async function handleSchedule(req, res) {
   const out = [];
   for (const dateISO of dates) {
     const taken = takenByDate[dateISO] || [];
-    for (const time of SLOTS) {
+    for (const time of slotsFor(dateISO)) {
       // Was just "already started" — now matches the site's own hour-before
       // cutoff (see isSlotClosingSoon in api/_time.js), so a slot ExtraReality
       // couldn't book on our own site anyway isn't shown as free here either.
@@ -331,6 +331,15 @@ async function handleBook(req, res) {
   };
 
   const hashKey = `bookings:${cleanDateISO}`;
+  // 12.10.2026: время должно быть из сетки этого дня (у агрегатора могло остаться
+  // старое расписание) и не пересекаться с бронями по прежней сетке.
+  if (!slotsFor(cleanDateISO).includes(cleanTime)) {
+    return res.status(200).json({ success: false, message: 'Указанное время недоступно — обновите расписание и выберите другое.' });
+  }
+  const existingTimes = await kv('hkeys', hashKey);
+  if (Array.isArray(existingTimes) && overlapsExisting(cleanDateISO, existingTimes, cleanTime)) {
+    return res.status(200).json({ success: false, message: 'Указанное время занято' });
+  }
   const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));
   if (added === 0) {
     return res.status(200).json({ success: false, message: 'Указанное время занято' });

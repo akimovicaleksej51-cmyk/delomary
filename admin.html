@@ -1454,6 +1454,28 @@
 <script>
 (function(){
   const SLOTS = ['11:00','12:30','14:00','15:30','17:00','18:30','20:00','21:30','23:00'];
+
+  // 12.10.2026: сетка зависит от даты — у выходных с 31.10 своя (как в api/_pricing.js).
+  // Брони, сделанные раньше по прежней сетке, остаются со своим временем и занимают
+  // соседние сеансы новой сетки, если те ближе 90 минут.
+  const WEEKEND_SLOTS = ['09:40','11:00','12:20','13:40','15:00','16:20','17:40','19:00','20:20','21:40','23:00'];
+  const WEEKEND_GRID_FROM = '2026-10-31';
+  const WEEKEND_SURCHARGES = { '21:40': 10, '23:00': 35 };
+  const WEEKEND_PRICE_RANGES = [['2026-11-02', '2026-11-06']];
+  function isSatSunISO(iso){ const [y, m, d] = String(iso).split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return w === 0 || w === 6; }
+  function slotsForISO(iso){ return iso && isSatSunISO(iso) && iso >= WEEKEND_GRID_FROM ? WEEKEND_SLOTS : SLOTS; }
+  function isWeekendPriceISO(iso){ return !!iso && (isSatSunISO(iso) || WEEKEND_PRICE_RANGES.some(([a, b]) => iso >= a && iso <= b)); }
+  function slotSurchargeISO(iso, t){ return slotsForISO(iso) === WEEKEND_SLOTS ? (WEEKEND_SURCHARGES[t] || 0) : (t === SLOTS[8] ? 20 : 0); }
+  function slotMin(t){ const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; }
+  function offGridBlocked(iso, times){
+    const grid = slotsForISO(iso);
+    const off = (times || []).filter(t => !grid.includes(t)).map(slotMin).filter(Number.isFinite);
+    return off.length ? grid.filter(s => off.some(m => Math.abs(slotMin(s) - m) < 90)) : [];
+  }
+  function dayOpenCount(iso, dayBookings){
+    const times = dayBookings.map(b => b.time), blocked = offGridBlocked(iso, times);
+    return slotsForISO(iso).filter(s => !times.includes(s) && !blocked.includes(s)).length;
+  }
   const LATE_IDX = 8;
   const BOOKING_DAYS_AHEAD = 65;
   const WEEKDAY_TIERS = [
@@ -1755,9 +1777,10 @@
     // Only ACTIVE bookings actually occupy a slot — a cancelled or
     // rescheduled entry stays in allBookings (as history) but its slot is
     // free again, so it must not block picking that time for something new.
-    return allBookings
+    const times = allBookings
       .filter(b => b.dateISO === dateISO && b.status === 'active' && b !== excludeBooking)
       .map(b => b.time);
+    return [...times, ...offGridBlocked(dateISO, times)];
   }
 
   let activeTab = 'active'; // 'active' | 'conducted' | 'cancelled' | 'rescheduled' — which tab is showing
@@ -2016,7 +2039,7 @@
 
       return `
         <div class="day-group">
-          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : ''}</div>
+          <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : (isWeekendPriceISO(dateISO) ? ' <span class="weekend-tag">· цены выходного</span>' : '')}</div>
           ${rows}
         </div>`;
     }).join('');
@@ -2485,7 +2508,7 @@
   function renderRescheduleSlots(){
     const dateISO = reschedSelectedDateISO;
     const taken = dateISO ? takenTimesFor(dateISO, activeBooking) : [];
-    rescheduleSlots.innerHTML = SLOTS.map(s => {
+    rescheduleSlots.innerHTML = slotsForISO(dateISO).map(s => {
       const isTaken = taken.includes(s);
       const isActive = s === rescheduleSelectedTime;
       return `<button type="button" class="slot-btn ${isTaken ? 'taken':''} ${isActive ? 'active':''}" data-time="${s}">${s}</button>`;
@@ -2964,11 +2987,13 @@
         .filter(b => b.dateISO === dateISO && b.status === 'active')
         .forEach(b => { byTime[b.time] = b; });
     }
-    techSlots.innerHTML = SLOTS.map(s => {
+    const blockedByOld = offGridBlocked(dateISO, Object.keys(byTime));
+    techSlots.innerHTML = slotsForISO(dateISO).map(s => {
       const rec = byTime[s];
       const isActive = bookingType !== 'technical' && s === techSelectedTime;
       let cls = '';
       if (rec) cls = rec.type === 'technical' ? 'taken-tech' : 'taken';
+      else if (blockedByOld.includes(s)) cls = 'taken';
       else if (bookingType === 'technical' && techMultiSel.has(`${dateISO}|${s}`)) cls = 'picked';
       const title = rec && rec.type === 'technical' ? ' title="Нажмите, чтобы отменить эту техническую бронь"' : '';
       return `<button type="button" class="slot-btn ${cls} ${isActive ? 'active':''}" data-time="${s}"${title}>${s}</button>`;
@@ -3016,9 +3041,8 @@
 
   function buildTechPlayersOptions(){
     if (bookingType !== 'customer') return;
-    const weekend = techSelectedDateISO ? isWeekendISO(techSelectedDateISO) : false;
-    const late = techSelectedTime === SLOTS[LATE_IDX];
-    const surcharge = late ? 20 : 0;
+    const weekend = isWeekendPriceISO(techSelectedDateISO);
+    const surcharge = techSelectedDateISO && techSelectedTime ? slotSurchargeISO(techSelectedDateISO, techSelectedTime) : 0;
     const list = tiersFor(weekend);
     if (techTierIdx > list.length - 1) techTierIdx = 0;
     techPlayers.innerHTML = list.map((t,i) =>
@@ -3130,7 +3154,7 @@
       if (!name || !phone){
         techMsg.textContent = 'Укажите имя и телефон клиента.'; techMsg.className = 'modal-msg err'; return;
       }
-      const tier = tiersFor(techSelectedDateISO ? isWeekendISO(techSelectedDateISO) : false)[techTierIdx];
+      const tier = tiersFor(isWeekendPriceISO(techSelectedDateISO))[techTierIdx];
       payload.name = name;
       payload.phone = phone;
       payload.players = tier ? tier.people : '';
@@ -3234,8 +3258,8 @@
     const dayBookings = allBookings.filter(b => b.dateISO === closeDaySelectedDateISO && b.status === 'active');
     const technical = dayBookings.filter(b => b.type === 'technical').length;
     const customer = dayBookings.filter(b => b.type !== 'technical').length;
-    const open = Math.max(0, SLOTS.length - technical - customer);
-    closeDayStatus.innerHTML = `<b>${formatDateHeading(closeDaySelectedDateISO)}</b>: занято клиентами — ${customer}, закрыто технически — ${technical}, свободно — ${open} из ${SLOTS.length}.`;
+    const open = dayOpenCount(closeDaySelectedDateISO, dayBookings);
+    closeDayStatus.innerHTML = `<b>${formatDateHeading(closeDaySelectedDateISO)}</b>: занято клиентами — ${customer}, закрыто технически — ${technical}, свободно — ${open} из ${slotsForISO(closeDaySelectedDateISO).length}.`;
     openDaySubmitBtn.disabled = technical === 0;
     closeDaySubmitBtn.disabled = open === 0;
   }
@@ -3315,8 +3339,8 @@
     const dayBookings = allBookings.filter(b => b.dateISO === dateISO && b.status === 'active');
     const customer = dayBookings.filter(b => b.type !== 'technical').length;
     const technical = dayBookings.filter(b => b.type === 'technical').length;
-    const open = Math.max(0, SLOTS.length - customer - technical);
-    return `${formatDateHeading(dateISO)}: занято клиентами — ${customer}, закрыто технически — ${technical}, свободно — ${open} из ${SLOTS.length}`;
+    const open = dayOpenCount(dateISO, dayBookings);
+    return `${formatDateHeading(dateISO)}: занято клиентами — ${customer}, закрыто технически — ${technical}, свободно — ${open} из ${slotsForISO(dateISO).length}`;
   }
 
   function renderOverviewCalendar(){
@@ -3390,10 +3414,17 @@
       .filter(b => b.dateISO === dateISO && b.status === 'active')
       .forEach(b => { byTime[b.time] = b; });
 
-    overviewSlotGrid.innerHTML = SLOTS.map(time => {
+    const daySlots = slotsForISO(dateISO);
+    const blockedByOld = offGridBlocked(dateISO, Object.keys(byTime));
+    const gridTimes = [...new Set([...daySlots, ...Object.keys(byTime)])].sort((a, b) => slotMin(a) - slotMin(b));
+    overviewSlotGrid.innerHTML = gridTimes.map(time => {
       const b = byTime[time];
+      if (!b && blockedByOld.includes(time)){
+        return `<button type="button" class="slot-btn overview-slot taken slot-blocked" disabled title="Занято: пересекается с бронью по прежней сетке">${escapeHtml(time)}</button>`;
+      }
       const cls = b ? (b.type === 'technical' ? 'slot-technical' : 'slot-customer') : 'slot-open';
-      return `<button type="button" class="slot-btn overview-slot ${cls}" data-time="${escapeHtml(time)}">${escapeHtml(time)}</button>`;
+      const oldGrid = b && !daySlots.includes(time) ? ' title="Бронь по прежней сетке сеансов"' : '';
+      return `<button type="button" class="slot-btn overview-slot ${cls}" data-time="${escapeHtml(time)}"${oldGrid}>${escapeHtml(time)}</button>`;
     }).join('');
 
     overviewSlotGrid.querySelectorAll('.overview-slot').forEach(btn => {

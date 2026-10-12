@@ -126,7 +126,8 @@ const WINDOW_DAYS_AHEAD = 65;
 const HISTORY_WINDOW_DAYS_BACK = 60; // cancelled/rescheduled entries are worth looking up further back
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
 const HISTORY_TTL_SECONDS = 60 * 60 * 24 * 95; // slightly outlives SLOT_TTL_SECONDS
-const SLOTS = ['11:00', '12:30', '14:00', '15:30', '17:00', '18:30', '20:00', '21:30', '23:00'];
+// 12.10.2026: сетка зависит от даты (выходные с 31.10 — своя) — см. api/_pricing.js.
+import { slotsFor, overlapsExisting, slotsBlockedByOffGrid } from '../_pricing.js';
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -515,6 +516,12 @@ export default async function handler(req, res) {
       }
 
       const hashKey = `bookings:${cleanDateISO}`;
+      if (record.type !== 'technical') {
+        const existingTimes = await kv('hkeys', hashKey);
+        if (Array.isArray(existingTimes) && overlapsExisting(cleanDateISO, existingTimes, cleanTime)) {
+          return res.status(409).json({ error: 'Это время пересекается с бронью по прежней сетке сеансов — выберите другое.' });
+        }
+      }
       const added = await kv('hsetnx', hashKey, cleanTime, JSON.stringify(record));
       if (added === 0) {
         return res.status(409).json({ error: 'Этот слот уже занят.' });
@@ -662,7 +669,9 @@ export default async function handler(req, res) {
       const existingRaw = await kv('hgetall', hashKey);
       const existing = pairsToObject(existingRaw);
 
-      const toBlock = SLOTS.filter((s) => !existing[s]);
+      const daySlots = slotsFor(cleanDateISO);
+      const offGridBlocked = slotsBlockedByOffGrid(cleanDateISO, Object.keys(existing));
+      const toBlock = daySlots.filter((s) => !existing[s] && !offGridBlocked.includes(s));
       let blocked = 0;
       for (const time of toBlock) {
         const record = {
@@ -681,7 +690,7 @@ export default async function handler(req, res) {
         await notifyTelegramDayAction(cleanDateISO, 'День закрыт из админки', blocked);
       }
 
-      return res.status(200).json({ ok: true, blocked, alreadyTaken: SLOTS.length - toBlock.length });
+      return res.status(200).json({ ok: true, blocked, alreadyTaken: daySlots.length - toBlock.length });
     }
 
     if (action === 'unblockDay') {
@@ -848,6 +857,13 @@ export default async function handler(req, res) {
         rescheduledFrom: { dateISO: fromDateISO, time: fromTime },
       };
 
+      if (existing.type !== 'technical') {
+        const keys = await kv('hkeys', toKey);
+        const others = Array.isArray(keys) ? keys.filter((t) => !(toDateISO === fromDateISO && t === fromTime)) : [];
+        if (overlapsExisting(toDateISO, others, toTime)) {
+          return res.status(409).json({ error: 'Это время пересекается с бронью по прежней сетке сеансов — выберите другое.' });
+        }
+      }
       const added = await kv('hsetnx', toKey, toTime, JSON.stringify(updated));
       if (added === 0) {
         return res.status(409).json({ error: 'Это время уже занято — выберите другое.' });
