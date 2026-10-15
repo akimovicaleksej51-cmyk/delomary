@@ -89,8 +89,20 @@ export function sameDayUrgencyNote(dateISO, timeStr, now = new Date()) {
 export function dateTimeBlock(dateISO, timeStr, now = new Date()) {
   return [
     `Дата: <b>${escapeTgHtml(formatDateRu(dateISO))}</b>`,
-    `Время: <b>${escapeTgHtml(timeStr)}</b>`,
+    `Время: <b>${escapeTgHtml(timeStr)}</b>${nightNote(dateISO, timeStr)}`,
   ];
+}
+
+// 15.10.2026: ночной сеанс (до 06:00) — подписываем, с какого на какое число ночь,
+// чтобы «1 ноября 00:20» никто не принял за ночь после 1 ноября.
+export function nightNote(dateISO, timeStr) {
+  const hh = Number(String(timeStr).split(':')[0]);
+  if (!(hh >= 0 && hh < 6)) return '';
+  const [y, m, d] = String(dateISO).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const prev = new Date(Date.UTC(y, m - 1, d - 1));
+  const prevLabel = `${prev.getUTCDate()} ${MONTH_NAMES_RU[prev.getUTCMonth()]}`;
+  return ` (ночь с ${prevLabel} на ${d} ${MONTH_NAMES_RU[m - 1]})`;
 }
 
 // Prefix to put at the very top of a message, above the title line: the

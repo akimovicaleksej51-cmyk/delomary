@@ -141,7 +141,7 @@
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
-import { startingPriceFor, slotsFor, tiersForDate, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
+import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
 import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
@@ -184,7 +184,7 @@ function isoDate(d) {
 }
 
 function extraPricesFor(dateISO, time) {
-  const tiers = tiersForDate(dateISO);
+  const tiers = tiersForSlot(dateISO, time);
   const lateBonus = slotSurcharge(dateISO, time);
   const out = {};
   tiers.forEach((tier) => { out[tier.people] = tier.price + lateBonus; });

@@ -282,6 +282,7 @@
   .row-src.site{color:var(--ochre-bright); border-color:rgba(245,197,24,.45); background:#17140a;}
   .row-src.mk{color:#7fb2ff; border-color:rgba(127,178,255,.45); background:#0e1420;}
   .row-src.er{color:#ff9fd0; border-color:rgba(255,159,208,.45); background:#1c0f17;}
+  .row-night{display:block; font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--ochre-bright); line-height:1;}
   .row-sverka-badge{
     position:absolute; top:-7px; right:12px; font-size:10px; font-weight:800;
     text-transform:uppercase; letter-spacing:.03em; color:#5fe08a;
@@ -1463,11 +1464,22 @@
   const WEEKEND_SURCHARGES = { '21:40': 10, '23:00': 35 };
   const WEEKEND_PRICE_RANGES = [['2026-11-02', '2026-11-06']];
   function isSatSunISO(iso){ const [y, m, d] = String(iso).split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return w === 0 || w === 6; }
-  function slotsForISO(iso){ return iso && isSatSunISO(iso) && iso >= WEEKEND_GRID_FROM ? WEEKEND_SLOTS : SLOTS; }
+  // 15.10.2026: ночные сеансы (ночь с 31.10 на 1.11 и с 1.11 на 2.11) — по настоящей дате
+  const NIGHT_SLOTS = { '2026-11-01': ['00:20','01:40','03:00','04:20'], '2026-11-02': ['00:20','01:40','03:00','04:20'] };
+  function baseSlotsForISO(iso){ return iso && isSatSunISO(iso) && iso >= WEEKEND_GRID_FROM ? WEEKEND_SLOTS : SLOTS; }
+  function slotsForISO(iso){ const n = NIGHT_SLOTS[iso]; return n ? n.concat(baseSlotsForISO(iso)) : baseSlotsForISO(iso); }
   function isWeekendPriceISO(iso){ return !!iso && (isSatSunISO(iso) || WEEKEND_PRICE_RANGES.some(([a, b]) => iso >= a && iso <= b)); }
+  // 15.10.2026: тарифы выходного дня для конкретного сеанса — ещё ночные и пятница с 18:30
+  function isWeekendPriceSlotISO(iso, t){
+    if (!iso) return false;
+    if (isWeekendPriceISO(iso) || (NIGHT_SLOTS[iso] || []).includes(t)) return true;
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 5 && !!t && String(t) >= '18:30';
+  }
   const WEEKDAY_SURCHARGES = { '21:30': 10, '23:00': 35 }; // будни: 21:30 +10, 23:00 +35 (20 + 15)
   function slotSurchargeISO(iso, t){
-    if (slotsForISO(iso) === WEEKEND_SLOTS) return WEEKEND_SURCHARGES[t] || 0;
+    if ((NIGHT_SLOTS[iso] || []).includes(t)) return 50; // ночной: как 23:00 в выходной (+35) + 15
+    if (baseSlotsForISO(iso) === WEEKEND_SLOTS) return WEEKEND_SURCHARGES[t] || 0;
     if (!isSatSunISO(iso)) return WEEKDAY_SURCHARGES[t] || 0;
     return t === SLOTS[8] ? 20 : 0;
   }
@@ -2032,7 +2044,7 @@
               ${sverkaBadge}
               ${callBadge}
               ${isTech ? '' : (() => { const st = bookingSourceTag(b); return `<span class="row-src ${st.c}" title="Источник брони: ${escapeHtml(st.full)}">${escapeHtml(st.t)}</span>`; })()}
-              <div class="row-time">${escapeHtml(b.time)}</div>
+              <div class="row-time">${escapeHtml(b.time)}${String(b.time) < '06:00' ? '<small class="row-night">ночь</small>' : ''}</div>
               <div class="row-type ${badge.cls}">${badge.label}</div>
               <div class="row-main">
                 <div class="row-name">${escapeHtml(name)}${!isTech && b.players ? ` · ${escapeHtml(b.players)}` : ''}</div>
@@ -3046,7 +3058,7 @@
 
   function buildTechPlayersOptions(){
     if (bookingType !== 'customer') return;
-    const weekend = isWeekendPriceISO(techSelectedDateISO);
+    const weekend = isWeekendPriceSlotISO(techSelectedDateISO, techSelectedTime);
     const surcharge = techSelectedDateISO && techSelectedTime ? slotSurchargeISO(techSelectedDateISO, techSelectedTime) : 0;
     const list = tiersFor(weekend);
     if (techTierIdx > list.length - 1) techTierIdx = 0;
@@ -3159,7 +3171,7 @@
       if (!name || !phone){
         techMsg.textContent = 'Укажите имя и телефон клиента.'; techMsg.className = 'modal-msg err'; return;
       }
-      const tier = tiersFor(isWeekendPriceISO(techSelectedDateISO))[techTierIdx];
+      const tier = tiersFor(isWeekendPriceSlotISO(techSelectedDateISO, techSelectedTime))[techTierIdx];
       payload.name = name;
       payload.phone = phone;
       payload.players = tier ? tier.people : '';
@@ -5214,7 +5226,7 @@
           <div class="room-form-row"><span class="rf-label">Цена, Br</span><input class="ra-price" inputmode="decimal"></div>
         </div>
         <div class="ra-hint"></div>
-        <div class="room-form-row"><span class="rf-label">Доп. опция</span><select class="ra-game"><option value="">— нет —</option><option value="mafia">Мафия с ведущим</option><option value="bunker">Бункер с ведущим</option></select></div>
+        <div class="room-form-row"><span class="rf-label">Доп. опция</span><select class="ra-game"><option value="">— нет —</option><option value="mafia">Мафия с ведущим</option><option value="bunker">Бункер с ведущим</option><option value="mafia,bunker">Мафия и Бункер с ведущим</option></select></div>
         <div class="room-form-row"><span class="rf-label">Комментарий (необязательно)</span><input class="ra-comment" maxlength="500" placeholder="Например: день рождения, 8 человек"></div>
         <div class="room-form-actions"><button type="button" class="btn ra-save">Сохранить бронь</button><button type="button" class="btn-secondary ra-close">Отмена</button></div>
         <div class="modal-msg ra-msg"></div>

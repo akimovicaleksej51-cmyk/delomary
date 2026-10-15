@@ -29,9 +29,28 @@ export const WEEKDAY_SURCHARGES = { '21:30': 10, '23:00': LATE_SURCHARGE + 15 };
 // Будние дни, когда действуют цены выходного дня (сетка при этом будняя).
 export const WEEKEND_PRICE_RANGES = [['2026-11-02', '2026-11-06']];
 
-// Сетка сеансов для конкретной даты.
-export function slotsFor(dateISO) {
+// ---- 15.10.2026: НОЧНЫЕ сеансы — продолжение вечера после 23:00 ----
+// Ключ — НАСТОЯЩАЯ календарная дата сеанса: ночь с 31.10 на 1.11 хранится
+// как 1 ноября 00:20 (так правильно работают напоминания, «до сеанса меньше
+// часа» и агрегаторы). На сайте эти сеансы показываются в дне 31 октября
+// (и 1 ноября для ночи на 2 ноября) с пометкой «ночь».
+export const NIGHT_SLOTS = {
+  '2026-11-01': ['00:20', '01:40', '03:00', '04:20'], // ночь с 31 октября на 1 ноября
+  '2026-11-02': ['00:20', '01:40', '03:00', '04:20'], // ночь с 1 на 2 ноября
+};
+// Цена ночного сеанса: тариф выходного дня + доплата как у 23:00 на выходных (+35) + 15.
+export const NIGHT_SURCHARGE = 35 + 15;
+export function nightSlotsFor(dateISO) { return NIGHT_SLOTS[String(dateISO)] || []; }
+export function isNightSlot(dateISO, time) { return nightSlotsFor(dateISO).includes(time); }
+
+// Дневная сетка дня (без ночных сеансов).
+export function baseSlotsFor(dateISO) {
   return isWeekendISO(dateISO) && String(dateISO) >= WEEKEND_GRID_FROM ? WEEKEND_SLOTS : SLOTS;
+}
+// Все сеансы дня (ночные + дневные), по времени.
+export function slotsFor(dateISO) {
+  const night = nightSlotsFor(dateISO);
+  return night.length ? [...night, ...baseSlotsFor(dateISO)] : baseSlotsFor(dateISO);
 }
 // Цены выходного дня в этот день? (сб/вс или особые даты выше)
 export function isWeekendPriceDay(dateISO) {
@@ -41,9 +60,23 @@ export function isWeekendPriceDay(dateISO) {
 export function tiersForDate(dateISO) {
   return tiersFor(isWeekendPriceDay(dateISO));
 }
+// 15.10.2026: по ПЯТНИЦАМ с 18:30 (18:30, 20:00, 21:30, 23:00) — тарифы выходного дня.
+export const FRIDAY_WEEKEND_PRICE_FROM = '18:30';
+export function isFridayEvening(dateISO, time) {
+  const [y, m, d] = String(dateISO).split('-').map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay() === 5 && String(time) >= FRIDAY_WEEKEND_PRICE_FROM;
+}
+// Тарифы для конкретного сеанса: ночные и пятничные вечерние — по тарифу выходного дня.
+export function isWeekendPriceSlot(dateISO, time) {
+  return isNightSlot(dateISO, time) || isFridayEvening(dateISO, time) || isWeekendPriceDay(dateISO);
+}
+export function tiersForSlot(dateISO, time) {
+  return tiersFor(isWeekendPriceSlot(dateISO, time));
+}
 // Доплата за конкретный сеанс в этот день (к цене тарифа).
 export function slotSurcharge(dateISO, time) {
-  if (slotsFor(dateISO) === WEEKEND_SLOTS) return WEEKEND_SURCHARGES[time] || 0;
+  if (isNightSlot(dateISO, time)) return NIGHT_SURCHARGE;
+  if (baseSlotsFor(dateISO) === WEEKEND_SLOTS) return WEEKEND_SURCHARGES[time] || 0;
   if (!isWeekendISO(dateISO)) return WEEKDAY_SURCHARGES[time] || 0;
   return time === SLOTS[LATE_SLOT_INDEX] ? LATE_SURCHARGE : 0;
 }
@@ -115,5 +148,5 @@ export function isWeekendISO(dateISO) {
 // "starting from" price (not a per-team-size breakdown) — see
 // api/mirkvestov.js's file comment for why.
 export function startingPriceFor(dateISO, time) {
-  return tiersForDate(dateISO)[0].price + slotSurcharge(dateISO, time);
+  return tiersForSlot(dateISO, time)[0].price + slotSurcharge(dateISO, time);
 }

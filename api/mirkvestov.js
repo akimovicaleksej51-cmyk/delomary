@@ -107,7 +107,7 @@
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
-import { startingPriceFor, slotsFor, tiersForDate, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
+import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
@@ -210,7 +210,7 @@ async function handleTariffs(req, res) {
   }
 
   if (!slotsFor(dateISO).includes(time)) return res.status(200).json({});
-  const tiers = tiersForDate(dateISO);
+  const tiers = tiersForSlot(dateISO, time);
   const surcharge = slotSurcharge(dateISO, time);
   const out = {};
   tiers.forEach((tier) => {

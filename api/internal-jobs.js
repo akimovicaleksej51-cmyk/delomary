@@ -38,6 +38,7 @@
 // before responding", the original files' comments (still present below,
 // per job) have the full story.
 
+import { nightNote } from './_telegram.js';
 import { kv, kvPipeline, pairsToObject } from './_kv.js';
 import { scheduleReminder, resolveActorUsernamesForSlotSync } from './_reminders.js';
 import { scheduleGameCloseout, sweepMissedCloseouts, runCloseoutForBooking } from './_closeout.js';
@@ -233,7 +234,7 @@ async function handleReminder(req, res) {
   const dateLabel = dateISO ? formatDateLabel(dateISO) : '';
   const lines = [
     '⏰ Напоминание: через 1.5 часа у вас игра.',
-    dateLabel ? `📅 ${dateLabel}, ${time}` : `🕒 Время: ${time}`,
+    dateLabel ? `📅 ${dateLabel}, ${time}${nightNote(dateISO, time)}` : `🕒 Время: ${time}`,
     players ? `👥 Игроков: ${players}` : null,
     animator ? '🎭 Заказан аниматор (+30 Br)' : null,
   ].filter(Boolean);

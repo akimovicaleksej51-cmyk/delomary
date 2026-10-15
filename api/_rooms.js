@@ -237,7 +237,10 @@ export function validateRoomRequest(body, { admin = false } = {}) {
   const dateISO = typeof body.dateISO === 'string' ? body.dateISO : '';
   const startTime = typeof body.startTime === 'string' ? body.startTime.trim() : '';
   const hours = Number(body.hours);
-  const hostGame = typeof body.hostGame === 'string' && HOST_GAMES[body.hostGame] ? body.hostGame : '';
+  // 15.10.2026: можно выбрать и Мафию, и Бункер сразу — 'mafia,bunker' или массив.
+  const rawGames = Array.isArray(body.hostGame) ? body.hostGame : String(body.hostGame || '').split(',');
+  const gameKeys = Object.keys(HOST_GAMES).filter((k) => rawGames.map((g) => String(g).trim()).includes(k));
+  const hostGame = gameKeys.join(',');
 
   if (admin) {
     if (!name) return { ok: false, status: 400, error: 'Укажите имя гостя.' };
@@ -300,7 +303,7 @@ export function validateRoomRequest(body, { admin = false } = {}) {
     rate,
     price, // the room only — a hosted game is priced separately by phone
     hostGame,
-    hostGameLabel: hostGame ? HOST_GAMES[hostGame] : '',
+    hostGameLabel: gameKeys.map((k) => HOST_GAMES[k]).join(' + '),
     channel,
     attribution,
     createdAt: new Date().toISOString(),

@@ -36,7 +36,7 @@ import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
 import { isSlotClosingSoon } from './_time.js';
-import { ANIMATOR_SURCHARGE, slotsFor, tiersForDate, slotSurcharge, overlapsExisting } from './_pricing.js';
+import { ANIMATOR_SURCHARGE, slotsFor, tiersForSlot, slotSurcharge, overlapsExisting } from './_pricing.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
 
@@ -172,7 +172,7 @@ export default async function handler(req, res) {
   // here (it's the exact tier label the widget sends, e.g. "3–4 человека"
   // — see index.html), so an unrecognised value also means an unrecognised
   // team size, not just a cosmetic mismatch.
-  const matchedTier = tiersForDate(cleanDateISO).find((t) => t.people === cleanPlayers);
+  const matchedTier = tiersForSlot(cleanDateISO, cleanTime).find((t) => t.people === cleanPlayers);
   if (!matchedTier) {
     return res.status(400).json({ error: 'Некорректное количество игроков.' });
   }

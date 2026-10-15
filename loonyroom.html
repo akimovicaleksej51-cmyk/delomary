@@ -701,9 +701,9 @@
 
         <p class="opt-label">Игра с ведущим</p>
         <div class="opts" role="radiogroup" aria-label="Игра с ведущим">
-          <label><input type="radio" name="hostGame" value="" checked><span>Без игры</span></label>
-          <label><input type="radio" name="hostGame" value="mafia"><span>Мафия</span></label>
-          <label><input type="radio" name="hostGame" value="bunker"><span>Бункер</span></label>
+          <label><input type="checkbox" name="hostGame" value="" checked><span>Без игры</span></label>
+          <label><input type="checkbox" name="hostGame" value="mafia"><span>Мафия</span></label>
+          <label><input type="checkbox" name="hostGame" value="bunker"><span>Бункер</span></label>
         </div>
         <p class="opt-note" id="optNote"></p>
 
@@ -963,7 +963,8 @@
   });
 
   // ---- Итог и форма ----
-  function selectedGame(){ const r = document.querySelector('input[name="hostGame"]:checked'); return r ? r.value : ''; }
+  // 15.10.2026: можно выбрать и Мафию, и Бункер; «Без игры» снимает обе
+  function selectedGame(){ return Array.from(document.querySelectorAll('input[name="hostGame"]:checked')).map((r) => r.value).filter(Boolean).join(','); }
   let lastPrice = 0;
   function renderSummary(){
     const btn = $('roomSubmit');
@@ -1000,6 +1001,10 @@
     lastPrice = v;
   }
   document.querySelectorAll('input[name="hostGame"]').forEach((r) => r.addEventListener('change', () => {
+    const none = document.querySelector('input[name="hostGame"][value=""]');
+    const games = Array.from(document.querySelectorAll('input[name="hostGame"]')).filter((x) => x.value);
+    if (r.value === '' ) { if (r.checked) games.forEach((x) => { x.checked = false; }); else if (!games.some((x) => x.checked)) r.checked = true; }
+    else { if (r.checked) none.checked = false; else if (!games.some((x) => x.checked)) none.checked = true; }
     const g = selectedGame();
     $('optNote').textContent = g ? 'Стоимость ведущего администратор назовёт при подтверждении брони.' : '';
     renderSummary();
@@ -1079,7 +1084,7 @@
           '. Мы позвоним, чтобы подтвердить бронь.', false);
         sel = null;
         $('roomName').value = ''; phoneEl.value = ''; $('roomComment').value = '';
-        const noGame = document.querySelector('input[name="hostGame"][value=""]'); if (noGame) noGame.checked = true;
+        document.querySelectorAll('input[name="hostGame"]').forEach((x) => { x.checked = x.value === ''; });
         $('optNote').textContent = '';
         await loadAvailability();
       } else if (r.status === 409 || out.conflict){
