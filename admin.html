@@ -1464,8 +1464,8 @@
   const WEEKEND_SURCHARGES = { '21:40': 10, '23:00': 35 };
   const WEEKEND_PRICE_RANGES = [['2026-11-02', '2026-11-06']];
   function isSatSunISO(iso){ const [y, m, d] = String(iso).split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return w === 0 || w === 6; }
-  // 15.10.2026: ночные сеансы (ночь с 31.10 на 1.11 и с 1.11 на 2.11) — по настоящей дате
-  const NIGHT_SLOTS = { '2026-11-01': ['00:20','01:40','03:00','04:20'], '2026-11-02': ['00:20','01:40','03:00','04:20'] };
+  // 15.10.2026: ночные сеансы 31 октября и 1 ноября — в начале дня, перед утренними
+  const NIGHT_SLOTS = { '2026-10-31': ['00:20','01:40','03:00','04:20'], '2026-11-01': ['00:20','01:40','03:00','04:20'] };
   function baseSlotsForISO(iso){ return iso && isSatSunISO(iso) && iso >= WEEKEND_GRID_FROM ? WEEKEND_SLOTS : SLOTS; }
   function slotsForISO(iso){ const n = NIGHT_SLOTS[iso]; return n ? n.concat(baseSlotsForISO(iso)) : baseSlotsForISO(iso); }
   function isWeekendPriceISO(iso){ return !!iso && (isSatSunISO(iso) || WEEKEND_PRICE_RANGES.some(([a, b]) => iso >= a && iso <= b)); }

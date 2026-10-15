@@ -141,7 +141,7 @@
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
-import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
+import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTakenTimes, overlapsExisting, displayEntriesFor, resolveAggregatorSlot, isoPlusDays } from './_pricing.js';
 import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
@@ -202,31 +202,30 @@ async function handleSchedule(req, res) {
     dates.push(isoDate(d));
   }
 
-  const results = await kvPipeline(dates.map((iso) => ['HKEYS', `bookings:${iso}`]));
+  // + следующий день: ночные сеансы показываем в дне накануне (см. displayEntriesFor)
+  const fetchDates = [...dates, isoPlusDays(dates[dates.length - 1], 1)];
+  const results = await kvPipeline(fetchDates.map((iso) => ['HKEYS', `bookings:${iso}`]));
   const takenByDate = {};
   if (results) {
     results.forEach((entry, i) => {
       const times = entry && entry.result;
-      takenByDate[dates[i]] = Array.isArray(times) ? effectiveTakenTimes(dates[i], times) : [];
+      takenByDate[fetchDates[i]] = Array.isArray(times) ? effectiveTakenTimes(fetchDates[i], times) : [];
     });
   }
 
   const now = new Date();
   const out = [];
   for (const dateISO of dates) {
-    const taken = takenByDate[dateISO] || [];
-    for (const time of slotsFor(dateISO)) {
-      // Was just "already started" — now matches the site's own hour-before
-      // cutoff (see isSlotClosingSoon in api/_time.js), so a slot ExtraReality
-      // couldn't book on our own site anyway isn't shown as free here either.
-      const closingSoon = isSlotClosingSoon(dateISO, time, now);
+    for (const { time, realDate } of displayEntriesFor(dateISO)) {
+      const taken = takenByDate[realDate] || [];
+      const closingSoon = isSlotClosingSoon(realDate, time, now);
       out.push({
         date: dateISO,
         time,
         is_free: !closingSoon && !taken.includes(time),
-        price: startingPriceFor(dateISO, time),
-        extraPrices: extraPricesFor(dateISO, time),
-        our_time_id: `${dateISO}_${time}`,
+        price: startingPriceFor(realDate, time),
+        extraPrices: extraPricesFor(realDate, time),
+        our_time_id: `${realDate}_${time}`,
       });
     }
   }
@@ -271,7 +270,9 @@ async function handleBook(req, res) {
   const cleanPhone = typeof body.phone === 'string' ? body.phone.trim().slice(0, 40) : '';
   const cleanEmail = typeof body.email === 'string' ? body.email.trim().slice(0, 100) : '';
   const cleanComment = typeof body.comment === 'string' ? body.comment.trim().slice(0, 500) : '';
-  const { dateISO: cleanDateISO, time: cleanTime } = splitDateTime(body.datetime);
+  const { dateISO: sentDateISO, time: cleanTime } = splitDateTime(body.datetime);
+  // 15.10.2026: ночной сеанс мы отдаём в дне накануне — бронь пишем на настоящую дату
+  const cleanDateISO = sentDateISO && cleanTime ? resolveAggregatorSlot(sentDateISO, cleanTime, body.our_time_id).dateISO : sentDateISO;
   const cleanPrice = body.price != null ? String(body.price).slice(0, 20) : '';
   const cleanPlayers = body.players_num != null ? String(body.players_num).slice(0, 40) : '';
   const cleanUid = body.uid != null ? String(body.uid).slice(0, 100) : '';
@@ -422,9 +423,15 @@ async function handleCancel(req, res) {
   const cleanUid = body.uid != null ? String(body.uid).trim().slice(0, 100) : '';
   const providedSignature = typeof body.signature === 'string' ? body.signature.trim() : '';
 
-  const { dateISO: cleanDateISO, time: cleanTime } = splitDateTime(rawDatetime);
-  if (!cleanDateISO || !cleanTime) {
+  const { dateISO: sentDateISO, time: cleanTime } = splitDateTime(rawDatetime);
+  if (!sentDateISO || !cleanTime) {
     return res.status(200).json({ success: false, message: 'Не удалось распознать дату и время брони (datetime).' });
+  }
+  // 15.10.2026: ночной сеанс из дня накануне → настоящая дата брони
+  let cleanDateISO = resolveAggregatorSlot(sentDateISO, cleanTime, body.our_time_id).dateISO;
+  if (cleanDateISO !== sentDateISO) {
+    const atReal = await kv('hget', `bookings:${cleanDateISO}`, cleanTime);
+    if (!atReal) cleanDateISO = sentDateISO; // бронь была сделана на исходную дату — отменяем её
   }
 
   if (!verifyExtraRealitySignature(rawDatetime, providedSignature)) {

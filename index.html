@@ -2009,19 +2009,18 @@
     if (!isWeekend(d)) return WEEKDAY_SURCHARGES[t] || 0;
     return t === slots[lateIdx] ? 20 : 0;
   }
-  // 15.10.2026: ночные сеансы — продолжение вечера после 23:00. Ключ — настоящая дата
-  // сеанса (ночь с 31.10 на 1.11 = 1 ноября 00:20), показываем их в дне накануне.
-  const NIGHT_SLOTS = { '2026-11-01': ['00:20','01:40','03:00','04:20'], '2026-11-02': ['00:20','01:40','03:00','04:20'] };
+  // 15.10.2026: ночные сеансы 31 октября и 1 ноября — в начале дня, перед утренними.
+  const NIGHT_SLOTS = { '2026-10-31': ['00:20','01:40','03:00','04:20'], '2026-11-01': ['00:20','01:40','03:00','04:20'] };
   const NIGHT_SURCHARGE = 50; // как 23:00 в выходной (+35) и ещё +15, к тарифу выходного дня
   let selectedSlotISO = null; // настоящая дата выбранного сеанса (для ночных — следующий день)
   function isoPlus(iso, n){ const [y, m, d] = iso.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + n)); return t.getUTCFullYear() + '-' + String(t.getUTCMonth() + 1).padStart(2, '0') + '-' + String(t.getUTCDate()).padStart(2, '0'); }
   function dateFromISO(iso){ const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); }
   function isNightEntry(iso, t){ return !!iso && (NIGHT_SLOTS[iso] || []).includes(t); }
   function nightTitle(iso){ const a = dateFromISO(isoPlus(iso, -1)), b = dateFromISO(iso); return 'ночь с ' + a.getDate() + ' ' + monthNames[a.getMonth()] + ' на ' + b.getDate() + ' ' + monthNames[b.getMonth()]; }
-  // Сеансы, которые показываем в выбранный день: дневные + ночь после него.
+  // Сеансы выбранного дня: ночные (если есть) идут первыми, потом дневные.
   function dayEntries(d){
-    const iso = isoDate(d), next = isoPlus(iso, 1);
-    return slotsForDate(d).map(t => ({ t, iso, night: false })).concat((NIGHT_SLOTS[next] || []).map(t => ({ t, iso: next, night: true })));
+    const iso = isoDate(d);
+    return (NIGHT_SLOTS[iso] || []).map(t => ({ t, iso, night: true })).concat(slotsForDate(d).map(t => ({ t, iso, night: false })));
   }
   function selectedIsNight(){ return isNightEntry(selectedSlotISO, selectedSlot); }
   // 15.10.2026: по пятницам с 18:30 — тарифы выходного дня

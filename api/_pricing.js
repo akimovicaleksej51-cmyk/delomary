@@ -29,19 +29,31 @@ export const WEEKDAY_SURCHARGES = { '21:30': 10, '23:00': LATE_SURCHARGE + 15 };
 // Будние дни, когда действуют цены выходного дня (сетка при этом будняя).
 export const WEEKEND_PRICE_RANGES = [['2026-11-02', '2026-11-06']];
 
-// ---- 15.10.2026: НОЧНЫЕ сеансы — продолжение вечера после 23:00 ----
-// Ключ — НАСТОЯЩАЯ календарная дата сеанса: ночь с 31.10 на 1.11 хранится
-// как 1 ноября 00:20 (так правильно работают напоминания, «до сеанса меньше
-// часа» и агрегаторы). На сайте эти сеансы показываются в дне 31 октября
-// (и 1 ноября для ночи на 2 ноября) с пометкой «ночь».
+// ---- 15.10.2026: НОЧНЫЕ сеансы 31 октября и 1 ноября ----
+// Идут в начале самого дня, перед утренними сеансами: 31.10 00:20, 01:40,
+// 03:00, 04:20, потом 09:40 … То же 1 ноября.
 export const NIGHT_SLOTS = {
-  '2026-11-01': ['00:20', '01:40', '03:00', '04:20'], // ночь с 31 октября на 1 ноября
-  '2026-11-02': ['00:20', '01:40', '03:00', '04:20'], // ночь с 1 на 2 ноября
+  '2026-10-31': ['00:20', '01:40', '03:00', '04:20'], // 31 октября, перед утренними сеансами
+  '2026-11-01': ['00:20', '01:40', '03:00', '04:20'], // 1 ноября, перед утренними сеансами
 };
 // Цена ночного сеанса: тариф выходного дня + доплата как у 23:00 на выходных (+35) + 15.
 export const NIGHT_SURCHARGE = 35 + 15;
 export function nightSlotsFor(dateISO) { return NIGHT_SLOTS[String(dateISO)] || []; }
 export function isNightSlot(dateISO, time) { return nightSlotsFor(dateISO).includes(time); }
+
+export function isoPlusDays(dateISO, n) {
+  const [y, m, d] = String(dateISO).split('-').map(Number);
+  const t = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + n));
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
+}
+// Сеансы дня так, как их видят агрегаторы: ночные (если есть) + дневные, все в этом же дне.
+export function displayEntriesFor(dateISO) {
+  return slotsFor(dateISO).map((time) => ({ time, realDate: dateISO }));
+}
+// (дата, время) из брони агрегатора → дата сеанса (у нас всегда та же самая).
+export function resolveAggregatorSlot(dateISO, time) {
+  return { dateISO, time };
+}
 
 // Дневная сетка дня (без ночных сеансов).
 export function baseSlotsFor(dateISO) {

@@ -107,7 +107,7 @@
 import crypto from 'crypto';
 import { kv, kvPipeline } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
-import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTakenTimes, overlapsExisting } from './_pricing.js';
+import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTakenTimes, overlapsExisting, displayEntriesFor, resolveAggregatorSlot, isoPlusDays } from './_pricing.js';
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
@@ -159,31 +159,29 @@ async function handleTimetable(req, res) {
     dates.push(isoDate(d));
   }
 
-  const results = await kvPipeline(dates.map((iso) => ['HKEYS', `bookings:${iso}`]));
+  // + следующий день: ночные сеансы показываем в дне накануне (см. displayEntriesFor)
+  const fetchDates = [...dates, isoPlusDays(dates[dates.length - 1], 1)];
+  const results = await kvPipeline(fetchDates.map((iso) => ['HKEYS', `bookings:${iso}`]));
   const takenByDate = {};
   if (results) {
     results.forEach((entry, i) => {
       const times = entry && entry.result;
-      takenByDate[dates[i]] = Array.isArray(times) ? effectiveTakenTimes(dates[i], times) : [];
+      takenByDate[fetchDates[i]] = Array.isArray(times) ? effectiveTakenTimes(fetchDates[i], times) : [];
     });
   }
 
   const now = new Date();
   const out = [];
   for (const dateISO of dates) {
-    const taken = takenByDate[dateISO] || [];
-    for (const time of slotsFor(dateISO)) {
-      // 22.09.2026: was just "already started" — now matches the site's own
-      // hour-before cutoff (see isSlotClosingSoon in api/_time.js). The
-      // owner caught ExtraReality still offering a slot 4 minutes before it
-      // started; Mir Kvestov had the exact same gap here.
-      const closingSoon = isSlotClosingSoon(dateISO, time, now);
+    for (const { time, realDate } of displayEntriesFor(dateISO)) {
+      const taken = takenByDate[realDate] || [];
+      const closingSoon = isSlotClosingSoon(realDate, time, now);
       out.push({
         date: dateISO,
         time,
         is_free: !closingSoon && !taken.includes(time),
-        price: startingPriceFor(dateISO, time),
-        our_slot_id: `${dateISO}_${time}`,
+        price: startingPriceFor(realDate, time),
+        our_slot_id: `${realDate}_${time}`,
       });
     }
   }
@@ -209,9 +207,11 @@ async function handleTariffs(req, res) {
     return res.status(200).json({});
   }
 
-  if (!slotsFor(dateISO).includes(time)) return res.status(200).json({});
-  const tiers = tiersForSlot(dateISO, time);
-  const surcharge = slotSurcharge(dateISO, time);
+  // ночной сеанс в дне накануне → настоящая дата (см. resolveAggregatorSlot)
+  const realDate = resolveAggregatorSlot(dateISO, time, q.our_slot_id).dateISO;
+  if (!slotsFor(realDate).includes(time)) return res.status(200).json({});
+  const tiers = tiersForSlot(realDate, time);
+  const surcharge = slotSurcharge(realDate, time);
   const out = {};
   tiers.forEach((tier) => {
     const price = tier.price + surcharge;
@@ -274,8 +274,10 @@ async function handleOrder(req, res) {
   const cleanPhone = typeof body.phone === 'string' ? body.phone.trim().slice(0, 40) : '';
   const cleanEmail = typeof body.email === 'string' ? body.email.trim().slice(0, 100) : '';
   const cleanComment = typeof body.comment === 'string' ? body.comment.trim().slice(0, 500) : '';
-  const cleanDateISO = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date.trim()) ? body.date.trim() : '';
+  const sentDateISO = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date.trim()) ? body.date.trim() : '';
   const cleanTime = typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time.trim()) ? body.time.trim() : '';
+  // 15.10.2026: ночной сеанс мы отдаём в дне накануне — бронь пишем на настоящую дату
+  const cleanDateISO = sentDateISO && cleanTime ? resolveAggregatorSlot(sentDateISO, cleanTime, body.our_slot_id).dateISO : sentDateISO;
   const cleanPrice = body.price != null ? String(body.price).slice(0, 20) : '';
   const cleanUniqueId = body.unique_id != null ? String(body.unique_id).slice(0, 100) : '';
   // 23.09.2026: the label the customer picked from the "Получение тарифов"
