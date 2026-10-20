@@ -171,6 +171,13 @@
   .sms-ok{color:#7ed58a;} .sms-warn{color:#f0c060;} .sms-bad{color:#ff7b7b;}
   .sms-sample{font-size:13px; color:var(--muted); padding:8px 10px; border:1px dashed var(--line); border-radius:8px; line-height:1.4;}
   .sms-test{margin:4px 0 6px;}
+  .sms-check{display:flex; align-items:center; gap:8px; font-size:14px; margin:4px 0 12px; cursor:pointer;}
+  .sms-check input, .room-form .sms-check input{width:18px; height:18px; padding:0; margin:0; accent-color:var(--ochre-bright); flex:none;}
+  .room-form .sms-check{margin:0;}
+  .sms-log-title{font-size:14px; margin:16px 0 8px; font-weight:600;}
+  .sms-log{display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto; font-size:13px;}
+  .sms-log-item{padding:8px 10px; background:var(--black-3); border-radius:8px; line-height:1.4;}
+  .sms-log-item .sms-log-meta{color:var(--muted); font-size:12px;}
   .more-menu{position:relative;}
   .more-menu-list{
     display:none; flex-direction:column; gap:2px; position:absolute; top:calc(100% + 6px); left:0;
@@ -1146,7 +1153,7 @@
 <div class="modal-overlay" id="smsOverlay">
   <div class="modal-box" style="max-width:460px;">
     <h2 style="font-size:17px;">SMS-квитанции</h2>
-    <p style="color:var(--muted); font-size:13px; margin:0 0 12px;">После заявки с сайта (квест и комната отдыха) клиенту уходит SMS «заявка принята, скоро позвоним». Брони от администратора и с агрегаторов SMS не получают.</p>
+    <p style="color:var(--muted); font-size:13px; margin:0 0 12px;">После заявки с сайта (квест и комната отдыха) клиенту уходит SMS «заявка принята, скоро позвоним». Квест — ещё и при брони с Мира Квестов и ExtraReality. Когда бронь добавляет администратор, уходит SMS «бронь подтверждена» (галочка в форме брони).</p>
     <div id="smsInfoBox" class="sms-info"><div class="load-note">Загрузка…</div></div>
     <div class="sms-test">
       <label for="smsTestPhone" style="font-size:13px; color:var(--muted);">Тестовая SMS на номер (стоит как обычная SMS)</label>
@@ -1156,6 +1163,8 @@
       </div>
     </div>
     <div class="modal-msg" id="smsMsg"></div>
+    <h3 class="sms-log-title">Последние SMS</h3>
+    <div id="smsLogBox" class="sms-log"><div class="load-note">Загрузка…</div></div>
     <div class="modal-actions">
       <button class="btn-secondary" id="smsRefreshBtn">Обновить</button>
       <button class="btn-secondary" data-close="sms">Закрыть</button>
@@ -1210,6 +1219,7 @@
       <div class="detail-field"><label>Телефон</label><input id="techPhone" placeholder="+375 (__) ___-__-__"></div>
       <div class="detail-field"><label>Количество игроков</label><select id="techPlayers"></select></div>
       <div class="detail-field"><label>Цена (можно исправить вручную)</label><input id="techPrice" inputmode="numeric" placeholder="Рассчитается автоматически"></div>
+      <label class="sms-check"><input type="checkbox" id="techSendSms" checked> Отправить клиенту SMS о брони</label>
     </div>
 
     <div class="detail-field" id="techCommentField">
@@ -1701,6 +1711,10 @@
     }[c]));
   }
 
+  function smsErrorText(code){
+    return ({ NOT_CONFIGURED: 'в Vercel не заданы ROCKETSMS_LOGIN / ROCKETSMS_PASSWORD', DISABLED: 'квитанции выключены',
+      BAD_PHONE: 'неправильный номер телефона', TIMEOUT: 'RocketSMS не ответил вовремя', FAILED: 'ошибка RocketSMS' })[code] || ('ответ RocketSMS: ' + (code || 'ошибка'));
+  }
   function authHeaders(){
     return { 'Content-Type':'application/json', 'X-Admin-Password': adminPassword || '' };
   }
@@ -3147,6 +3161,7 @@
     techPhone.value = '';
     techPrice.value = '';
     techComment.value = '';
+    document.getElementById('techSendSms').checked = true;
     techMsg.textContent = '';
     techMsg.className = 'modal-msg';
     setBookingType('customer');
@@ -3205,6 +3220,7 @@
       payload.phone = phone;
       payload.players = tier ? tier.people : '';
       payload.price = techPrice.value.trim() || (tier ? tier.price : '');
+      payload.sendSms = document.getElementById('techSendSms').checked;
     }
 
     try{
@@ -3220,6 +3236,13 @@
         return;
       }
       await loadBookings();
+      // SMS не ушла — бронь создана, но окно не закрываем, чтобы менеджер увидел.
+      if (out.sms && !out.sms.ok){
+        techMsg.textContent = `Бронь создана, но SMS клиенту не ушла: ${smsErrorText(out.sms.error)}. Подробности — Ещё ▾ → SMS-квитанции.`;
+        techMsg.className = 'modal-msg err';
+        renderTechSlots();
+        return;
+      }
       techOverlay.classList.remove('show');
     } catch(err){
       techMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; techMsg.className = 'modal-msg err';
@@ -3808,16 +3831,52 @@
         }
         html += smsRow('Альфа-имя', senderHtml);
       }
-      html += `<div class="sms-sample"><b>Пример (квест, ${i.sampleParts.quest} SMS):</b><br>${escapeHtml(i.samples.quest)}</div>`;
-      html += `<div class="sms-sample"><b>Пример (комната, ${i.sampleParts.room} SMS):</b><br>${escapeHtml(i.samples.room)}</div>`;
+      [['quest', 'квест, заявка с сайта'], ['questAdmin', 'квест, бронь из админки'], ['room', 'комната, заявка с сайта'], ['roomAdmin', 'комната, бронь из админки']].forEach(([k, label]) => {
+        if (i.samples[k]) html += `<div class="sms-sample"><b>Пример (${label}, ${i.sampleParts[k]} SMS):</b><br>${escapeHtml(i.samples[k])}</div>`;
+      });
       smsInfoBox.innerHTML = html;
     } catch {
       smsInfoBox.innerHTML = '<div class="sms-row"><span class="sms-bad">Ошибка сети. Попробуйте ещё раз.</span></div>';
     }
   }
-  function openSmsModal(){ smsMsg.textContent = ''; smsMsg.className = 'modal-msg'; smsOverlay.classList.add('show'); loadSmsInfo(); }
+  const SMS_ERRORS = {
+    NOT_CONFIGURED: 'в Vercel не заданы ROCKETSMS_LOGIN / ROCKETSMS_PASSWORD',
+    DISABLED: 'квитанции выключены',
+    BAD_PHONE: 'неправильный номер телефона',
+    TIMEOUT: 'RocketSMS не ответил вовремя',
+    FAILED: 'RocketSMS: ошибка отправки',
+  };
+  const SMS_DELIVERY = { QUEUED: 'в очереди', SENT: 'отправлена оператору', DELIVERED: 'доставлена', FAILED: 'не доставлена' };
+  const smsLogBox = document.getElementById('smsLogBox');
+  function smsWhen(isoStr){
+    try { return new Date(isoStr).toLocaleString('ru-RU', { timeZone:'Europe/Minsk', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }); } catch { return isoStr || ''; }
+  }
+  async function loadSmsLog(){
+    smsLogBox.innerHTML = '<div class="load-note">Загрузка…</div>';
+    try {
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'smsLog' }) });
+      const out = await res.json().catch(() => ({}));
+      const log = Array.isArray(out.log) ? out.log : [];
+      if (!log.length){ smsLogBox.innerHTML = '<div class="load-note">Пока пусто. Здесь появятся SMS, отправленные после этого обновления.</div>'; return; }
+      smsLogBox.innerHTML = log.map(e => {
+        let result;
+        if (e.ok){
+          const d = e.delivery || e.status;
+          const cls = d === 'DELIVERED' ? 'sms-ok' : (d === 'FAILED' ? 'sms-bad' : 'sms-warn');
+          result = `<span class="${cls}">${escapeHtml(SMS_DELIVERY[d] || d || 'принята')}</span>`;
+        } else {
+          result = `<span class="sms-bad">не отправлена — ${escapeHtml(SMS_ERRORS[e.error] || e.error || 'ошибка')}</span>`;
+        }
+        const what = [e.kind, e.channel && e.channel !== 'Сайт' ? e.channel : '', e.dateISO ? formatDateHeading(e.dateISO) + (e.time ? ' ' + e.time : '') : ''].filter(Boolean).join(' · ');
+        return `<div class="sms-log-item"><div>${result}</div><div class="sms-log-meta">${escapeHtml(smsWhen(e.at))} · +${escapeHtml(e.phone || '')}${what ? ' · ' + escapeHtml(what) : ''}</div></div>`;
+      }).join('');
+    } catch {
+      smsLogBox.innerHTML = '<div class="load-note">Не удалось загрузить журнал.</div>';
+    }
+  }
+  function openSmsModal(){ smsMsg.textContent = ''; smsMsg.className = 'modal-msg'; smsOverlay.classList.add('show'); loadSmsInfo(); loadSmsLog(); }
   document.getElementById('smsBtn').addEventListener('click', () => { closeMoreMenu(); openSmsModal(); });
-  document.getElementById('smsRefreshBtn').addEventListener('click', loadSmsInfo);
+  document.getElementById('smsRefreshBtn').addEventListener('click', () => { loadSmsInfo(); loadSmsLog(); });
   document.querySelectorAll('[data-close="sms"]').forEach(b => b.addEventListener('click', () => smsOverlay.classList.remove('show')));
   smsOverlay.addEventListener('click', e => { if (e.target === smsOverlay) smsOverlay.classList.remove('show'); });
   document.getElementById('smsTestBtn').addEventListener('click', async () => {
@@ -3833,7 +3892,7 @@
         const cost = out.cost && out.cost.money != null ? ` Стоимость: ${out.cost.money} Br.` : '';
         smsMsg.textContent = `SMS отправлена на +${out.phone} (статус: ${out.status || 'принята'}).${cost}`;
         smsMsg.className = 'modal-msg ok';
-        loadSmsInfo();
+        loadSmsInfo(); loadSmsLog();
       }
     } catch { smsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; smsMsg.className = 'modal-msg err'; }
     btn.disabled = false;
@@ -5317,6 +5376,7 @@
         <div class="ra-hint"></div>
         <div class="room-form-row"><span class="rf-label">Доп. опция</span><select class="ra-game"><option value="">— нет —</option><option value="mafia">Мафия с ведущим</option><option value="bunker">Бункер с ведущим</option><option value="mafia,bunker">Мафия и Бункер с ведущим</option></select></div>
         <div class="room-form-row"><span class="rf-label">Комментарий (необязательно)</span><input class="ra-comment" maxlength="500" placeholder="Например: день рождения, 8 человек"></div>
+        <label class="sms-check"><input type="checkbox" class="ra-sms" checked> Отправить гостю SMS о брони (если указан телефон)</label>
         <div class="room-form-actions"><button type="button" class="btn ra-save">Сохранить бронь</button><button type="button" class="btn-secondary ra-close">Отмена</button></div>
         <div class="modal-msg ra-msg"></div>
       </div>`;
@@ -5358,7 +5418,7 @@
       const btn = e.currentTarget, msg = q('.ra-msg');
       const payload = { action:'createRoomBooking', dateISO: q('.ra-date-in').value, startTime: q('.ra-start').value, hours: Number(q('.ra-hours').value),
         name: q('.ra-name').value.trim(), phone: q('.ra-phone').value.trim(), channel: q('.ra-channel').value,
-        price: q('.ra-price').value.trim(), hostGame: q('.ra-game').value, comment: q('.ra-comment').value.trim() };
+        price: q('.ra-price').value.trim(), hostGame: q('.ra-game').value, comment: q('.ra-comment').value.trim(), sendSms: q('.ra-sms').checked };
       msg.className = 'modal-msg ra-msg err';
       if (!payload.dateISO){ msg.textContent = 'Выберите дату.'; return; }
       if (!payload.hours){ msg.textContent = 'На это время комната занята — выберите другое начало.'; return; }
@@ -5378,8 +5438,9 @@
         roomTab = b.dateISO < todayISO() ? 'past' : 'upcoming';
         document.querySelectorAll('[data-room-tab]').forEach(t => t.classList.toggle('active', t.dataset.roomTab === roomTab));
         renderRoomBookings();
-        roomBookingsMsg.textContent = `Бронь добавлена: ${formatDateHeading(b.dateISO)}, ${b.startTime}–${b.endTime || ''}.${b.dateISO < todayISO() ? ' Она уже прошла — проведите по ней сверку.' : ''}`;
-        roomBookingsMsg.className = 'modal-msg ok';
+        const smsNote = !out.sms ? '' : out.sms.ok ? ' SMS гостю отправлена.' : ` SMS гостю не ушла: ${smsErrorText(out.sms.error)}.`;
+        roomBookingsMsg.textContent = `Бронь добавлена: ${formatDateHeading(b.dateISO)}, ${b.startTime}–${b.endTime || ''}.${b.dateISO < todayISO() ? ' Она уже прошла — проведите по ней сверку.' : ''}${smsNote}`;
+        roomBookingsMsg.className = out.sms && !out.sms.ok ? 'modal-msg err' : 'modal-msg ok';
       } catch(err){ msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg ra-msg err'; btn.disabled = false; }
     });
     fillStarts();

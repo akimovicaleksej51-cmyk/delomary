@@ -21,6 +21,7 @@
 // работают как обычно. Любая ошибка RocketSMS никогда не ломает бронь.
 
 import crypto from 'crypto';
+import { kv, isKvConfigured } from './_kv.js';
 
 export const ROCKETSMS_BASE = 'https://api.rocketsms.by/simple';
 export const DEFAULT_SENDER = 'LOONY.BY';
@@ -164,26 +165,114 @@ export function roomReceiptText(record) {
     + `. Скоро позвоним для подтверждения. ${SMS_PHONE}`;
 }
 
+// 20.10.2026: журнал последних SMS (KV-список smslog, 50 записей) — чтобы
+// в админке было видно, ушла ли квитанция и что ответил RocketSMS, без
+// логов Vercel. Никогда не ломает отправку/бронь.
+export const SMS_LOG_KEY = 'smslog';
+const SMS_LOG_MAX = 50;
+
+export async function logSms(entry) {
+  try {
+    if (!isKvConfigured()) return;
+    await kv('lpush', SMS_LOG_KEY, JSON.stringify({ at: new Date().toISOString(), ...entry }));
+    await kv('ltrim', SMS_LOG_KEY, 0, SMS_LOG_MAX - 1);
+  } catch (err) {
+    console.error('RocketSMS: не удалось записать журнал SMS:', err);
+  }
+}
+
+// Статус одной SMS у RocketSMS: QUEUED / SENT / DELIVERED / FAILED.
+export async function getSmsStatus(id) {
+  const out = await rocketCall('status', { id: String(id) }, 'GET');
+  if (!out.ok) return { ok: false, error: out.error };
+  return { ok: true, status: out.data && out.data.status };
+}
+
+// Журнал для админки; у последних 15 записей с id — живой статус доставки.
+export async function getSmsLog() {
+  let items = [];
+  try {
+    const raw = isKvConfigured() ? await kv('lrange', SMS_LOG_KEY, 0, SMS_LOG_MAX - 1) : [];
+    items = (Array.isArray(raw) ? raw : []).map((r) => { try { return JSON.parse(r); } catch { return null; } }).filter(Boolean);
+  } catch (err) {
+    console.error('RocketSMS: не удалось прочитать журнал SMS:', err);
+  }
+  if (isSmsConfigured()) {
+    const withId = items.filter((e) => e.id).slice(0, 15);
+    const statuses = await Promise.all(withId.map((e) => getSmsStatus(e.id)));
+    withId.forEach((e, i) => { if (statuses[i].ok && statuses[i].status) e.delivery = statuses[i].status; });
+  }
+  return items;
+}
+
+function logDetails(kind, record) {
+  return {
+    kind,
+    channel: record.channel || '',
+    phone: normalizePhoneForRocketSms(record.phone),
+    dateISO: record.dateISO || '',
+    time: record.time || record.startTime || '',
+  };
+}
+
 async function sendReceipt(kind, record, text) {
+  const base = logDetails(kind, record);
   if (!SMS_RECEIPTS_ENABLED) {
     console.error(`RocketSMS: квитанции выключены (SMS_RECEIPTS_ENABLED) — ${kind} без SMS.`);
+    await logSms({ ...base, ok: false, error: 'DISABLED' });
     return { ok: false, error: 'DISABLED' };
   }
   if (!isSmsConfigured()) {
     console.error('ROCKETSMS_LOGIN/ROCKETSMS_PASSWORD не заданы в Vercel — SMS-квитанция не отправлена (бронь это не затрагивает).');
+    await logSms({ ...base, ok: false, error: 'NOT_CONFIGURED' });
     return { ok: false, error: 'NOT_CONFIGURED' };
   }
+  let out;
   try {
-    const out = await sendSms(record.phone, text);
+    out = await sendSms(record.phone, text);
     if (!out.ok) console.error(`RocketSMS: квитанция (${kind}) не отправлена:`, out.error, record.phone);
-    return out;
   } catch (err) {
     console.error(`RocketSMS: ошибка при отправке квитанции (${kind}):`, err);
-    return { ok: false, error: 'EXCEPTION' };
+    out = { ok: false, error: 'EXCEPTION' };
   }
+  await logSms({ ...base, ok: !!out.ok, id: out.id || null, status: out.status || '', error: out.error || '', parts: smsParts(text) });
+  return out;
 }
 
-// Квест: вызывается из api/book.js после успешной заявки с сайта.
+// 20.10.2026: брони, которые администратор добавил сам (по телефону, из
+// Instagram…). С клиентом уже договорились, поэтому текст — «бронь
+// подтверждена», а не «заявка принята, скоро позвоним».
+export function questAdminText(record) {
+  const when = smsDateLabel(record.dateISO, record.time);
+  const details = [];
+  if (record.players) details.push(String(record.players));
+  if (record.price) details.push(`${record.price} Br`);
+  return `«${QUEST_TITLE}»: бронь на ${when} в ${record.time} подтверждена`
+    + (details.length ? ` (${details.join(', ')})` : '')
+    + `. Ждём вас! ${SMS_PHONE}`;
+}
+
+export function roomAdminText(record) {
+  const when = smsDateLabel(record.dateISO);
+  const n = Number(record.sessions || record.hours) || 0;
+  const details = [];
+  if (n) details.push(`${n} ${sessionsWord(n)}`);
+  if (record.price !== undefined && record.price !== '' && Number(record.price) > 0) details.push(`${record.price} Br`);
+  return `Loony Room: бронь на ${when}, ${record.startTime}–${record.endTime} подтверждена`
+    + (details.length ? ` (${details.join(', ')})` : '')
+    + `. Ждём вас! ${SMS_PHONE}`;
+}
+
+export async function sendAdminQuestSms(record) {
+  return sendReceipt('квест', { ...record, channel: record.channel || 'Админка' }, questAdminText(record));
+}
+
+export async function sendAdminRoomSms(record) {
+  return sendReceipt('комната', { ...record, channel: `Админка${record.channel ? ' (' + record.channel + ')' : ''}` }, roomAdminText(record));
+}
+
+// Квест: вызывается из api/book.js (сайт), api/mirkvestov.js и
+// api/extrareality.js (брони с агрегаторов).
 export async function sendBookingConfirmationSms(record) {
   return sendReceipt('квест', record, questReceiptText(record));
 }
@@ -207,9 +296,11 @@ export async function getSmsInfo() {
     samples: {
       quest: questReceiptText({ dateISO: '2026-10-31', time: '19:00', players: '3–4 человека', price: '140' }),
       room: roomReceiptText({ dateISO: '2026-10-31', startTime: '18:40', endTime: '20:40', sessions: 2, price: '180' }),
+      questAdmin: questAdminText({ dateISO: '2026-10-31', time: '19:00', players: '3–4 человека', price: '140' }),
+      roomAdmin: roomAdminText({ dateISO: '2026-10-31', startTime: '18:40', endTime: '20:40', sessions: 2, price: '180' }),
     },
   };
-  info.sampleParts = { quest: smsParts(info.samples.quest), room: smsParts(info.samples.room) };
+  info.sampleParts = Object.fromEntries(Object.entries(info.samples).map(([k, v]) => [k, smsParts(v)]));
   if (!info.configured) return info;
   const [bal, snd] = await Promise.all([rocketCall('balance', {}, 'GET'), rocketCall('senders', {}, 'GET')]);
   if (bal.ok) {

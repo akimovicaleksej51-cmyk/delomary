@@ -128,7 +128,7 @@ const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
 const HISTORY_TTL_SECONDS = 60 * 60 * 24 * 95; // slightly outlives SLOT_TTL_SECONDS
 // 12.10.2026: сетка зависит от даты (выходные с 31.10 — своя) — см. api/_pricing.js.
 import { slotsFor, overlapsExisting, slotsBlockedByOffGrid } from '../_pricing.js';
-import { getSmsInfo, sendSms, SMS_TEST_TEXT, normalizePhoneForRocketSms, isValidByPhone, isSmsConfigured } from '../_sms.js';
+import { getSmsInfo, sendSms, SMS_TEST_TEXT, normalizePhoneForRocketSms, isValidByPhone, isSmsConfigured, logSms, getSmsLog, sendAdminQuestSms, sendAdminRoomSms } from '../_sms.js';
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -358,11 +358,16 @@ export default async function handler(req, res) {
       const info = await getSmsInfo();
       return res.status(200).json({ ok: true, info });
     }
+    if (action === 'smsLog') {
+      const log = await getSmsLog();
+      return res.status(200).json({ ok: true, log });
+    }
     if (action === 'smsTest') {
       if (!isSmsConfigured()) return res.status(400).json({ error: 'В Vercel не заданы ROCKETSMS_LOGIN и ROCKETSMS_PASSWORD.' });
       const phone = normalizePhoneForRocketSms(body.phone);
       if (!isValidByPhone(phone)) return res.status(400).json({ error: 'Проверьте номер: нужен белорусский номер, например +375 29 123-45-67.' });
       const out = await sendSms(phone, SMS_TEST_TEXT);
+      await logSms({ kind: 'тест', channel: 'Админка', phone, ok: !!out.ok, id: out.id || null, status: out.status || '', error: out.error || '', parts: 1 });
       if (!out.ok) return res.status(502).json({ error: `RocketSMS не отправил SMS: ${out.error}` });
       return res.status(200).json({ ok: true, id: out.id, status: out.status, cost: out.cost, phone });
     }
@@ -387,8 +392,14 @@ export default async function handler(req, res) {
       if (reserved.unreserved) return res.status(503).json({ error: 'База данных не подключена — бронь не сохранена.' });
       // Только для броней на сегодня и вперёд — о прошедших писать в Telegram незачем.
       if (record.dateISO >= businessTodayISO()) await sendTelegram(roomBookingTelegramText(record), 'room admin create');
+      // 20.10.2026: SMS гостю о брони (галочка в форме, по умолчанию включена).
+      // Только если указан телефон и бронь не задним числом.
+      let sms = null;
+      if (body.sendSms !== false && record.phone && record.dateISO >= businessTodayISO()) {
+        sms = await sendAdminRoomSms(record);
+      }
       const roomBookings = await listRoomBookings();
-      return res.status(200).json({ ok: true, booking: record, roomBookings });
+      return res.status(200).json({ ok: true, booking: record, roomBookings, sms });
     }
 
     if (action === 'cancelRoomBooking') {
@@ -566,7 +577,14 @@ export default async function handler(req, res) {
         }
       }
 
-      return res.status(200).json({ ok: true, booking: finalRecord });
+      // 20.10.2026: SMS клиенту о брони (галочка в форме, по умолчанию
+      // включена). Не задним числом.
+      let sms = null;
+      if (isCustomer && body.sendSms !== false && cleanDateISO >= businessTodayISO()) {
+        sms = await sendAdminQuestSms(finalRecord);
+      }
+
+      return res.status(200).json({ ok: true, booking: finalRecord, sms });
     }
 
     if (action === 'cancel') {
