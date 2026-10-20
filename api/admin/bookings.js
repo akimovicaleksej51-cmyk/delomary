@@ -128,6 +128,7 @@ const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90;
 const HISTORY_TTL_SECONDS = 60 * 60 * 24 * 95; // slightly outlives SLOT_TTL_SECONDS
 // 12.10.2026: сетка зависит от даты (выходные с 31.10 — своя) — см. api/_pricing.js.
 import { slotsFor, overlapsExisting, slotsBlockedByOffGrid } from '../_pricing.js';
+import { getSmsInfo, sendSms, SMS_TEST_TEXT, normalizePhoneForRocketSms, isValidByPhone, isSmsConfigured } from '../_sms.js';
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -350,6 +351,21 @@ export default async function handler(req, res) {
     body = body || {};
 
     const { action } = body;
+
+    // 20.10.2026: SMS-квитанции (RocketSMS) — проверка из админки:
+    // баланс, статус альфа-имени и тестовая SMS на любой номер.
+    if (action === 'smsInfo') {
+      const info = await getSmsInfo();
+      return res.status(200).json({ ok: true, info });
+    }
+    if (action === 'smsTest') {
+      if (!isSmsConfigured()) return res.status(400).json({ error: 'В Vercel не заданы ROCKETSMS_LOGIN и ROCKETSMS_PASSWORD.' });
+      const phone = normalizePhoneForRocketSms(body.phone);
+      if (!isValidByPhone(phone)) return res.status(400).json({ error: 'Проверьте номер: нужен белорусский номер, например +375 29 123-45-67.' });
+      const out = await sendSms(phone, SMS_TEST_TEXT);
+      if (!out.ok) return res.status(502).json({ error: `RocketSMS не отправил SMS: ${out.error}` });
+      return res.status(200).json({ ok: true, id: out.id, status: out.status, cost: out.cost, phone });
+    }
 
     // 03.10.2026: Loony Room hourly rentals (loonyroom.html). Kept entirely
     // separate from the quest's own bookings:* data — see api/_rooms.js —

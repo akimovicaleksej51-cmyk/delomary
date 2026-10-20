@@ -164,6 +164,13 @@
   .btn-secondary, .btn-danger{padding:11px 18px;}
 
   /* ---------- «Ещё» — выпадающее меню (Статистика / Бухгалтерия) ---------- */
+  .sms-info{display:flex; flex-direction:column; gap:6px; font-size:14px; margin-bottom:14px;}
+  .sms-row{display:flex; justify-content:space-between; gap:10px; padding:8px 10px; background:var(--black-3); border-radius:8px;}
+  .sms-row > span:first-child{color:var(--muted);}
+  .sms-row b{text-align:right;}
+  .sms-ok{color:#7ed58a;} .sms-warn{color:#f0c060;} .sms-bad{color:#ff7b7b;}
+  .sms-sample{font-size:13px; color:var(--muted); padding:8px 10px; border:1px dashed var(--line); border-radius:8px; line-height:1.4;}
+  .sms-test{margin:4px 0 6px;}
   .more-menu{position:relative;}
   .more-menu-list{
     display:none; flex-direction:column; gap:2px; position:absolute; top:calc(100% + 6px); left:0;
@@ -904,6 +911,7 @@
           <div class="more-menu-list" id="moreMenuList" role="menu">
             <button type="button" role="menuitem" id="statsBtn">📊 Статистика</button>
             <button type="button" role="menuitem" id="financeReportBtn">🧾 Бухгалтерия</button>
+            <button type="button" role="menuitem" id="smsBtn">✉️ SMS-квитанции</button>
           </div>
         </div>
         <button class="btn" id="addTechBtn" style="width:auto; background:var(--ochre-bright);">+ Новая бронь</button>
@@ -1134,6 +1142,27 @@
 <!-- Прозвон клиента: выбор статуса звонка прямо из общего списка броней,
      без открытия полной карточки. Проставляет менеджер (по просьбе
      владельца, 17.09.2026). -->
+<!-- 20.10.2026: SMS-квитанции клиентам (RocketSMS) — состояние и тест. -->
+<div class="modal-overlay" id="smsOverlay">
+  <div class="modal-box" style="max-width:460px;">
+    <h2 style="font-size:17px;">SMS-квитанции</h2>
+    <p style="color:var(--muted); font-size:13px; margin:0 0 12px;">После заявки с сайта (квест и комната отдыха) клиенту уходит SMS «заявка принята, скоро позвоним». Брони от администратора и с агрегаторов SMS не получают.</p>
+    <div id="smsInfoBox" class="sms-info"><div class="load-note">Загрузка…</div></div>
+    <div class="sms-test">
+      <label for="smsTestPhone" style="font-size:13px; color:var(--muted);">Тестовая SMS на номер (стоит как обычная SMS)</label>
+      <div style="display:flex; gap:8px; margin-top:6px;">
+        <input type="tel" id="smsTestPhone" placeholder="+375 29 123-45-67" style="flex:1; min-width:0;">
+        <button class="btn" id="smsTestBtn" style="width:auto; white-space:nowrap;">Отправить</button>
+      </div>
+    </div>
+    <div class="modal-msg" id="smsMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="smsRefreshBtn">Обновить</button>
+      <button class="btn-secondary" data-close="sms">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="callStatusOverlay">
   <div class="modal-box" style="max-width:380px;">
     <h2 style="font-size:17px;">Отметить звонок</h2>
@@ -3749,6 +3778,66 @@
     loadReport();
   }
   document.getElementById('financeReportBtn').addEventListener('click', () => { closeMoreMenu(); openFinanceReportModal(); });
+
+  // ---------- SMS-квитанции (RocketSMS) ----------
+  const smsOverlay = document.getElementById('smsOverlay');
+  const smsInfoBox = document.getElementById('smsInfoBox');
+  const smsMsg = document.getElementById('smsMsg');
+  function smsRow(label, valueHtml){ return `<div class="sms-row"><span>${escapeHtml(label)}</span><b>${valueHtml}</b></div>`; }
+  async function loadSmsInfo(){
+    smsInfoBox.innerHTML = '<div class="load-note">Загрузка…</div>';
+    try {
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'smsInfo' }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out.info){ smsInfoBox.innerHTML = `<div class="sms-row"><span class="sms-bad">${escapeHtml(out.error || 'Не удалось загрузить.')}</span></div>`; return; }
+      const i = out.info;
+      let html = '';
+      if (!i.configured){
+        html += smsRow('Подключение', '<span class="sms-bad">не настроено</span>');
+        html += '<div class="sms-sample">В Vercel → Settings → Environment Variables добавьте ROCKETSMS_LOGIN (логин кабинета RocketSMS) и ROCKETSMS_PASSWORD (пароль), затем сделайте Redeploy.</div>';
+      } else {
+        html += smsRow('Подключение', i.error ? `<span class="sms-bad">ошибка: ${escapeHtml(i.error)}</span>` : '<span class="sms-ok">работает</span>');
+        html += smsRow('Квитанции', i.enabled ? '<span class="sms-ok">включены</span>' : '<span class="sms-warn">выключены</span>');
+        if (i.balance != null) html += smsRow('Баланс', `${escapeHtml(i.balance)} Br${i.credits != null ? ' · ' + escapeHtml(i.credits) + ' кредитов' : ''}`);
+        const st = i.senderStatus;
+        let senderHtml = escapeHtml(i.sender);
+        if (st){
+          if (st.verified) senderHtml += ' — <span class="sms-ok">одобрено</span>';
+          else if (!st.found) senderHtml += ' — <span class="sms-bad">не найдено в кабинете</span>';
+          else senderHtml += ` — <span class="sms-warn">${st.checked ? 'проверено' : 'на проверке'}, ${st.registered ? 'у операторов есть' : 'ещё не у операторов'}</span>`;
+        }
+        html += smsRow('Альфа-имя', senderHtml);
+      }
+      html += `<div class="sms-sample"><b>Пример (квест, ${i.sampleParts.quest} SMS):</b><br>${escapeHtml(i.samples.quest)}</div>`;
+      html += `<div class="sms-sample"><b>Пример (комната, ${i.sampleParts.room} SMS):</b><br>${escapeHtml(i.samples.room)}</div>`;
+      smsInfoBox.innerHTML = html;
+    } catch {
+      smsInfoBox.innerHTML = '<div class="sms-row"><span class="sms-bad">Ошибка сети. Попробуйте ещё раз.</span></div>';
+    }
+  }
+  function openSmsModal(){ smsMsg.textContent = ''; smsMsg.className = 'modal-msg'; smsOverlay.classList.add('show'); loadSmsInfo(); }
+  document.getElementById('smsBtn').addEventListener('click', () => { closeMoreMenu(); openSmsModal(); });
+  document.getElementById('smsRefreshBtn').addEventListener('click', loadSmsInfo);
+  document.querySelectorAll('[data-close="sms"]').forEach(b => b.addEventListener('click', () => smsOverlay.classList.remove('show')));
+  smsOverlay.addEventListener('click', e => { if (e.target === smsOverlay) smsOverlay.classList.remove('show'); });
+  document.getElementById('smsTestBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('smsTestBtn');
+    const phone = document.getElementById('smsTestPhone').value.trim();
+    if (!phone){ smsMsg.textContent = 'Впишите номер.'; smsMsg.className = 'modal-msg err'; return; }
+    btn.disabled = true; smsMsg.textContent = 'Отправляю…'; smsMsg.className = 'modal-msg';
+    try {
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'smsTest', phone }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ smsMsg.textContent = out.error || 'Не удалось отправить.'; smsMsg.className = 'modal-msg err'; }
+      else {
+        const cost = out.cost && out.cost.money != null ? ` Стоимость: ${out.cost.money} Br.` : '';
+        smsMsg.textContent = `SMS отправлена на +${out.phone} (статус: ${out.status || 'принята'}).${cost}`;
+        smsMsg.className = 'modal-msg ok';
+        loadSmsInfo();
+      }
+    } catch { smsMsg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; smsMsg.className = 'modal-msg err'; }
+    btn.disabled = false;
+  });
   document.querySelectorAll('[data-close="financeReport"]').forEach(b => b.addEventListener('click', () => financeReportOverlay.classList.remove('show')));
   financeReportOverlay.addEventListener('click', e => { if (e.target === financeReportOverlay) financeReportOverlay.classList.remove('show'); });
 

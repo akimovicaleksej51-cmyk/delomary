@@ -30,6 +30,7 @@
 // to change the wording — nothing else needs to change.
 
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
+import { sendRoomConfirmationSms } from './_sms.js';
 import {
   getRoomAvailability, validateRoomRequest, reserveRoomHours, releaseRoomHours,
   roomBookingTelegramText, sendRoomTelegram,
@@ -159,6 +160,10 @@ async function handleRoomBook(req, res, body) {
     if (!reserved.unreserved) await releaseRoomHours(record);
     return res.status(502).json({ error: 'Не удалось отправить заявку. Пожалуйста, позвоните нам: +375 (29) 176-19-84.' });
   }
+
+  // 20.10.2026: SMS-квитанция гостю (RocketSMS, api/_sms.js) — как у квеста,
+  // только после того, как заявка дошла в Telegram. Никогда не ломает бронь.
+  await sendRoomConfirmationSms(record);
 
   return res.status(200).json({
     ok: true,
