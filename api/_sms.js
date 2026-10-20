@@ -25,6 +25,7 @@ import crypto from 'crypto';
 export const ROCKETSMS_BASE = 'https://api.rocketsms.by/simple';
 export const DEFAULT_SENDER = 'LOONY.BY';
 export const SMS_PHONE = '+375291761984';
+export const QUEST_TITLE = 'Дело Мэри. Скажи им, что я здесь';
 const TIMEOUT_MS = 8000;
 
 // Выключатель всех SMS-квитанций одним флагом (тестовая SMS из админки
@@ -138,9 +139,11 @@ export function questReceiptText(record) {
   const details = [];
   if (record.players) details.push(String(record.players));
   if (record.price) details.push(`${record.price} Br`);
-  return `Дело Мэри: заявка на ${when} в ${record.time} принята`
+  // Полное название квеста (просьба владельца). «для подтверждения» убрано,
+  // чтобы текст с полным названием влезал в 2 SMS даже у ночных сеансов.
+  return `«${QUEST_TITLE}»: заявка на ${when} в ${record.time} принята`
     + (details.length ? ` (${details.join(', ')})` : '')
-    + `. Скоро позвоним для подтверждения. ${SMS_PHONE}`;
+    + `. Скоро позвоним. ${SMS_PHONE}`;
 }
 
 function sessionsWord(n) {
