@@ -135,16 +135,18 @@ export function smsDateLabel(dateISO, time = '') {
   return `${pad(d)}.${pad(m)}`;
 }
 
+// 21.10.2026: текст владельца — один и тот же для заявки с сайта, с
+// агрегаторов и для брони из админки. Выходит 3 SMS (кириллица, 67 знаков
+// в части длинного сообщения).
+export const QUEST_ADDRESS = 'Адрес ул. Октябрьская 16/23.';
 export function questReceiptText(record) {
   const when = smsDateLabel(record.dateISO, record.time);
   const details = [];
   if (record.players) details.push(String(record.players));
   if (record.price) details.push(`${record.price} Br`);
-  // Полное название квеста (просьба владельца). «для подтверждения» убрано,
-  // чтобы текст с полным названием влезал в 2 SMS даже у ночных сеансов.
-  return `«${QUEST_TITLE}»: заявка на ${when} в ${record.time} принята`
+  return `Квест «${QUEST_TITLE}»: бронирование на ${when} в ${record.time} принято`
     + (details.length ? ` (${details.join(', ')})` : '')
-    + `. Скоро позвоним. ${SMS_PHONE}`;
+    + `. ${SMS_PHONE}\n${QUEST_ADDRESS}`;
 }
 
 function sessionsWord(n) {
@@ -243,13 +245,7 @@ async function sendReceipt(kind, record, text) {
 // Instagram…). С клиентом уже договорились, поэтому текст — «бронь
 // подтверждена», а не «заявка принята, скоро позвоним».
 export function questAdminText(record) {
-  const when = smsDateLabel(record.dateISO, record.time);
-  const details = [];
-  if (record.players) details.push(String(record.players));
-  if (record.price) details.push(`${record.price} Br`);
-  return `«${QUEST_TITLE}»: бронь на ${when} в ${record.time} подтверждена`
-    + (details.length ? ` (${details.join(', ')})` : '')
-    + `. Ждём вас! ${SMS_PHONE}`;
+  return questReceiptText(record);
 }
 
 export function roomAdminText(record) {
@@ -264,7 +260,7 @@ export function roomAdminText(record) {
 }
 
 export async function sendAdminQuestSms(record) {
-  return sendReceipt('квест', { ...record, channel: record.channel || 'Админка' }, questAdminText(record));
+  return sendReceipt('квест', { ...record, channel: record.channel || 'Админка' }, questReceiptText(record));
 }
 
 export async function sendAdminRoomSms(record) {
@@ -296,7 +292,6 @@ export async function getSmsInfo() {
     samples: {
       quest: questReceiptText({ dateISO: '2026-10-31', time: '19:00', players: '3–4 человека', price: '140' }),
       room: roomReceiptText({ dateISO: '2026-10-31', startTime: '18:40', endTime: '20:40', sessions: 2, price: '180' }),
-      questAdmin: questAdminText({ dateISO: '2026-10-31', time: '19:00', players: '3–4 человека', price: '140' }),
       roomAdmin: roomAdminText({ dateISO: '2026-10-31', startTime: '18:40', endTime: '20:40', sessions: 2, price: '180' }),
     },
   };

@@ -343,6 +343,10 @@
     padding:4px 9px; border-radius:999px; flex-shrink:0;
   }
   .row-type.customer{background:rgba(224,167,34,.18); color:var(--ochre-bright);}
+  .row-type.room{background:rgba(167,139,250,.18); color:#c4b5fd;}
+  .booking-row.room-row{border-color:rgba(167,139,250,.35);}
+  .row-room-end{display:block; font-family:var(--sans); font-size:11px; color:var(--muted); margin-top:2px; white-space:nowrap;}
+  .room-card.flash{outline:2px solid #c4b5fd; outline-offset:2px; transition:outline-color .3s;}
   .row-type.technical{background:rgba(185,180,166,.18); color:var(--muted);}
   .row-type.status-cancelled{background:rgba(229,72,77,.18); color:var(--danger-bright);}
   .row-type.status-rescheduled{background:rgba(91,155,213,.18); color:var(--info-bright);}
@@ -1153,7 +1157,7 @@
 <div class="modal-overlay" id="smsOverlay">
   <div class="modal-box" style="max-width:460px;">
     <h2 style="font-size:17px;">SMS-квитанции</h2>
-    <p style="color:var(--muted); font-size:13px; margin:0 0 12px;">После заявки с сайта (квест и комната отдыха) клиенту уходит SMS «заявка принята, скоро позвоним». Квест — ещё и при брони с Мира Квестов и ExtraReality. Когда бронь добавляет администратор, уходит SMS «бронь подтверждена» (галочка в форме брони).</p>
+    <p style="color:var(--muted); font-size:13px; margin:0 0 12px;">После заявки с сайта (квест и комната отдыха) клиенту уходит SMS о брони. Квест — ещё и при брони с Мира Квестов и ExtraReality. Когда бронь добавляет администратор — тоже (галочка в форме брони).</p>
     <div id="smsInfoBox" class="sms-info"><div class="load-note">Загрузка…</div></div>
     <div class="sms-test">
       <label for="smsTestPhone" style="font-size:13px; color:var(--muted);">Тестовая SMS на номер (стоит как обычная SMS)</label>
@@ -1554,6 +1558,9 @@
 
   let adminPassword = null;
   let allBookings = [];
+  // 21.10.2026: брони комнаты отдыха — показываются и в общем списке,
+  // в каждом дне после всех броней квеста (по просьбе владельца).
+  let mainRoomRows = [];
   let activeBooking = null; // the booking currently open in the detail modal
   let pendingConfirmAction = 'cancel'; // which action the shared confirm dialog (below) performs on "Да"
   let pendingShiftSlotTarget = null; // {dateISO, slot, btn} — only set when pendingConfirmAction is 'cancelCloseoutForSlot'
@@ -1801,6 +1808,8 @@
     const keepScrollY = window.scrollY;
     if (!allBookings.length) listContainer.innerHTML = '<div class="load-note">Загрузка…</div>';
     try{
+      const roomsPromise = fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'listRoomBookings' }) })
+        .then(r => r.ok ? r.json() : null).catch(() => null);
       const res = await fetch('/api/admin/bookings', { headers: authHeaders(), cache:'no-store' });
       if (res.status === 401){
         adminPassword = null;
@@ -1826,6 +1835,8 @@
       }
       const out = await res.json().catch(() => ({}));
       allBookings = Array.isArray(out.bookings) ? out.bookings : [];
+      const roomsOut = await roomsPromise;
+      if (roomsOut && Array.isArray(roomsOut.roomBookings)) mainRoomRows = roomsOut.roomBookings;
       renderList();
       if (keepScrollY) requestAnimationFrame(() => window.scrollTo(0, keepScrollY));
     } catch(err){
@@ -1904,6 +1915,65 @@
     return list;
   }
 
+  // Брони комнаты для общего списка: «Активные» — сегодня и дальше,
+  // «Проведённые» — прошедшие; отмена комнаты удаляет бронь, поэтому в
+  // «Отменённых»/«Перенесённых» их нет. Те же фильтры по дню и поиску.
+  function getFilteredRoomRows(status){
+    const tab = status || activeTab;
+    const today = todayISO();
+    let list = tab === 'active' ? mainRoomRows.filter(r => r.dateISO >= today)
+      : tab === 'conducted' ? mainRoomRows.filter(r => r.dateISO < today) : [];
+    if (filterDateISO) list = list.filter(r => r.dateISO === filterDateISO);
+    const q = searchQuery.trim().toLowerCase();
+    if (q){
+      const qDigits = normalizePhoneDigitsForSearch(q);
+      list = list.filter(r => {
+        const name = (r.name || '').toLowerCase(), phone = (r.phone || '').toLowerCase();
+        return name.includes(q) || phone.includes(q) || (qDigits && normalizePhoneDigitsForSearch(phone).includes(qDigits));
+      });
+    }
+    return list;
+  }
+  function roomListSourceTag(r){
+    const raw = String(r.channel || 'Сайт').trim(), low = raw.toLowerCase();
+    if (low === 'мир квестов') return { t: 'МК', c: 'mk', full: raw };
+    if (low === 'extrareality') return { t: 'Экстра', c: 'er', full: raw };
+    if (low === 'сайт') return { t: 'Сайт', c: 'site', full: raw };
+    return { t: raw.length > 12 ? raw.slice(0, 11) + '…' : raw, c: '', full: raw };
+  }
+  function roomListSessions(n){
+    const a = n % 10, b = n % 100;
+    return n + ' ' + (a === 1 && b !== 11 ? 'сеанс' : (a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'сеанса' : 'сеансов'));
+  }
+  function roomListStarted(r){
+    const [y, m, d] = String(r.dateISO).split('-').map(Number);
+    const [hh, mm] = String(r.startTime || '0:00').split(':').map(Number);
+    return Date.now() >= Date.UTC(y, m - 1, d, hh || 0, mm || 0) - 3 * 3600 * 1000; // Минск = UTC+3
+  }
+  function roomListRowHtml(r){
+    const done = r.closeout && r.closeout.done;
+    const notPlayed = done && r.closeout.played === false;
+    const sverkaBadge = done
+      ? `<span class="row-sverka-badge${notPlayed ? ' not-played' : ''}">${notPlayed ? '✕ Не состоялась' : '✓ Сверено'}</span>`
+      : (roomListStarted(r) ? '<span class="row-sverka-badge not-done">Сверка не проведена</span>' : '');
+    const st = roomListSourceTag(r);
+    const n = Number(r.sessions || r.hours) || 0;
+    const sub = [r.phone, r.channel ? `Источник: ${r.channel}` : '', r.hostGameLabel ? `${r.hostGameLabel} — цену уточнить` : '', r.comment].filter(Boolean).join(' · ');
+    const price = Number(r.price);
+    return `
+            <div class="booking-row room-row has-src" data-room-id="${escapeHtml(r.bookingId)}" data-room-date="${escapeHtml(r.dateISO)}">
+              ${sverkaBadge}
+              <span class="row-src ${st.c}" title="Источник брони: ${escapeHtml(st.full)}">${escapeHtml(st.t)}</span>
+              <div class="row-time">${escapeHtml(r.startTime)}<small class="row-room-end">до ${escapeHtml(r.endTime || '')}</small></div>
+              <div class="row-type room">Комната</div>
+              <div class="row-main">
+                <div class="row-name">${escapeHtml(r.name || 'Без имени')}${n ? ` · ${escapeHtml(roomListSessions(n))}` : ''}</div>
+                ${sub ? `<div class="row-sub">${escapeHtml(sub)}</div>` : ''}
+              </div>
+              ${Number.isFinite(price) && String(r.price) !== '' ? `<div class="row-price">${escapeHtml(String(Math.round(price * 100) / 100))} Br</div>` : ''}
+            </div>`;
+  }
+
   // Оставляет только цифры и срезает код страны/выхода (375, 80 или
   // ведущий 0), чтобы сравнивать номера по "голым" местным цифрам вне
   // зависимости от того, в каком виде телефон был введён или сохранён.
@@ -1938,8 +2008,8 @@
   }
 
   function updateTabCounts(){
-    document.getElementById('tabCountActive').textContent = getFilteredBookings('active').length;
-    document.getElementById('tabCountConducted').textContent = getFilteredBookings('conducted').length;
+    document.getElementById('tabCountActive').textContent = getFilteredBookings('active').length + getFilteredRoomRows('active').length;
+    document.getElementById('tabCountConducted').textContent = getFilteredBookings('conducted').length + getFilteredRoomRows('conducted').length;
     document.getElementById('tabCountCancelled').textContent = getFilteredBookings('cancelled').length;
     document.getElementById('tabCountRescheduled').textContent = getFilteredBookings('rescheduled').length;
   }
@@ -1988,12 +2058,13 @@
     updateTabCounts();
     renderDaySummary();
 
-    if (!allBookings.length){
+    if (!allBookings.length && !mainRoomRows.length){
       listContainer.innerHTML = '<div class="empty-note">Броней пока нет.</div>';
       return;
     }
     const filtered = getFilteredBookings();
-    if (!filtered.length){
+    const roomRows = getFilteredRoomRows();
+    if (!filtered.length && !roomRows.length){
       const reason = filterDateISO ? ' на выбранную дату' : (searchQuery.trim() ? ' по вашему запросу' : '');
       listContainer.innerHTML = `<div class="empty-note">${TAB_EMPTY_LABELS[activeTab]} не найдено${reason}.</div>`;
       return;
@@ -2001,6 +2072,11 @@
     const byDate = {};
     filtered.forEach(b => {
       (byDate[b.dateISO] = byDate[b.dateISO] || []).push(b);
+    });
+    const roomsByDate = {};
+    roomRows.forEach(r => {
+      (roomsByDate[r.dateISO] = roomsByDate[r.dateISO] || []).push(r);
+      byDate[r.dateISO] = byDate[r.dateISO] || [];
     });
     // Порядок дней: сегодня — первым, дальше предстоящие дни по возрастанию
     // даты, и только в самом низу — уже прошедшие дни, ближайшим прошедшим
@@ -2097,15 +2173,22 @@
             </div>`;
         }).join('');
 
+      // Комната — после всех броней квеста этого дня, по времени начала.
+      const roomRowsHtml = (roomsByDate[dateISO] || []).slice()
+        .sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)))
+        .map(roomListRowHtml).join('');
+
       return `
         <div class="day-group">
           <div class="day-heading">${formatDateHeading(dateISO)}${weekend ? ' <span class="weekend-tag">· выходной</span>' : (isWeekendPriceISO(dateISO) ? ' <span class="weekend-tag">· цены выходного</span>' : '')}</div>
           ${rows}
+          ${roomRowsHtml}
         </div>`;
     }).join('');
 
     listContainer.querySelectorAll('.booking-row').forEach(row => {
       row.addEventListener('click', () => {
+        if (row.dataset.roomId){ openRoomFromList(row.dataset.roomId, row.dataset.roomDate); return; }
         const booking = allBookings.find(b => b.id === row.dataset.id);
         if (booking) openDetail(booking);
       });
@@ -3831,8 +3914,8 @@
         }
         html += smsRow('Альфа-имя', senderHtml);
       }
-      [['quest', 'квест, заявка с сайта'], ['questAdmin', 'квест, бронь из админки'], ['room', 'комната, заявка с сайта'], ['roomAdmin', 'комната, бронь из админки']].forEach(([k, label]) => {
-        if (i.samples[k]) html += `<div class="sms-sample"><b>Пример (${label}, ${i.sampleParts[k]} SMS):</b><br>${escapeHtml(i.samples[k])}</div>`;
+      [['quest', 'квест — сайт, агрегаторы и админка'], ['room', 'комната, заявка с сайта'], ['roomAdmin', 'комната, бронь из админки']].forEach(([k, label]) => {
+        if (i.samples[k]) html += `<div class="sms-sample"><b>Пример (${label}, ${i.sampleParts[k]} SMS):</b><br>${escapeHtml(i.samples[k]).replace(/\n/g, '<br>')}</div>`;
       });
       smsInfoBox.innerHTML = html;
     } catch {
@@ -5232,7 +5315,7 @@
       const tel = String(b.phone || '').replace(/[^\d+]/g, '');
       const started = roomStarted(b);
       const done = b.closeout && b.closeout.done;
-      html += `<div class="room-card${done ? ' done' : ''}">
+      html += `<div class="room-card${done ? ' done' : ''}" data-room-card="${escapeHtml(b.bookingId)}">
         <div class="room-card-top">
           <span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span>
           <span class="room-price">${roomNum(b.price)} Br · ${b.sessions ? roomSessWord(Number(b.sessions)) : roomHoursWord(Number(b.hours) || 0)}</span>
@@ -5253,6 +5336,20 @@
     roomBookingsList.innerHTML = html;
     const form = roomBookingsList.querySelector('.room-form');
     if (form) bindRoomForm(form);
+    // Общий список держим в курсе: добавили/отменили/сверили комнату — видно сразу.
+    if (roomDataLoaded){ mainRoomRows = roomBookingsData.slice(); renderList(); }
+  }
+  let roomDataLoaded = false;
+  function openRoomFromList(id, dateISO){
+    roomTab = dateISO < todayISO() ? 'past' : 'upcoming';
+    document.querySelectorAll('[data-room-tab]').forEach(t => t.classList.toggle('active', t.dataset.roomTab === roomTab));
+    roomBookingsOverlay.classList.add('show'); roomOpenForm = ''; closeRoomAdd();
+    loadRoomBookings().then(() => {
+      const el = [...roomBookingsList.querySelectorAll('[data-room-card]')].find(x => x.dataset.roomCard === id);
+      if (!el) return;
+      el.scrollIntoView({ block: 'center' });
+      el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1800);
+    });
   }
   function bindRoomForm(form){
     const b = roomBookingsData.find(x => x.bookingId === form.dataset.id);
@@ -5467,6 +5564,7 @@
       const out = await res.json().catch(() => ({}));
       if (!res.ok){ roomBookingsList.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить брони комнаты.')}</div>`; return; }
       roomBookingsData = out.roomBookings || [];
+      roomDataLoaded = true;
       renderRoomBookings();
     } catch(err){
       roomBookingsList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
