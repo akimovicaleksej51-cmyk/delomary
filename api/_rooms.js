@@ -610,6 +610,16 @@ async function rewriteRoomBooking(dateISO, bookingId, mutate) {
   return updated;
 }
 
+// 22.10.2026: прозвон гостя комнаты — как у квеста: 'called' | 'no_answer' | ''.
+export const ROOM_CALL_STATUSES = ['called', 'no_answer', ''];
+export async function setRoomCallStatus(dateISO, bookingId, callStatus) {
+  if (!ROOM_CALL_STATUSES.includes(callStatus)) return null;
+  return rewriteRoomBooking(dateISO, bookingId, (rec) => {
+    rec.callStatus = callStatus;
+    return rec;
+  });
+}
+
 export async function setRoomCloseout(dateISO, bookingId, { played, price, payCash, payCard, payErip, responsible, note } = {}) {
   const clean = (v, max) => (v == null ? '' : String(v).trim().slice(0, max));
   return rewriteRoomBooking(dateISO, bookingId, (rec) => {

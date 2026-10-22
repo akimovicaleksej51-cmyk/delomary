@@ -1953,9 +1953,15 @@
   function roomListRowHtml(r){
     const done = r.closeout && r.closeout.done;
     const notPlayed = done && r.closeout.played === false;
+    // 22.10.2026: плашки как у квеста — сверка на каждой брони, слева прозвон.
     const sverkaBadge = done
       ? `<span class="row-sverka-badge${notPlayed ? ' not-played' : ''}">${notPlayed ? '✕ Не состоялась' : '✓ Сверено'}</span>`
-      : (roomListStarted(r) ? '<span class="row-sverka-badge not-done">Сверка не проведена</span>' : '');
+      : '<span class="row-sverka-badge not-done">Сверка не проведена</span>';
+    const callBadge = r.callStatus === 'called'
+      ? '<span class="row-call-badge called" data-room-call-badge="1">✓ Прозвонили</span>'
+      : r.callStatus === 'no_answer'
+        ? '<span class="row-call-badge no-answer" data-room-call-badge="1">✕ Не подняли</span>'
+        : '<span class="row-call-badge" data-room-call-badge="1">☎ Не прозвонили</span>';
     const st = roomListSourceTag(r);
     const n = Number(r.sessions || r.hours) || 0;
     const sub = [r.phone, r.channel ? `Источник: ${r.channel}` : '', r.hostGameLabel ? `${r.hostGameLabel} — цену уточнить` : '', r.comment].filter(Boolean).join(' · ');
@@ -1963,6 +1969,7 @@
     return `
             <div class="booking-row room-row has-src" data-room-id="${escapeHtml(r.bookingId)}" data-room-date="${escapeHtml(r.dateISO)}">
               ${sverkaBadge}
+              ${callBadge}
               <span class="row-src ${st.c}" title="Источник брони: ${escapeHtml(st.full)}">${escapeHtml(st.t)}</span>
               <div class="row-time">${escapeHtml(r.startTime)}<small class="row-room-end">до ${escapeHtml(r.endTime || '')}</small></div>
               <div class="row-type room">Комната</div>
@@ -2197,6 +2204,14 @@
     // Плашка прозвона кликается отдельно от всей строки (открывает выбор
     // статуса звонка, а не полную карточку брони) — стопаем всплытие,
     // иначе сработает и клик по строке выше.
+    listContainer.querySelectorAll('[data-room-call-badge]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const row = el.closest('.booking-row');
+        const r = row && mainRoomRows.find(x => x.bookingId === row.dataset.roomId);
+        if (r) openCallStatusModal({ room: true, bookingId: r.bookingId, dateISO: r.dateISO, time: `${r.startTime}–${r.endTime}`, name: r.name });
+      });
+    });
     listContainer.querySelectorAll('[data-call-badge]').forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2987,8 +3002,10 @@
   let callStatusTarget = null; // {dateISO, time} — бронь, для которой сейчас открыт выбор
 
   function openCallStatusModal(booking){
-    callStatusTarget = { dateISO: booking.dateISO, time: booking.time };
-    callStatusText.textContent = `${formatDateHeading(booking.dateISO)} в ${booking.time}${booking.name ? ' — ' + booking.name : ''}`;
+    callStatusTarget = booking.room
+      ? { room: true, dateISO: booking.dateISO, bookingId: booking.bookingId }
+      : { dateISO: booking.dateISO, time: booking.time };
+    callStatusText.textContent = `${booking.room ? 'Комната отдыха · ' : ''}${formatDateHeading(booking.dateISO)} в ${booking.time}${booking.name ? ' — ' + booking.name : ''}`;
     callStatusMsg.textContent = ''; callStatusMsg.className = 'modal-msg';
     callStatusOverlay.classList.add('show');
   }
@@ -2999,7 +3016,9 @@
     try {
       const res = await fetch('/api/admin/bookings', {
         method:'POST', headers: authHeaders(),
-        body: JSON.stringify({ action:'setCallStatus', dateISO: callStatusTarget.dateISO, time: callStatusTarget.time, callStatus })
+        body: JSON.stringify(callStatusTarget.room
+          ? { action:'setRoomCallStatus', dateISO: callStatusTarget.dateISO, bookingId: callStatusTarget.bookingId, callStatus }
+          : { action:'setCallStatus', dateISO: callStatusTarget.dateISO, time: callStatusTarget.time, callStatus })
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){

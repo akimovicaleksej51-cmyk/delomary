@@ -108,7 +108,7 @@ import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManua
 import { toAmount } from '../_finance.js';
 import { businessToday, businessDateTime, todayISO as businessTodayISO } from '../_time.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
-import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, cancelRoomCloseout, uniqueRoomRecords, roomSourceOf, ROOM_SOURCES } from '../_rooms.js';
+import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, setRoomCallStatus, ROOM_CALL_STATUSES, cancelRoomCloseout, uniqueRoomRecords, roomSourceOf, ROOM_SOURCES } from '../_rooms.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -414,6 +414,17 @@ export default async function handler(req, res) {
 
     // 09.10.2026: сверка по комнате — состоялась ли, сколько денег, как оплатили,
     // кто был ответственный. Деньги после сверки идут в Кассу и Бухгалтерию.
+    // 22.10.2026: прозвон гостя комнаты (плашка в общем списке админки).
+    if (action === 'setRoomCallStatus') {
+      const dateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const bookingId = typeof body.bookingId === 'string' ? body.bookingId : '';
+      if (!dateISO || !bookingId) return res.status(400).json({ error: 'Некорректный запрос.' });
+      if (!ROOM_CALL_STATUSES.includes(body.callStatus)) return res.status(400).json({ error: 'Некорректный статус звонка.' });
+      const updated = await setRoomCallStatus(dateISO, bookingId, body.callStatus);
+      if (!updated) return res.status(404).json({ error: 'Бронь комнаты не найдена — возможно, её уже отменили.' });
+      return res.status(200).json({ ok: true, booking: updated });
+    }
+
     if (action === 'roomCloseout') {
       const dateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
       const bookingId = typeof body.bookingId === 'string' ? body.bookingId : '';
