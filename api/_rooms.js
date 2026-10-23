@@ -610,6 +610,19 @@ async function rewriteRoomBooking(dateISO, bookingId, mutate) {
   return updated;
 }
 
+// 23.10.2026: начала сеансов брони ("18:00", "19:30", …) — по сетке дня.
+// Для старых/нестандартных броней — каждые 90 минут от начала.
+export function roomSessionStarts(rec) {
+  const n = Number(rec && (rec.sessions || rec.hours)) || 0;
+  if (!rec || !n) return [];
+  const starts = roomStartsFor(rec.dateISO);
+  const i = starts.indexOf(rec.startTime);
+  if (i !== -1 && i + n <= starts.length) return starts.slice(i, i + n);
+  const m0 = roomMin(rec.startTime);
+  if (!Number.isFinite(m0)) return [];
+  return Array.from({ length: n }, (_, k) => roomTime(m0 + k * ROOM_STEP_MINUTES));
+}
+
 // 22.10.2026: прозвон гостя комнаты — как у квеста: 'called' | 'no_answer' | ''.
 export const ROOM_CALL_STATUSES = ['called', 'no_answer', ''];
 export async function setRoomCallStatus(dateISO, bookingId, callStatus) {
@@ -620,7 +633,7 @@ export async function setRoomCallStatus(dateISO, bookingId, callStatus) {
   });
 }
 
-export async function setRoomCloseout(dateISO, bookingId, { played, price, payCash, payCard, payErip, responsible, note } = {}) {
+export async function setRoomCloseout(dateISO, bookingId, { played, price, payCash, payCard, payErip, responsible, note, staff } = {}) {
   const clean = (v, max) => (v == null ? '' : String(v).trim().slice(0, max));
   return rewriteRoomBooking(dateISO, bookingId, (rec) => {
     const wasPlayed = played !== false;
@@ -633,6 +646,19 @@ export async function setRoomCloseout(dateISO, bookingId, { played, price, payCa
       note: clean(note, 300),
     };
     if (prev && Object.prototype.hasOwnProperty.call(prev, 'priceBefore')) closeout.priceBefore = prev.priceBefore;
+    // 23.10.2026: кто вёл каждый сеанс — [{ time:'18:00', name:'Иван' }, …].
+    // Пустое имя = ответственный. Нужен для ЗП за комнату.
+    if (wasPlayed) {
+      const times = roomSessionStarts(rec);
+      const given = Array.isArray(staff) ? staff : (prev && Array.isArray(prev.staff) ? prev.staff : null);
+      if (given) {
+        const byTime = {};
+        given.forEach((x) => { if (x && typeof x.time === 'string') byTime[x.time] = clean(x.name, 60); });
+        closeout.staff = times.map((t) => ({ time: t, name: byTime[t] || closeout.responsible }));
+      } else {
+        closeout.staff = times.map((t) => ({ time: t, name: closeout.responsible }));
+      }
+    }
     const nextPrice = wasPlayed && price != null && String(price).trim() !== '' ? clean(price, 12) : String(rec.price);
     if (!closeout.priceBefore && nextPrice !== String(rec.price)) closeout.priceBefore = rec.price;
     rec.closeout = closeout;

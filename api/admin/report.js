@@ -30,6 +30,7 @@ import { todayISO, businessDateTime } from '../_time.js';
 import { getActorsMap, resolveActorUsernamesForSlotSync } from '../_reminders.js';
 import { getNameAliases } from '../_names.js';
 import { uniqueRoomRecords, roomPaid } from '../_rooms.js';
+import { roomSessionKey, ROOM_PAY_PER_SESSION } from '../_finance.js';
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 92;
@@ -316,6 +317,17 @@ export default async function handler(req, res) {
     uniqueRoomRecords(entry && entry.result).forEach((rec) => {
       if (wantDetailed) roomRows.push({ ...rec, dateISO: dates[i] });
       if (!day || (rec.closeout && rec.closeout.played === false)) return;
+      // 23.10.2026: кто вёл сеансы комнаты — для ЗП (только в actorGames,
+      // в счётчики игр квеста не идёт). time = "комната HH:MM" = ключ выплаты.
+      if (rec.closeout && rec.closeout.done && Array.isArray(rec.closeout.staff)) {
+        rec.closeout.staff.forEach((x) => {
+          if (!x || !x.name || !x.time) return;
+          const name = canon(x.name);
+          (actorGames[name] = actorGames[name] || []).push({
+            dateISO: dates[i], time: roomSessionKey(dates[i], x.time).split('|')[1], client: rec.name || '', via: 'room', room: true,
+          });
+        });
+      }
       const paid = roomPaid(rec);
       day.cash += paid.cash; day.card += paid.card; day.erip += paid.erip;
       day.room += paid.cash + paid.card + paid.erip;
@@ -401,7 +413,7 @@ export default async function handler(req, res) {
     channels: channelTotals,
     actors: actorTotals,
     technicalCount,
-    ...(String((req.query && req.query.actorDetails) || '') === '1' ? { actorGames, actorPayouts: payoutsOut, unlinkedPayroll } : {}),
+    ...(String((req.query && req.query.actorDetails) || '') === '1' ? { actorGames, actorPayouts: payoutsOut, unlinkedPayroll, roomPayPerSession: ROOM_PAY_PER_SESSION } : {}),
     ...(wantDetailed ? { bookings: detailedRows, roomBookings: roomRows } : {}),
   });
 }

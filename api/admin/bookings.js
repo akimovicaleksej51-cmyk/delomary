@@ -105,7 +105,7 @@ import { kv, kvPipeline, pairsToObject, isKvConfigured } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
-import { toAmount } from '../_finance.js';
+import { toAmount, addRoomPayouts, roomPaidSessions, ROOM_PAY_PER_SESSION } from '../_finance.js';
 import { businessToday, businessDateTime, todayISO as businessTodayISO } from '../_time.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
 import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, setRoomCallStatus, ROOM_CALL_STATUSES, cancelRoomCloseout, uniqueRoomRecords, roomSourceOf, ROOM_SOURCES } from '../_rooms.js';
@@ -425,6 +425,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, booking: updated });
     }
 
+    // 23.10.2026: какие сеансы брони комнаты уже выплачены (для формы сверки).
+    if (action === 'roomPaidSessions') {
+      const dateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
+      const bookingId = typeof body.bookingId === 'string' ? body.bookingId : '';
+      const rec = (await listRoomBookings()).find((r) => r.bookingId === bookingId && r.dateISO === dateISO);
+      if (!rec) return res.status(404).json({ error: 'Бронь комнаты не найдена.' });
+      const paid = await roomPaidSessions(rec, businessTodayISO());
+      return res.status(200).json({ ok: true, paid, ratePerSession: ROOM_PAY_PER_SESSION });
+    }
+
     if (action === 'roomCloseout') {
       const dateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';
       const bookingId = typeof body.bookingId === 'string' ? body.bookingId : '';
@@ -435,10 +445,18 @@ export default async function handler(req, res) {
         price: num(body.price), payCash: num(body.payCash), payCard: num(body.payCard), payErip: num(body.payErip),
         responsible: typeof body.responsible === 'string' ? body.responsible : '',
         note: typeof body.note === 'string' ? body.note : '',
+        staff: Array.isArray(body.staff) ? body.staff.slice(0, 12) : undefined,
       });
       if (!updated) return res.status(404).json({ error: 'Бронь комнаты не найдена.' });
+      // 23.10.2026: «забрал ЗП» прямо в сверке — записи «ЗП» в Кассе сегодняшним числом.
+      let payoutError = '';
+      let payoutsCreated = [];
+      if (updated.closeout && updated.closeout.played !== false && Array.isArray(body.payouts) && body.payouts.length) {
+        const out = await addRoomPayouts(updated, body.payouts, { todayISOValue: businessTodayISO(), selfReported: body.fromStaff === true });
+        if (out.ok) payoutsCreated = out.created; else payoutError = out.error;
+      }
       const roomBookings = await listRoomBookings();
-      return res.status(200).json({ ok: true, booking: updated, roomBookings });
+      return res.status(200).json({ ok: true, booking: updated, roomBookings, payouts: payoutsCreated, payoutError });
     }
     if (action === 'cancelRoomCloseout') {
       const dateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';

@@ -36,7 +36,7 @@
 
 import { kv, kvPipeline, pairsToObject } from './_kv.js';
 import { getNameAliases } from './_names.js';
-import { uniqueRoomRecords, roomPaid } from './_rooms.js';
+import { uniqueRoomRecords, roomPaid, roomSessionStarts } from './_rooms.js';
 
 const OPENING_KEY = 'cashRegisterOpening';
 const CASHOUTS_TTL_SECONDS = 60 * 60 * 24 * 400; // cashouts matter long-term for the register's history
@@ -561,4 +561,98 @@ export async function getPaidGamesForActor(actor, todayISOValue, days = 120) {
     if (m && m.actor && canon(m.actor) === me && Array.isArray(m.paidGames)) m.paidGames.forEach((k) => paid.add(k));
   });
   return paid;
+}
+
+// ── 23.10.2026: ЗП за комнату отдыха ─────────────────────────────────────
+// Сеанс комнаты оплачивается как «игра» в общей системе ЗП: ключ выплаты
+// "YYYY-MM-DD|комната HH:MM" (комната одна, поэтому дата + начало сеанса
+// однозначны). Выплата — обычная запись «ЗП» в cashouts:<дата> с actor и
+// paidGames, поэтому Касса, Бухгалтерия и «Мои игры и ЗП» видят её сами.
+export const ROOM_PAY_PER_SESSION = 15;
+export function roomSessionKey(dateISO, time) {
+  return `${dateISO}|комната ${time}`;
+}
+
+// Все уже выплаченные ключи (любого человека) за последние `days` дней:
+// Map key -> { actor, dateISO, settled }.
+export async function getAllPaidKeys(todayISOValue, days = 120) {
+  const dates = [];
+  const end = parseISO(todayISOValue);
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(end);
+    d.setDate(d.getDate() - i);
+    dates.push(isoDate(d));
+  }
+  const results = await kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`]));
+  const paid = new Map();
+  (results || []).forEach((entry, i) => {
+    const raw = entry && entry.result;
+    if (!raw) return;
+    try {
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return;
+      arr.forEach((c) => {
+        if (c.kind === 'payroll' && c.actor && Array.isArray(c.paidGames)) {
+          c.paidGames.forEach((k) => { if (!paid.has(k)) paid.set(k, { actor: c.actor, dateISO: dates[i], settled: false, amount: toAmount(c.amount) }); });
+        }
+      });
+    } catch { /* skip */ }
+  });
+  (await getSettledMarkers()).forEach((m) => {
+    if (m && m.actor && Array.isArray(m.paidGames)) m.paidGames.forEach((k) => { if (!paid.has(k)) paid.set(k, { actor: m.actor, dateISO: m.dateISO || '', settled: true }); });
+  });
+  return paid;
+}
+
+// Какие сеансы этой брони комнаты уже выплачены: { '18:00': { actor, dateISO, settled } }.
+export async function roomPaidSessions(rec, todayISOValue) {
+  const paid = await getAllPaidKeys(todayISOValue);
+  const out = {};
+  roomSessionStarts(rec).forEach((t) => {
+    const p = paid.get(roomSessionKey(rec.dateISO, t));
+    if (p) out[t] = p;
+  });
+  return out;
+}
+
+// Выплаты «забрал ЗП» прямо из сверки комнаты. payouts: [{ name, times:[…], amount }].
+// Каждый сеанс можно выплатить только тому, кто его вёл, и только один раз.
+// Возвращает { ok, created:[…] } или { ok:false, status, error }.
+export async function addRoomPayouts(rec, payouts, { todayISOValue, selfReported = false } = {}) {
+  const list = (Array.isArray(payouts) ? payouts : []).slice(0, 10);
+  if (!list.length) return { ok: true, created: [] };
+  const staff = (rec.closeout && Array.isArray(rec.closeout.staff)) ? rec.closeout.staff : [];
+  const whoRan = {};
+  staff.forEach((x) => { whoRan[x.time] = x.name; });
+  const paid = await getAllPaidKeys(todayISOValue);
+  const entries = [];
+  for (const p of list) {
+    const name = typeof (p && p.name) === 'string' ? p.name.trim().slice(0, 60) : '';
+    const times = [...new Set((Array.isArray(p && p.times) ? p.times : []).filter((t) => typeof t === 'string' && whoRan[t] !== undefined))];
+    const amount = toAmount(p && p.amount);
+    if (!name || !times.length) continue;
+    if (!(amount > 0)) return { ok: false, status: 400, error: `Укажите сумму ЗП для ${name}.` };
+    const foreign = times.filter((t) => whoRan[t] !== name);
+    if (foreign.length) return { ok: false, status: 400, error: `${name} не вёл(а) сеанс ${foreign.join(', ')} — проверьте, кто вёл комнату.` };
+    const keys = times.map((t) => roomSessionKey(rec.dateISO, t));
+    const dup = keys.filter((k) => paid.has(k));
+    if (dup.length) return { ok: false, status: 409, error: `ЗП за сеанс ${dup.map((k) => k.split(' ').pop()).join(', ')} уже выплачена. Обновите окно.` };
+    const word = times.length === 1 ? 'сеанс' : (times.length < 5 ? 'сеанса' : 'сеансов');
+    const [y, m, d] = rec.dateISO.split('-');
+    entries.push({
+      id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      kind: 'payroll',
+      label: `ЗП ${name} — комната ${d}.${m} (${times.length} ${word})`.slice(0, 200),
+      amount,
+      createdAt: new Date().toISOString(),
+      actor: name,
+      paidGames: keys,
+      room: true,
+      ...(selfReported ? { selfReported: true } : {}),
+    });
+  }
+  if (!entries.length) return { ok: true, created: [] };
+  const day = await getCashoutsForDate(todayISOValue);
+  await saveCashoutsForDate(todayISOValue, [...day, ...entries]);
+  return { ok: true, created: entries };
 }

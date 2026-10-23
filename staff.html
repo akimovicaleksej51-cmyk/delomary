@@ -502,6 +502,24 @@
   .rf-pay label span{font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;}
   .rf-total{font-size:13.5px; color:var(--muted);}
   .rf-total b{color:var(--ochre-bright);}
+  .rf-staff{display:flex; flex-direction:column; gap:6px;}
+  .rf-staff[hidden]{display:none;}
+  .rf-sess{display:flex; flex-direction:column; gap:6px;}
+  .rf-sess-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .rf-sess-t{font-weight:800; min-width:46px;}
+  .room-form .rf-sess-row select{flex:1 1 160px; width:auto; min-width:0;}
+  .rf-sess-paid{font-size:12px; color:#5fe08a; font-weight:700;}
+  .rf-sess-paid[hidden]{display:none;}
+  .rf-zp{display:flex; flex-direction:column; gap:6px;}
+  .rf-zp-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 10px; border:1px solid #2e2e2e; border-radius:8px; background:var(--black-2);}
+  .rf-zp-name{flex:1 1 150px; font-weight:700;}
+  .rf-zp-name small{color:var(--muted); font-weight:400;}
+  .rf-zp-amt{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted);}
+  .room-form .rf-zp-amt input{width:74px; padding:7px 9px;}
+  .rf-zp-take{display:flex; align-items:center; gap:6px; font-size:13.5px; cursor:pointer;}
+  .room-form .rf-zp-take input{width:18px; height:18px; padding:0; margin:0; accent-color:var(--ochre-bright);}
+  .rf-zp-done{font-size:12.5px; color:#5fe08a; font-weight:700;}
+  .rf-zp-hint{font-size:12.5px; color:var(--muted);}
   .room-form-actions{display:flex; gap:8px; flex-wrap:wrap;}
   .room-form-actions button{flex:1 1 auto;}
   /* ---------- Payment split (edit form + Касса) ---------- */
@@ -2583,6 +2601,26 @@
     if (roomNum(b.payErip)) parts.push(`ЕРИП ${roomNum(b.payErip)}`);
     return `<span class="room-badge ok">Сверка ✓</span> <span class="room-meta-inline">${parts.length ? escapeHtml(parts.join(' + ')) + ' Br' : 'оплата не указана'}${c.responsible ? ' · ответственный: ' + escapeHtml(c.responsible) : ''}</span>`;
   }
+  // 23.10.2026: ЗП за комнату — кто вёл каждый сеанс, «забрал ЗП» прямо в сверке.
+  const ROOM_PAY_PER_SESSION = 15;
+  const ROOM_GRID_WD = ['10:30', '12:00', '13:30', '15:00', '16:30', '18:00', '19:30', '21:00', '22:30'];
+  const ROOM_GRID_WE = ['10:30', '12:00', '13:20', '14:40', '16:00', '17:20', '18:40', '20:00', '21:20', '22:40'];
+  function roomSessTimes(b){
+    if (b.closeout && Array.isArray(b.closeout.staff) && b.closeout.staff.length) return b.closeout.staff.map(x => x.time);
+    const n = Number(b.sessions || b.hours) || 0;
+    const [y, m, d] = String(b.dateISO).split('-').map(Number);
+    const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    const grid = (w === 0 || w === 6) && b.dateISO >= '2026-10-31' ? ROOM_GRID_WE : ROOM_GRID_WD;
+    const i = grid.indexOf(b.startTime);
+    if (i !== -1 && i + n <= grid.length) return grid.slice(i, i + n);
+    const [hh, mm] = String(b.startTime || '0:00').split(':').map(Number);
+    return Array.from({ length: n }, (_, k) => { const t = hh * 60 + mm + k * 90; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; });
+  }
+  function roomSessSaved(b, t){
+    const x = b.closeout && Array.isArray(b.closeout.staff) ? b.closeout.staff.find(s => s.time === t) : null;
+    return x ? x.name : '';
+  }
+  function roomSessWordShort(n){ const a = n % 10, c = n % 100; return n + ' ' + (a === 1 && c !== 11 ? 'сеанс' : (a >= 2 && a <= 4 && (c < 12 || c > 14) ? 'сеанса' : 'сеансов')); }
   function roomFormHtml(b){
     const c = b.closeout && b.closeout.done ? b.closeout : null;
     const played = !c || c.played !== false;
@@ -2606,6 +2644,13 @@
       </div>
       <div class="room-form-row"><span class="rf-label">Кто был ответственный</span>
         <select class="rf-resp"><option value="">— выберите —</option>${names.map(n => `<option value="${escapeHtml(n)}"${n === resp ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}</select></div>
+      <div class="rf-staff"${played ? '' : ' hidden'}>
+        <span class="rf-label">Кто вёл комнату (по сеансам)</span>
+        <div class="rf-sess">${roomSessTimes(b).map(t => `<div class="rf-sess-row"><span class="rf-sess-t">${escapeHtml(t)}</span><select class="rf-sess-who" data-time="${escapeHtml(t)}"><option value="">как ответственный</option>${names.map(n => `<option value="${escapeHtml(n)}"${roomSessSaved(b, t) === n && n !== resp ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}</select><span class="rf-sess-paid" hidden></span></div>`).join('')}</div>
+        <span class="rf-label" style="margin-top:6px;">ЗП за комнату</span>
+        <div class="rf-zp"><div class="rf-zp-hint">Загрузка…</div></div>
+        <div class="rf-zp-hint">${ROOM_PAY_PER_SESSION} Br за сеанс — сумму можно поменять. Кто не забирает сейчас, заберёт позже в «Мои игры и ЗП».</div>
+      </div>
       <div class="room-form-row"><span class="rf-label">Комментарий (необязательно)</span><input class="rf-note" placeholder="Например: продлили на час" value="${escapeHtml((c && c.note) || '')}"></div>
       <div class="room-form-actions"><button type="button" class="btn rf-save">Сохранить сверку</button><button type="button" class="btn-secondary rf-cancel">Закрыть</button></div>
       <div class="modal-msg rf-msg"></div>
@@ -2678,25 +2723,87 @@
       played = btn.dataset.played === 'yes';
       form.querySelectorAll('[data-played]').forEach(x => x.classList.toggle('on', x === btn));
       form.querySelector('.rf-played').hidden = !played;
+      form.querySelector('.rf-staff').hidden = !played;
     }));
     form.querySelector('.rf-cancel').addEventListener('click', () => { roomOpenForm = ''; renderRoomBookings(); });
+
+    // ── кто вёл сеансы и ЗП ──
+    let paidSess = null;            // { '18:00': { actor, dateISO, settled } } — что уже выплачено
+    const zpState = {};             // имя -> { amount, take, touched } — сохраняем ввод между перерисовками
+    const whoOf = (sel) => sel.value || form.querySelector('.rf-resp').value || '';
+    const buildZp = () => {
+      const box = form.querySelector('.rf-zp');
+      form.querySelectorAll('.rf-sess-who').forEach(sel => {
+        const p = paidSess && paidSess[sel.dataset.time];
+        const tag = sel.parentElement.querySelector('.rf-sess-paid');
+        if (p){
+          // уже выплачено — человека не меняем, чтобы не разойтись с Кассой
+          if (![...sel.options].some(o => o.value === p.actor)) sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(p.actor)}">${escapeHtml(p.actor)}</option>`);
+          sel.value = p.actor; sel.disabled = true;
+          tag.hidden = false; tag.textContent = p.settled ? '✓ ЗП выплачена ранее' : '✓ ЗП получена';
+        }
+      });
+      if (!paidSess){ box.innerHTML = '<div class="rf-zp-hint">Загрузка…</div>'; return; }
+      const people = {};
+      form.querySelectorAll('.rf-sess-who').forEach(sel => {
+        const who = whoOf(sel);
+        if (!who) return;
+        const pr = people[who] = people[who] || { all: [], unpaid: [] };
+        pr.all.push(sel.dataset.time);
+        if (!paidSess[sel.dataset.time]) pr.unpaid.push(sel.dataset.time);
+      });
+      const names = Object.keys(people);
+      if (!names.length){ box.innerHTML = '<div class="rf-zp-hint">Выберите ответственного — сеансы запишутся на него.</div>'; return; }
+      box.innerHTML = names.map(n => {
+        const pr = people[n];
+        if (!pr.unpaid.length) return `<div class="rf-zp-row"><span class="rf-zp-name">${escapeHtml(n)} · ${roomSessWordShort(pr.all.length)}</span><span class="rf-zp-done">✓ ЗП уже получена</span></div>`;
+        const st = zpState[n] || {};
+        const def = pr.unpaid.length * ROOM_PAY_PER_SESSION;
+        const amount = st.touched ? st.amount : String(def);
+        return `<div class="rf-zp-row" data-name="${escapeHtml(n)}" data-times="${escapeHtml(pr.unpaid.join(','))}">
+          <span class="rf-zp-name">${escapeHtml(n)} · ${roomSessWordShort(pr.unpaid.length)}${pr.unpaid.length < pr.all.length ? ` <small>(ещё ${pr.all.length - pr.unpaid.length} уже оплачено)</small>` : ''}</span>
+          <label class="rf-zp-amt"><input class="rf-zp-in" inputmode="decimal" value="${escapeHtml(amount)}"> Br</label>
+          <label class="rf-zp-take"><input type="checkbox" class="rf-zp-cb"${st.take ? ' checked' : ''}> Забрал(а) ЗП сейчас</label>
+        </div>`;
+      }).join('');
+      box.querySelectorAll('.rf-zp-row[data-name]').forEach(row => {
+        const n = row.dataset.name;
+        row.querySelector('.rf-zp-in').addEventListener('input', e => { zpState[n] = { ...(zpState[n] || {}), amount: e.target.value, touched: true }; });
+        row.querySelector('.rf-zp-cb').addEventListener('change', e => { zpState[n] = { ...(zpState[n] || {}), take: e.target.checked, amount: row.querySelector('.rf-zp-in').value, touched: (zpState[n] || {}).touched }; });
+      });
+    };
+    form.querySelectorAll('.rf-sess-who').forEach(sel => sel.addEventListener('change', buildZp));
+    form.querySelector('.rf-resp').addEventListener('change', buildZp);
+    buildZp();
+    fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'roomPaidSessions', dateISO: b.dateISO, bookingId: b.bookingId }) })
+      .then(r => r.json().catch(() => ({}))).then(out => { paidSess = (out && out.paid) || {}; if (form.isConnected) buildZp(); })
+      .catch(() => { paidSess = {}; if (form.isConnected) buildZp(); });
     form.querySelector('.rf-save').addEventListener('click', async (e) => {
       const saveBtn = e.currentTarget;
       const msg = form.querySelector('.rf-msg');
       const responsible = form.querySelector('.rf-resp').value;
       if (!responsible){ msg.textContent = 'Выберите, кто был ответственный за комнату.'; msg.className = 'modal-msg rf-msg err'; return; }
+      const staff = [...form.querySelectorAll('.rf-sess-who')].map(sel => ({ time: sel.dataset.time, name: sel.value || responsible }));
+      const payouts = !played ? [] : [...form.querySelectorAll('.rf-zp-row[data-name]')].filter(row => row.querySelector('.rf-zp-cb').checked)
+        .map(row => ({ name: row.dataset.name, times: row.dataset.times.split(','), amount: row.querySelector('.rf-zp-in').value }));
+      const badPay = payouts.find(p => !(roomNum(p.amount) > 0));
+      if (badPay){ msg.textContent = `Впишите сумму ЗП для ${badPay.name}.`; msg.className = 'modal-msg rf-msg err'; return; }
       saveBtn.disabled = true;
       try{
         const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({
           action:'roomCloseout', dateISO: b.dateISO, bookingId: b.bookingId, played,
           price: form.querySelector('.rf-price').value, payCash: form.querySelector('.rf-cash').value,
           payCard: form.querySelector('.rf-card').value, payErip: form.querySelector('.rf-erip').value,
-          responsible, note: form.querySelector('.rf-note').value }) });
+          responsible, note: form.querySelector('.rf-note').value, staff, payouts, fromStaff: true }) });
         const out = await res.json().catch(() => ({}));
         if (!res.ok){ msg.textContent = out.error || 'Не удалось сохранить.'; msg.className = 'modal-msg rf-msg err'; saveBtn.disabled = false; return; }
         roomBookingsData = out.roomBookings || roomBookingsData;
         roomOpenForm = '';
-        roomBookingsMsg.textContent = 'Сверка по комнате сохранена.'; roomBookingsMsg.className = 'modal-msg ok';
+        const paidNote = (out.payouts || []).map(p => `${p.actor} — ${roomNum(p.amount)} Br`).join(', ');
+        roomBookingsMsg.textContent = out.payoutError
+          ? `Сверка сохранена, но ЗП не записана: ${out.payoutError}`
+          : `Сверка по комнате сохранена.${paidNote ? ` ЗП записана в Кассу: ${paidNote}.` : ''}`;
+        roomBookingsMsg.className = out.payoutError ? 'modal-msg err' : 'modal-msg ok';
         renderRoomBookings();
       } catch(err){ msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg rf-msg err'; saveBtn.disabled = false; }
     });
@@ -2963,6 +3070,12 @@
   const MY_PAY_DAYS = 14;
   let myPayData = null;
   function mpGames(n){ const m10 = n % 10, m100 = n % 100; return n + (m10 === 1 && m100 !== 11 ? ' игра' : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? ' игры' : ' игр'); }
+  // 23.10.2026: «2 игры + 1 сеанс комнаты»
+  function mpMix(gs){
+    const room = gs.filter(g => g.room).length, quest = gs.length - room;
+    const sw = (n) => { const a = n % 10, c = n % 100; return n + (a === 1 && c !== 11 ? ' сеанс' : (a >= 2 && a <= 4 && (c < 12 || c > 14) ? ' сеанса' : ' сеансов')) + ' комнаты'; };
+    return [quest ? mpGames(quest) : '', room ? sw(room) : ''].filter(Boolean).join(' + ');
+  }
   function mpShort(iso){ const d = parseISO(iso); return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`; }
   function mpAmt(v){ const n = Math.round(Number(v) * 100) / 100; return Number.isInteger(n) ? String(n) : n.toFixed(2); }
   async function loadMyPay(){
@@ -2972,7 +3085,8 @@
       const out = await res.json().catch(() => ({}));
       if (!res.ok){ myPayBody.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить.')}</div>`; return; }
       myPayData = out;
-      const names = Object.keys(out.actors || {}).sort((a, b) => a.localeCompare(b, 'ru'));
+      // 23.10.2026: и те, у кого только сеансы комнаты
+      const names = [...new Set([...Object.keys(out.actors || {}), ...Object.keys(out.actorGames || {})])].sort((a, b) => a.localeCompare(b, 'ru'));
       let saved = '';
       try { saved = localStorage.getItem('myPayName') || ''; } catch(e) {}
       const current = myPayName.value || saved;
@@ -3013,7 +3127,7 @@
         : '<span class="mp-unpaid">не получено</span>';
       return `<div class="mp-day">
         <label>${unpaidKeys.length ? `<input type="checkbox" class="mp-pick" data-keys="${escapeHtml(unpaidKeys.join(','))}" checked>` : '<span class="mp-gap"></span>'}
-          <span><b>${escapeHtml(formatDateHeading(d))}</b> — ${mpGames(gs.length)}: ${gs.map(g => escapeHtml(g.time)).join(', ')}</span></label>
+          <span><b>${escapeHtml(formatDateHeading(d))}</b> — ${mpMix(gs)}: ${gs.map(g => escapeHtml(g.time)).join(', ')}</span></label>
         ${status}
       </div>`;
     }).join('');
@@ -3025,7 +3139,7 @@
 
     myPayBody.innerHTML = `
       <div class="mp-tiles">
-        <div class="mp-tile"><div class="v">${games.length}</div><div class="l">игр за 2 недели</div></div>
+        <div class="mp-tile"><div class="v">${games.length}</div><div class="l">${games.some(g => g.room) ? 'игр и сеансов комнаты' : 'игр за 2 недели'}</div></div>
         <div class="mp-tile"><div class="v">${paidCount}</div><div class="l">получено</div></div>
         <div class="mp-tile due"><div class="v">${unpaid}</div><div class="l">не получено</div></div>
       </div>
@@ -3035,7 +3149,7 @@
           <div class="pay-split-item" style="flex:1;"><span>Сколько забираете из кассы, Br</span><input type="text" id="myPayAmount" inputmode="decimal" placeholder="0"></div>
         </div>
         <button type="button" class="btn" id="myPaySubmit">Забираю ЗП за отмеченные</button>
-        <div class="mp-hint">Отметьте галочками игры, за которые берёте деньги, и впишите сумму. Запись появится в Кассе как «ЗП», менеджеры увидят её в Бухгалтерии. Ошиблись — попросите менеджера удалить запись.</div>
+        <div class="mp-hint">Отметьте галочками игры, за которые берёте деньги, и впишите сумму. За комнату — ${data.roomPayPerSession || 15} Br за сеанс. Запись появится в Кассе как «ЗП», менеджеры увидят её в Бухгалтерии. Ошиблись — попросите менеджера удалить запись.</div>
         <div class="modal-msg" id="myPayMsg"></div>
       </div>` : (games.length ? '<div class="mp-hint" style="margin-top:12px;">Все игры за последние 2 недели уже оплачены ✓</div>' : '')}
       <div class="mp-sect">Мои выплаты</div>${payRows}
@@ -3049,7 +3163,10 @@
       const n = picked().length;
       btn.classList.remove('armed');
       btn.disabled = !n;
-      btn.textContent = n ? `Забираю ЗП за отмеченные (${mpGames(n)})` : 'Отметьте игры';
+      btn.textContent = n ? `Забираю ЗП за отмеченные (${n})` : 'Отметьте игры';
+      const roomN = picked().filter(k => k.includes('|комната ')).length;
+      const amt = document.getElementById('myPayAmount');
+      if (amt) amt.placeholder = roomN ? `комната: ${roomN} × ${data.roomPayPerSession || 15} = ${roomN * (data.roomPayPerSession || 15)} Br${roomN < n ? ' + игры' : ''}` : '0';
     };
     myPayBody.querySelectorAll('.mp-pick').forEach(c => c.addEventListener('change', sync));
     sync();
