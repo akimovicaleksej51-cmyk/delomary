@@ -18,7 +18,7 @@
 // bookings" for everyone — nothing on the site breaks, slots just aren't
 // blocked until the database is connected.
 
-import { kvPipeline, isKvConfigured } from './_kv.js';
+import { kvCachedRead, isKvConfigured } from './_kv.js';
 import { effectiveTakenTimes } from './_pricing.js';
 import { businessToday } from './_time.js';
 
@@ -48,7 +48,8 @@ export default async function handler(req, res) {
   }
 
   const commands = dates.map((iso) => ['HKEYS', `bookings:${iso}`]);
-  const results = await kvPipeline(commands);
+  // 30.10.2026: кешируется, пока брони не менялись (см. kvCachedRead в _kv.js)
+  const results = await kvCachedRead(commands);
 
   if (!results) {
     // 23.09.2026: used to unconditionally report "no bookings" here,

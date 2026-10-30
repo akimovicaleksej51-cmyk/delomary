@@ -101,7 +101,7 @@
 // vars as api/book.js; if they're not set, the action still completes — the
 // Telegram step is just skipped.
 
-import { kv, kvPipeline, pairsToObject, isKvConfigured } from '../_kv.js';
+import { kv, kvPipeline, pairsToObject, isKvConfigured, kvCachedRead, getLastKvError } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { scheduleReminder, cancelReminder, stripReminderFields } from '../_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
@@ -293,9 +293,13 @@ export default async function handler(req, res) {
     const historyDates = historyWindowDates();
 
     const [bookingResults, historyResults] = await Promise.all([
-      kvPipeline(bookingDates.map((iso) => ['HGETALL', `bookings:${iso}`])),
-      kvPipeline(historyDates.map((iso) => ['HGETALL', `history:${iso}`])),
+      kvCachedRead(bookingDates.map((iso) => ['HGETALL', `bookings:${iso}`])),
+      kvCachedRead(historyDates.map((iso) => ['HGETALL', `history:${iso}`])),
     ]);
+    // 30.10.2026: база не ответила — честно говорим об этом, а не отдаём пустой список.
+    if (isKvConfigured() && (!bookingResults || !historyResults)) {
+      return res.status(503).json({ error: `База данных не отвечает: ${getLastKvError() || 'неизвестная ошибка'}` });
+    }
 
     const bookings = [];
 
@@ -1013,9 +1017,9 @@ export default async function handler(req, res) {
       }
 
       const [bookingResults, historyResults, roomResults] = await Promise.all([
-        kvPipeline(dates.map((iso) => ['HGETALL', `bookings:${iso}`])),
-        kvPipeline(dates.map((iso) => ['HGETALL', `history:${iso}`])),
-        kvPipeline(dates.map((iso) => ['HGETALL', `roombookings:${iso}`])),
+        kvCachedRead(dates.map((iso) => ['HGETALL', `bookings:${iso}`])),
+        kvCachedRead(dates.map((iso) => ['HGETALL', `history:${iso}`])),
+        kvCachedRead(dates.map((iso) => ['HGETALL', `roombookings:${iso}`])),
       ]);
       // комната: сколько броней, часов и на какую сумму (не состоявшиеся — отдельно)
       // 09.10.2026: + из какого источника каждая бронь (сайт / телефон /

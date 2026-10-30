@@ -23,7 +23,7 @@
 //   ~2 months of history, so a real period export has to come from the
 //   server instead.
 
-import { kv, kvPipeline, pairsToObject } from '../_kv.js';
+import { kv, kvPipeline, pairsToObject, kvCachedRead } from '../_kv.js';
 import { toAmount, getSettledMarkers } from '../_finance.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO, businessDateTime } from '../_time.js';
@@ -159,10 +159,10 @@ export default async function handler(req, res) {
   // comment above. Fetched once per request (not per booking) via the same
   // pipeline pattern as the three fetches already here.
   const [bookingResults, historyResults, cashoutResults, shiftsResults, actorsMap] = await Promise.all([
-    kvPipeline(dates.map((iso) => ['HGETALL', `bookings:${iso}`])),
-    kvPipeline(dates.map((iso) => ['HGETALL', `history:${iso}`])),
-    kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`])),
-    kvPipeline(dates.map((iso) => ['GET', `shifts:${iso}`])),
+    kvCachedRead(dates.map((iso) => ['HGETALL', `bookings:${iso}`])),
+    kvCachedRead(dates.map((iso) => ['HGETALL', `history:${iso}`])),
+    kvCachedRead(dates.map((iso) => ['GET', `cashouts:${iso}`])),
+    kvCachedRead(dates.map((iso) => ['GET', `shifts:${iso}`])),
     getActorsMap(),
   ]);
 
@@ -310,7 +310,7 @@ export default async function handler(req, res) {
   // 09.10.2026: комната (Loony Room) — деньги за неё идут в те же Нал/Безнал/ЕРИП
   // дня и отдельно в колонку «Комната». Брони, где сверка сказала «не
   // состоялась», не считаются.
-  const roomResults = await kvPipeline(dates.map((iso) => ['HGETALL', `roombookings:${iso}`]));
+  const roomResults = await kvCachedRead(dates.map((iso) => ['HGETALL', `roombookings:${iso}`]));
   const roomRows = [];
   (roomResults || []).forEach((entry, i) => {
     const day = byDay[dates[i]];
@@ -374,7 +374,7 @@ export default async function handler(req, res) {
       const total = Math.min(Math.round((end - start) / 86400000) + 1, 120);
       for (let i = 0; i < total; i++) { const d = new Date(start); d.setDate(d.getDate() + i); scan.push(isoDate(d)); }
     }
-    const payRes = await kvPipeline(scan.map((iso) => ['GET', `cashouts:${iso}`]));
+    const payRes = await kvCachedRead(scan.map((iso) => ['GET', `cashouts:${iso}`]));
     (payRes || []).forEach((entry, i) => {
       const raw = entry && entry.result;
       if (!raw) return;

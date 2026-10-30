@@ -1848,7 +1848,8 @@
       // empty schedule during a transient error could create a new booking
       // directly on top of a real one that the panel just failed to load.
       if (!res.ok){
-        listContainer.innerHTML = '<div class="empty-note">Не удалось загрузить брони (ошибка сервера). Проверьте соединение и нажмите «Обновить» — старый список брони специально НЕ очищен, чтобы не показать пустое расписание вместо ошибки.</div>';
+        const errOut = await res.json().catch(() => ({}));
+        listContainer.innerHTML = `<div class="empty-note">Не удалось загрузить брони${errOut.error ? ': ' + escapeHtml(errOut.error) : ' (ошибка сервера)'}. Нажмите «Обновить» чуть позже.</div>`;
         return;
       }
       const out = await res.json().catch(() => ({}));

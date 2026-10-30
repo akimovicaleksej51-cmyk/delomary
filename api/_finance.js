@@ -34,7 +34,7 @@
 // touch this register at all: only physical cash affects the count in the
 // drawer.
 
-import { kv, kvPipeline, pairsToObject } from './_kv.js';
+import { kv, kvPipeline, pairsToObject, kvCachedRead } from './_kv.js';
 import { getNameAliases } from './_names.js';
 import { uniqueRoomRecords, roomPaid, roomSessionStarts } from './_rooms.js';
 
@@ -161,7 +161,7 @@ export async function saveCashoutsForDate(dateISO, list) {
 // from these records every time rather than stored pre-summed anywhere.
 async function sumCashInForDates(dates) {
   if (!dates.length) return 0;
-  const results = await kvPipeline([
+  const results = await kvCachedRead([
     ...dates.map((iso) => ['HGETALL', `bookings:${iso}`]),
     ...dates.map((iso) => ['HGETALL', `history:${iso}`]),
     ...dates.map((iso) => ['HGETALL', `roombookings:${iso}`]),
@@ -188,7 +188,7 @@ async function sumCashInForDates(dates) {
 
 async function sumCashOutForDates(dates) {
   if (!dates.length) return 0;
-  const results = await kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`]));
+  const results = await kvCachedRead(dates.map((iso) => ['GET', `cashouts:${iso}`]));
   if (!results) return 0;
   let total = 0;
   results.forEach((entry) => {
@@ -240,7 +240,7 @@ export async function computeCashRegister(toISO) {
     d.setDate(d.getDate() - i);
     recentDates.push(isoDate(d));
   }
-  const recentResults = await kvPipeline(recentDates.map((iso) => ['GET', `cashouts:${iso}`]));
+  const recentResults = await kvCachedRead(recentDates.map((iso) => ['GET', `cashouts:${iso}`]));
   const recentCashouts = [];
   (recentResults || []).forEach((entry, i) => {
     const raw = entry && entry.result;
@@ -419,11 +419,11 @@ export async function buildCashLedger(fromISO, toISO, todayISOValue) {
   }
 
   const [bookingRes, historyRes, cashoutRes, countRes, roomRes] = await Promise.all([
-    kvPipeline(range.map((iso) => ['HGETALL', `bookings:${iso}`])),
-    kvPipeline(range.map((iso) => ['HGETALL', `history:${iso}`])),
-    kvPipeline(range.map((iso) => ['GET', `cashouts:${iso}`])),
-    kvPipeline(range.map((iso) => ['GET', `cashcount:${iso}`])),
-    kvPipeline(range.map((iso) => ['HGETALL', `roombookings:${iso}`])),
+    kvCachedRead(range.map((iso) => ['HGETALL', `bookings:${iso}`])),
+    kvCachedRead(range.map((iso) => ['HGETALL', `history:${iso}`])),
+    kvCachedRead(range.map((iso) => ['GET', `cashouts:${iso}`])),
+    kvCachedRead(range.map((iso) => ['GET', `cashcount:${iso}`])),
+    kvCachedRead(range.map((iso) => ['HGETALL', `roombookings:${iso}`])),
   ]);
 
   const days = range.map((iso, i) => {
@@ -539,7 +539,7 @@ export async function getPaidGamesForActor(actor, todayISOValue, days = 120) {
     d.setDate(d.getDate() - i);
     dates.push(isoDate(d));
   }
-  const results = await kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`]));
+  const results = await kvCachedRead(dates.map((iso) => ['GET', `cashouts:${iso}`]));
   const paid = new Set();
   // 07.10.2026: старые подписи этого же человека тоже считаются (api/_names.js)
   const aliases = await getNameAliases();
@@ -583,7 +583,7 @@ export async function getAllPaidKeys(todayISOValue, days = 120) {
     d.setDate(d.getDate() - i);
     dates.push(isoDate(d));
   }
-  const results = await kvPipeline(dates.map((iso) => ['GET', `cashouts:${iso}`]));
+  const results = await kvCachedRead(dates.map((iso) => ['GET', `cashouts:${iso}`]));
   const paid = new Map();
   (results || []).forEach((entry, i) => {
     const raw = entry && entry.result;

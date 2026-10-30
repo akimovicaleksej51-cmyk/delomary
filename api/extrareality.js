@@ -139,7 +139,7 @@
 // is added on Vercel, no further code changes needed.
 
 import crypto from 'crypto';
-import { kv, kvPipeline } from './_kv.js';
+import { kv, kvPipeline, kvCachedRead } from './_kv.js';
 import { businessToday, isSlotClosingSoon } from './_time.js';
 import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTakenTimes, overlapsExisting, displayEntriesFor, resolveAggregatorSlot, isoPlusDays } from './_pricing.js';
 import { scheduleReminder, cancelReminder } from './_reminders.js';
@@ -204,7 +204,7 @@ async function handleSchedule(req, res) {
 
   // + следующий день: ночные сеансы показываем в дне накануне (см. displayEntriesFor)
   const fetchDates = [...dates, isoPlusDays(dates[dates.length - 1], 1)];
-  const results = await kvPipeline(fetchDates.map((iso) => ['HKEYS', `bookings:${iso}`]));
+  const results = await kvCachedRead(fetchDates.map((iso) => ['HKEYS', `bookings:${iso}`]));
   const takenByDate = {};
   if (results) {
     results.forEach((entry, i) => {

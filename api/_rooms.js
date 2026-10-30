@@ -22,7 +22,7 @@
 // constants at the top of loonyroom.html's script (static page, can't import
 // this file) — same convention as api/_pricing.js vs index.html.
 
-import { kv, kvPipeline, isKvConfigured } from './_kv.js';
+import { kv, kvPipeline, isKvConfigured, kvCachedRead } from './_kv.js';
 import { isSlotClosingSoon, businessToday } from './_time.js';
 import { isWeekendISO } from './_pricing.js';
 import { escapeTgHtml, formatDateRu, roomUrgencyLead } from './_telegram.js';
@@ -169,7 +169,7 @@ export async function getRoomAvailability() {
 
 // Занятые промежутки по датам: { 'YYYY-MM-DD': [[s, e], …] }.
 export async function roomBusyByDate(dates) {
-  const results = await kvPipeline(dates.map((iso) => ['HGETALL', roomKey(iso)]));
+  const results = await kvCachedRead(dates.map((iso) => ['HGETALL', roomKey(iso)]));
   const out = {};
   dates.forEach((iso, i) => {
     const e = results && results[i];
@@ -400,7 +400,7 @@ export async function listRoomBookings() {
   // 09.10.2026: месяц назад (было неделя) — чтобы можно было провести сверку
   // по прошедшим броням комнаты
   const dates = windowDates(-31, 31 + ROOM_DAYS_AHEAD);
-  const results = await kvPipeline(dates.map((iso) => ['HGETALL', roomKey(iso)]));
+  const results = await kvCachedRead(dates.map((iso) => ['HGETALL', roomKey(iso)]));
   const byId = new Map();
   (results || []).forEach((entry) => {
     const raw = entry && Array.isArray(entry.result) ? entry.result : [];
