@@ -107,7 +107,7 @@ import { scheduleReminder, cancelReminder, stripReminderFields } from '../_remin
 import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManualCloseout, cancelManualCloseout } from '../_closeout.js';
 import { toAmount, addRoomPayouts, roomPaidSessions, ROOM_PAY_PER_SESSION } from '../_finance.js';
 import { businessToday, businessDateTime, todayISO as businessTodayISO } from '../_time.js';
-import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from '../_telegram.js';
+import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead, tgPhoneLine } from '../_telegram.js';
 import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, setRoomCallStatus, ROOM_CALL_STATUSES, cancelRoomCloseout, uniqueRoomRecords, roomSourceOf, ROOM_SOURCES } from '../_rooms.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
@@ -215,7 +215,7 @@ async function notifyTelegram(record) {
     const fields = [
       ...dtBlock,
       `Имя: ${escapeTgHtml(record.name)}`,
-      `Телефон: ${escapeTgHtml(record.phone)}`,
+      tgPhoneLine(record.phone),
       record.players ? `Игроков: ${escapeTgHtml(record.players)}` : null,
       record.price ? `Цена: ${escapeTgHtml(record.price)} Br` : null,
       record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
@@ -245,7 +245,7 @@ async function notifyTelegramCancel(record) {
   const fields = [
     ...dtBlock,
     record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
-    record.type === 'customer' && record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
+    record.type === 'customer' && record.phone ? tgPhoneLine(record.phone) : null,
   ].filter((line) => line !== null).join('\n');
   // 23.09.2026: title line always CAPS (owner's request).
   const kind = (record.type === 'customer' ? 'Бронь отменена' : 'Техническая бронь снята').toUpperCase();
@@ -257,7 +257,7 @@ async function notifyTelegramReschedule(record, fromDateISO, fromTime, toDateISO
     `Было: <b>${escapeTgHtml(formatDateRu(fromDateISO))}</b> в <b>${escapeTgHtml(fromTime)}</b>`,
     `Стало: <b>${escapeTgHtml(formatDateRu(toDateISO))}</b> в <b>${escapeTgHtml(toTime)}</b>`,
     record.type === 'customer' && record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
-    record.type === 'customer' && record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
+    record.type === 'customer' && record.phone ? tgPhoneLine(record.phone) : null,
   ].filter((line) => line !== null).join('\n');
   const kind = (record.type === 'customer' ? 'Бронь перенесена' : 'Техническая бронь перенесена').toUpperCase();
   await sendTelegram(`${kind}\n\n${fields}`, 'admin reschedule');

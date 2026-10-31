@@ -145,7 +145,7 @@ import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTaken
 import { scheduleReminder, cancelReminder } from './_reminders.js';
 import { scheduleGameCloseout, cancelGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
-import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead } from './_telegram.js';
+import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead, tgPhoneLine } from './_telegram.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 import {
   roomAggregatorSchedule, aggregatorHours, createAggregatorRoomBooking, cancelRoomBooking,
@@ -353,7 +353,7 @@ async function handleBook(req, res) {
   const fields = [
     ...dateTimeBlock(cleanDateISO, cleanTime),
     `Имя: ${escapeTgHtml(cleanName)}`,
-    `Телефон: ${escapeTgHtml(cleanPhone)}`,
+    tgPhoneLine(cleanPhone),
     cleanPlayers ? `Игроков: ${escapeTgHtml(cleanPlayers)}` : null,
     cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
     cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,
@@ -490,7 +490,7 @@ async function handleCancel(req, res) {
       `Дата: <b>${escapeTgHtml(formatDateRu(cleanDateISO))}</b>`,
       `Время: <b>${escapeTgHtml(cleanTime)}</b>`,
       existing.name ? `Имя: ${escapeTgHtml(existing.name)}` : null,
-      existing.phone ? `Телефон: ${escapeTgHtml(existing.phone)}` : null,
+      existing.phone ? tgPhoneLine(existing.phone) : null,
     ].filter((line) => line !== null).join('\n');
     // 23.09.2026: title line always CAPS (owner's request).
     const text = `${'Бронь отменена — ExtraReality'.toUpperCase()}\n\n${fields}`;

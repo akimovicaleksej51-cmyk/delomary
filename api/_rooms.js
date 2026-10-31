@@ -25,7 +25,7 @@
 import { kv, kvPipeline, isKvConfigured, kvCachedRead } from './_kv.js';
 import { isSlotClosingSoon, businessToday } from './_time.js';
 import { isWeekendISO } from './_pricing.js';
-import { escapeTgHtml, formatDateRu, roomUrgencyLead } from './_telegram.js';
+import { escapeTgHtml, formatDateRu, roomUrgencyLead, tgPhoneLine } from './_telegram.js';
 
 // 09.10.2026: сетка брони комнаты — СЕАНСЫ. Каждый сеанс — 1 час, после него
 // 30 минут на уборку (гостям об этом не пишем), поэтому сеансы начинаются
@@ -356,7 +356,7 @@ export function roomBookingTelegramText(record) {
     `Дата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>`,
     `Время: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${hoursLabel(record.hours)})`,
     `Имя: ${escapeTgHtml(record.name)}`,
-    `Телефон: ${escapeTgHtml(record.phone)}`,
+    tgPhoneLine(record.phone),
     record.hostGameLabel ? `Доп. опция: ${escapeTgHtml(record.hostGameLabel)} (цену уточнить)` : null,
     Number(record.price) === record.rate * record.hours
       ? `Цена: ${record.price} Br (${hoursLabel(record.hours)} × ${record.rate} Br)`
@@ -441,7 +441,7 @@ export function roomCancelTelegramText(record, via = '') {
     `Дата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>`,
     `Время: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b>`,
     record.name ? `Имя: ${escapeTgHtml(record.name)}` : null,
-    record.phone ? `Телефон: ${escapeTgHtml(record.phone)}` : null,
+    record.phone ? tgPhoneLine(record.phone) : null,
     via ? `Отменено через: ${escapeTgHtml(via)}` : null,
   ].filter((l) => l !== null).join('\n');
   return `${'Бронь Loony Room отменена'.toUpperCase()}\n\n${fields}`;

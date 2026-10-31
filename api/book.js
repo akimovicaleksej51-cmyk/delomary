@@ -38,7 +38,7 @@ import { sendBookingConfirmationSms } from './_sms.js';
 import { isSlotClosingSoon } from './_time.js';
 import { ANIMATOR_SURCHARGE, slotsFor, tiersForSlot, slotSurcharge, overlapsExisting } from './_pricing.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
-import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
+import { escapeTgHtml, dateTimeBlock, urgencyLead, tgPhoneLine } from './_telegram.js';
 
 const SLOT_TTL_SECONDS = 60 * 60 * 24 * 90; // auto-clean ~90 days after the date
 
@@ -277,7 +277,7 @@ export default async function handler(req, res) {
   const fields = [
     ...dateTimeBlock(cleanDateISO, cleanTime),
     `Имя: ${escapeTgHtml(cleanName)}`,
-    `Телефон: ${escapeTgHtml(cleanPhone)}`,
+    tgPhoneLine(cleanPhone),
     cleanPlayers ? `Игроков: ${escapeTgHtml(cleanPlayers)}` : null,
     cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
     cleanAnimator ? `Аниматор: да (+30 Br)` : null,

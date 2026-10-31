@@ -111,7 +111,7 @@ import { startingPriceFor, slotsFor, tiersForSlot, slotSurcharge, effectiveTaken
 import { scheduleReminder } from './_reminders.js';
 import { scheduleGameCloseout } from './_closeout.js';
 import { sendBookingConfirmationSms } from './_sms.js';
-import { escapeTgHtml, dateTimeBlock, urgencyLead } from './_telegram.js';
+import { escapeTgHtml, dateTimeBlock, urgencyLead, tgPhoneLine } from './_telegram.js';
 import { getClientIp, checkAndBumpRateLimit } from './_ratelimit.js';
 import { roomAggregatorSchedule, roomBusyByDate, roomPackagesFor, aggregatorHours, createAggregatorRoomBooking } from './_rooms.js';
 
@@ -383,7 +383,7 @@ async function handleOrder(req, res) {
   const fields = [
     ...dateTimeBlock(cleanDateISO, cleanTime),
     `Имя: ${escapeTgHtml(cleanName)}`,
-    `Телефон: ${escapeTgHtml(cleanPhone)}`,
+    tgPhoneLine(cleanPhone),
     cleanPrice ? `Цена: ${escapeTgHtml(cleanPrice)} Br` : null,
     cleanTariff ? `Тариф: ${escapeTgHtml(cleanTariff)}` : null,
     cleanComment ? `Комментарий: ${escapeTgHtml(cleanComment)}` : null,

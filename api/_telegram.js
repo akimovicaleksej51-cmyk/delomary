@@ -31,6 +31,24 @@ export function escapeTgHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// 31.10.2026: телефон в сообщениях Telegram — одним числом без скобок и
+// дефисов (так Telegram сам подсвечивает его синим и на компьютере), плюс
+// ссылка «открыть в Telegram» (t.me/+номер — откроет чат, если человек
+// разрешил находить себя по номеру).
+export function tgPhoneDigits(raw) {
+  let d = String(raw || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('375')) return '+' + d;
+  if (d.startsWith('80') && d.length === 11) return '+375' + d.slice(2);
+  if (d.length === 9) return '+375' + d;
+  return '+' + d;
+}
+export function tgPhoneLine(raw) {
+  const p = tgPhoneDigits(raw);
+  if (!p) return `Телефон: ${escapeTgHtml(raw || '')}`;
+  return `Телефон: ${p} · <a href="https://t.me/${p}">открыть в Telegram</a>`;
+}
+
 const MONTH_NAMES_RU = [
   'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
