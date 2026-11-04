@@ -859,6 +859,21 @@
   .shift-value{font-family:var(--display); font-weight:400; font-size:30px; color:var(--paper); line-height:1.1;}
   .shift-tile.now .shift-value{color:var(--ochre-bright);}
   .shift-sub{font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.35;}
+  .noncash-day{all:unset; box-sizing:border-box; display:block; width:100%; cursor:pointer; background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px; padding:12px 14px; margin:0 0 18px;}
+  .noncash-day[hidden]{display:none;}
+  .noncash-day:focus-visible{outline:2px solid var(--ochre-bright); outline-offset:2px;}
+  .nc-head{display:grid; grid-template-columns:1fr auto 16px; gap:12px; align-items:center;}
+  .nc-title{font-weight:800; font-size:14px; color:var(--paper);}
+  .nc-title small{display:block; font-weight:500; font-size:11.5px; color:var(--muted); margin-top:2px;}
+  .nc-sum{display:flex; flex-direction:column; align-items:flex-end; font-variant-numeric:tabular-nums;}
+  .nc-sum b{font-size:20px; color:#8fb8ff;}
+  .nc-sum small{font-size:11.5px; color:var(--muted);}
+  .noncash-day[aria-expanded="true"] .ld-chev{transform:rotate(180deg);}
+  .nc-list{display:block; margin-top:10px; border-top:1px solid #262626; padding-top:6px;}
+  .nc-item{display:flex; justify-content:space-between; gap:10px; padding:5px 0; font-size:13px; border-bottom:1px solid #222;}
+  .nc-item:last-child{border-bottom:none;}
+  .nc-item small{color:var(--muted);}
+  .nc-item span:last-child{white-space:nowrap; font-variant-numeric:tabular-nums; color:#8fb8ff; font-weight:700;}
   .shift-arrow{display:flex; align-items:center; color:var(--ochre-bright); font-size:20px; font-weight:800;}
   .cash-count{border:1px dashed #3a3a3a; border-radius:12px; padding:14px; margin-bottom:6px;}
   .cash-count-head{display:flex; flex-direction:column; gap:2px; margin-bottom:10px;}
@@ -1482,6 +1497,9 @@
       </div>
     </div>
     <div class="finance-balance-sub" id="financeBalanceSub" style="text-align:center; margin:-8px 0 16px;"></div>
+
+    <!-- 04.11.2026: безнал за день (с 01:00 до 01:00), только в админке менеджеров -->
+    <button type="button" class="noncash-day" id="nonCashDay" aria-expanded="false" hidden></button>
 
     <div class="cash-count">
       <div class="cash-count-head">
@@ -5944,16 +5962,38 @@
     financeMsg.textContent = '';
     financeMsg.className = 'modal-msg';
     try{
-      const res = await fetch('/api/admin/finance', { headers: authHeaders(), cache:'no-store' });
+      const res = await fetch('/api/admin/finance?nonCash=1', { headers: authHeaders(), cache:'no-store' });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){
         financeList.innerHTML = `<div class="load-note">${escapeHtml(out.error || 'Не удалось загрузить кассу.')}</div>`;
         return;
       }
       renderFinanceState(out);
+      renderNonCashDay(out.nonCashDay);
     } catch(err){
       financeList.innerHTML = '<div class="load-note">Ошибка сети. Попробуйте ещё раз.</div>';
     }
+  }
+
+  // 04.11.2026: безнал за день. Сбрасывается в 01:00 — до часа ночи ещё вчерашний день.
+  let nonCashOpen = false;
+  function renderNonCashDay(d){
+    const el = document.getElementById('nonCashDay');
+    if (!el) return;
+    if (!d || d.error){ el.hidden = true; return; }
+    const total = Math.round((Number(d.card) + Number(d.erip)) * 100) / 100;
+    const fmt = (v) => { const n = Math.round(Number(v) * 100) / 100; return Number.isInteger(n) ? String(n) : n.toFixed(2); };
+    const items = (d.items || []).map(x => `<div class="nc-item"><span>${escapeHtml(x.time)} · ${x.kind === 'room' ? 'комната · ' : ''}${escapeHtml(x.name || 'без имени')}${x.cancelled ? ' <small>(отменена)</small>' : ''}</span><span>${x.card ? 'безнал ' + fmt(x.card) : ''}${x.card && x.erip ? ' · ' : ''}${x.erip ? 'ЕРИП ' + fmt(x.erip) : ''}</span></div>`).join('');
+    el.hidden = false;
+    el.setAttribute('aria-expanded', String(nonCashOpen));
+    el.innerHTML = `
+      <span class="nc-head">
+        <span class="nc-title">Безнал за день<small>${escapeHtml(formatDateHeading(d.dateISO))} · обнулится в 01:00</small></span>
+        <span class="nc-sum"><b>${fmt(d.card)} Br</b>${Number(d.erip) ? `<small>+ ЕРИП ${fmt(d.erip)} Br · всего ${fmt(total)}</small>` : '<small>карта</small>'}</span>
+        ${d.count ? '<span class="ld-chev">▾</span>' : ''}
+      </span>
+      ${nonCashOpen && d.count ? `<span class="nc-list">${items}</span>` : ''}`;
+    el.onclick = () => { if (!d.count) return; nonCashOpen = !nonCashOpen; renderNonCashDay(d); };
   }
 
   function openFinanceModal(){

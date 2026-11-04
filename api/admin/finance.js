@@ -53,6 +53,7 @@ import {
   getPaidGamesForActor,
   getSettledMarkers,
   saveSettledMarkers,
+  computeNonCashDay,
 } from '../_finance.js';
 import { formatDateRu } from '../_telegram.js';
 import { kv } from '../_kv.js';
@@ -101,6 +102,8 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const toISO = isValidDateISO(req.query && req.query.to) ? req.query.to : todayISO();
     const state = await computeCashRegister(toISO);
+    // 04.11.2026: безнал за день — только админка менеджеров просит (?nonCash=1)
+    if (String((req.query && req.query.nonCash) || '') === '1') state.nonCashDay = await computeNonCashDay();
     return res.status(200).json(state);
   }
 

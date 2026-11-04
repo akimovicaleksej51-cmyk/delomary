@@ -656,3 +656,46 @@ export async function addRoomPayouts(rec, payouts, { todayISOValue, selfReported
   await saveCashoutsForDate(todayISOValue, [...day, ...entries]);
   return { ok: true, created: entries };
 }
+
+// ── 04.11.2026: безнал за день (только для админки менеджеров) ────────────
+// «День» для безнала — с 01:00 до 01:00 следующего дня по Минску: до часа
+// ночи ещё показываем вчерашний день, в 01:00 счётчик начинается с нуля.
+// Считается по броням этого дня (квест + комната отдыха), как наличные в
+// Кассе: оплата записана в бронь при сверке/редактировании. Перенесённые
+// брони не считаются (их оплата уже в брони на новой дате), комната со
+// сверкой «не состоялась» — тоже.
+export function nonCashBusinessDate(now = new Date()) {
+  return new Date(now.getTime() + 3 * 3600 * 1000 - 3600 * 1000).toISOString().slice(0, 10);
+}
+export async function computeNonCashDay(now = new Date()) {
+  const dateISO = nonCashBusinessDate(now);
+  const res = await kvCachedRead([
+    ['HGETALL', `bookings:${dateISO}`],
+    ['HGETALL', `history:${dateISO}`],
+    ['HGETALL', `roombookings:${dateISO}`],
+  ]);
+  const out = { dateISO, card: 0, erip: 0, count: 0, resetsAt: '01:00', items: [] };
+  if (!res) return { ...out, error: true };
+  [0, 1].forEach((i) => {
+    Object.values(pairsToObject(res[i] && res[i].result)).forEach((raw) => {
+      try {
+        const r = JSON.parse(raw);
+        if (r.type !== 'customer' || r.status === 'rescheduled') return;
+        const card = toAmount(r.payCard), erip = toAmount(r.payErip);
+        if (!card && !erip) return;
+        out.card += card; out.erip += erip; out.count += 1;
+        out.items.push({ kind: 'quest', time: r.time || '', name: r.name || '', card, erip, cancelled: i === 1 });
+      } catch { /* skip */ }
+    });
+  });
+  uniqueRoomRecords(res[2] && res[2].result).forEach((rec) => {
+    const p = roomPaid(rec);
+    if (!p.card && !p.erip) return;
+    out.card += p.card; out.erip += p.erip; out.count += 1;
+    out.items.push({ kind: 'room', time: rec.startTime || '', name: rec.name || '', card: p.card, erip: p.erip });
+  });
+  out.card = Math.round(out.card * 100) / 100;
+  out.erip = Math.round(out.erip * 100) / 100;
+  out.items.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  return out;
+}
