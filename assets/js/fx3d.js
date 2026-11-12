@@ -47,37 +47,43 @@
 
     var cards = $$('.ev-card', stack), dots = $$('.ev-dots i', stack);
     var order = cards.map(function(_, i){ return i; });
-    var busy = false, lastTouch = 0, hoverMouse = false, dragged = false;
+    var lastTouch = 0, hoverMouse = false, dragged = false;
     var place = function(){
       order.forEach(function(ci, pos){ cards[ci].setAttribute('data-pos', pos); cards[ci].tabIndex = pos === 0 ? 0 : -1; });
       dots.forEach(function(d, i){ d.classList.toggle('on', i === order[0]); });
     };
     place();
-    // dir: 1 — вперёд (верхний кадр уходит назад), -1 — назад (последний выходит наверх)
-    // dir: 1 — вперёд (верхний кадр улетает в сторону свайпа и тихо появляется в конце стопки),
-    // -1 — назад (последний кадр выходит наверх)
-    var go = function(dir, flyX){
-      if (busy) return; busy = true;
-      if (dir > 0){
-        var top = cards[order[0]], sign = (flyX || -1) > 0 ? 1 : -1;
-        var out = 'translate(' + (sign * (window.innerWidth * 0.9 + 120)) + 'px,' + (-30) + 'px) rotateZ(' + (sign * 22) + 'deg)';
-        var finish = function(){
-          // в конец стопки — мгновенно и невидимо, без обратного «проезда»
-          top.style.transition = 'none'; top.style.opacity = '0'; top.style.transform = '';
-          order.push(order.shift()); place();
-          void top.offsetWidth;
-          top.style.transition = 'opacity .35s ease-out'; top.style.opacity = '';
-          setTimeout(function(){ top.style.transition = ''; busy = false; }, 360);
-        };
-        if (RM){ finish(); return; }
-        top.style.transition = 'transform .32s cubic-bezier(.4,0,1,1), opacity .32s ease-in';
-        top.style.transform = out; top.style.opacity = '0';
-        setTimeout(finish, 330);
-      } else {
-        order.unshift(order.pop()); place(); setTimeout(function(){ busy = false; }, RM ? 0 : 340);
-      }
+    cards.forEach(function(c){ c.style.willChange = 'transform, opacity'; });
+
+    // Листание без блокировки: новый свайп можно делать сразу, предыдущий кадр
+    // мгновенно «доезжает» в конец стопки. Кадр улетает в сторону свайпа и всё.
+    var flying = null; // { el, timer }
+    var settle = function(f){
+      clearTimeout(f.timer);
+      var el = f.el;
+      el.style.transition = 'none'; el.style.opacity = '0'; el.style.transform = '';
+      void el.offsetWidth;
+      el.style.transition = 'opacity .18s ease-out'; el.style.opacity = '';
+      setTimeout(function(){ if (el.style.transition.indexOf('opacity') === 0) el.style.transition = ''; }, 200);
     };
-    deck = { go: go };
+    var go = function(dir, flyX, fromX){
+      if (flying){ settle(flying); flying = null; }
+      if (dir < 0){ order.unshift(order.pop()); place(); return; }
+      var top = cards[order[0]], sign = (flyX || -1) > 0 ? 1 : -1;
+      order.push(order.shift()); place();            // точки и следующий кадр — сразу
+      top.setAttribute('data-pos', 'fly');
+      top.style.zIndex = '6';
+      if (RM){ var f0 = { el: top }; settle(f0); top.style.zIndex = ''; top.setAttribute('data-pos', '3'); place(); return; }
+      var x0 = fromX || 0, x1 = sign * (window.innerWidth + 160);
+      top.style.transition = 'none';
+      top.style.transform = 'translate3d(' + x0 + 'px,' + (Math.abs(x0) * -0.08) + 'px,0) rotateZ(' + (x0 * 0.06 - 2) + 'deg)';
+      void top.offsetWidth;
+      top.style.transition = 'transform .24s cubic-bezier(.2,.6,.4,1), opacity .24s linear';
+      top.style.transform = 'translate3d(' + x1 + 'px,-40px,0) rotateZ(' + (sign * 24) + 'deg)';
+      top.style.opacity = '0';
+      flying = { el: top, timer: setTimeout(function(){ var f = flying; flying = null; if (f){ f.el.style.zIndex = ''; place(); settle(f); } }, 250) };
+    };
+    deck = { go: go, get dragging(){ return active || !!flying; } };
 
     // нажатие — открыть этот кадр в просмотре галереи (если это было не перелистывание)
     stack.addEventListener('click', function(ev){
@@ -89,31 +95,44 @@
     });
     // клавиатура: стрелки листают
     stack.addEventListener('keydown', function(e){
-      if (e.key === 'ArrowRight'){ e.preventDefault(); go(1); setTimeout(function(){ cards[order[0]].focus(); }, 360); }
+      if (e.key === 'ArrowRight'){ e.preventDefault(); go(1); cards[order[0]].focus(); }
       if (e.key === 'ArrowLeft'){ e.preventDefault(); go(-1); cards[order[0]].focus(); }
     });
-    // свайп пальцем (и перетаскивание мышью): кадр следует за пальцем и улетает
-    var sx = 0, sy = 0, dx = 0, active = false, horiz = null, topEl = null;
+    // свайп: кадр идёт за пальцем (через requestAnimationFrame), резкий взмах тоже листает
+    var sx = 0, sy = 0, dx = 0, active = false, horiz = null, topEl = null, raf = 0, lastX = 0, lastT = 0, vel = 0;
+    var paintDrag = function(){
+      raf = 0; if (!active || !topEl) return;
+      topEl.style.transform = 'translate3d(' + dx + 'px,' + (Math.abs(dx) * -0.08) + 'px,0) rotateZ(' + (dx * 0.06 - 2) + 'deg)';
+    };
     stack.addEventListener('pointerdown', function(e){
-      if (busy || e.button > 0) return;
+      if (e.button > 0) return;
+      if (flying){ var f = flying; flying = null; f.el.style.zIndex = ''; place(); settle(f); }
       topEl = cards[order[0]];
       if (!topEl.contains(e.target)) { topEl = null; return; }
-      active = true; horiz = null; dx = 0; sx = e.clientX; sy = e.clientY; lastTouch = Date.now();
+      active = true; horiz = null; dx = 0; vel = 0; sx = lastX = e.clientX; sy = e.clientY; lastT = e.timeStamp; lastTouch = Date.now();
     });
     window.addEventListener('pointermove', function(e){
       if (!active) return;
       var mx = e.clientX - sx, my = e.clientY - sy;
-      if (horiz === null && (Math.abs(mx) > 8 || Math.abs(my) > 8)) horiz = Math.abs(mx) > Math.abs(my);
+      if (horiz === null && (Math.abs(mx) > 6 || Math.abs(my) > 6)){
+        horiz = Math.abs(mx) > Math.abs(my);
+        if (horiz) topEl.style.transition = 'none';
+      }
       if (!horiz) return;
+      var dt = Math.max(1, e.timeStamp - lastT);
+      vel = vel * 0.6 + ((e.clientX - lastX) / dt) * 0.4; lastX = e.clientX; lastT = e.timeStamp;
       dx = mx;
-      topEl.style.transition = 'none';
-      topEl.style.transform = 'translate3d(' + dx + 'px,' + (Math.abs(dx) * -0.08) + 'px,60px) rotateZ(' + (dx * 0.06 - 2) + 'deg)';
+      if (!raf) raf = requestAnimationFrame(paintDrag);
     }, { passive: true });
     var end = function(){
       if (!active) return; active = false; lastTouch = Date.now();
+      if (raf){ cancelAnimationFrame(raf); raf = 0; }
       if (!horiz){ return; }
-      dragged = Math.abs(dx) > 8;
-      if (Math.abs(dx) > 60) go(1, dx); else { topEl.style.transition = ''; topEl.style.transform = ''; }
+      dragged = Math.abs(dx) > 6;
+      var fling = Math.abs(vel) > 0.35 && Math.abs(dx) > 20;
+      if (Math.abs(dx) > 60 || fling) go(1, fling ? vel : dx, dx);
+      else { topEl.style.transition = 'transform .22s cubic-bezier(.2,0,0,1)'; topEl.style.transform = '';
+             setTimeout(function(){ if (topEl && !active) topEl.style.transition = ''; }, 240); }
     };
     window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
     stack.addEventListener('pointerenter', function(e){ if (e.pointerType === 'mouse') hoverMouse = true; });
@@ -122,7 +141,7 @@
     // автолистание: только без «уменьшить движение», пауза при наведении мышью и 8 с после касания
     if (!RM){
       setInterval(function(){
-        if (!heroVisible || document.hidden || hoverMouse || active || Date.now() - lastTouch < 8000) return;
+        if (!heroVisible || document.hidden || hoverMouse || active || flying || Date.now() - lastTouch < 8000) return;
         if (stack.contains(document.activeElement)) return;
         go(1);
       }, 4000);
@@ -204,10 +223,11 @@
   (function loop(){
     requestAnimationFrame(loop);
     if (!heroVisible) return;
+    if (SMALL && deck && deck.dragging) return;
     if (!FINE){ var tt = performance.now() / 1000; T.x = Math.sin(tt * 0.35) * 0.5; T.y = Math.cos(tt * 0.27) * 0.35; }
     M.x += (T.x - M.x) * 0.06; M.y += (T.y - M.y) * 0.06;
     if (heroWrap && !SMALL) heroWrap.style.transform = 'rotateY(' + (M.x * 5).toFixed(2) + 'deg) rotateX(' + (M.y * 3.5).toFixed(2) + 'deg)';
-    if (stackEl){ stackEl.style.setProperty('--sx', (M.x * 10).toFixed(2) + 'deg'); stackEl.style.setProperty('--sy', (M.y * 8).toFixed(2) + 'deg'); }
+    if (stackEl && !SMALL){ stackEl.style.setProperty('--sx', (M.x * 10).toFixed(2) + 'deg'); stackEl.style.setProperty('--sy', (M.y * 8).toFixed(2) + 'deg'); }
   })();
 
   /* ---------- WebGL: пыль и искры в объёме ---------- */
@@ -266,6 +286,7 @@
     (function frame(now){
       requestAnimationFrame(frame);
       if (!heroVisible || document.hidden || !now) return;
+      if (SMALL && deck && deck.dragging) return;
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform1f(U.t, (now - start) / 1000);
       gl.uniform2f(U.m, M.x, M.y);

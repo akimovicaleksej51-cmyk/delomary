@@ -171,7 +171,7 @@
 .ev-card{position:absolute; inset:0; margin:0; padding:10px 10px 30px; border:0; cursor:zoom-in; font:inherit; color:inherit;
   background:#ece6d6; border-radius:4px; box-shadow:0 30px 60px -20px rgba(0,0,0,.9), 0 2px 0 rgba(255,255,255,.4) inset;
   transform-origin:50% 60%; transform-style:preserve-3d;
-  transition:transform .8s cubic-bezier(.2,0,0,1), opacity .5s ease-out, filter .6s ease-out;
+  transition:transform .5s cubic-bezier(.2,0,0,1), opacity .3s ease-out;
   -webkit-tap-highlight-color:transparent;}
 .ev-card img{display:block; width:100%; height:100%; object-fit:cover; filter:contrast(1.05) saturate(.9); border-radius:2px;}
 .ev-card::after{content:""; position:absolute; inset:10px 10px 30px; pointer-events:none; border-radius:2px;
@@ -184,9 +184,9 @@
 
 /* раскладка стопки: 0 — верхний кадр */
 .ev-card[data-pos="0"]{z-index:4; transform:translate3d(0,0,60px) rotateY(calc(-10deg + var(--sx,0deg))) rotateX(var(--sy,0deg)) rotateZ(-2deg);}
-.ev-card[data-pos="1"]{z-index:3; transform:translate3d(34px,-14px,0) rotateY(calc(-10deg + var(--sx,0deg) * .7)) rotateX(calc(var(--sy,0deg) * .7)) rotateZ(5deg); filter:brightness(.8);}
-.ev-card[data-pos="2"]{z-index:2; transform:translate3d(-30px,10px,-60px) rotateY(calc(-10deg + var(--sx,0deg) * .5)) rotateX(calc(var(--sy,0deg) * .5)) rotateZ(-7deg); filter:brightness(.62);}
-.ev-card[data-pos="3"]{z-index:1; transform:translate3d(8px,22px,-120px) rotateY(-10deg) rotateZ(3deg); filter:brightness(.45);}
+.ev-card[data-pos="1"]{z-index:3; transform:translate3d(34px,-14px,0) rotateY(calc(-10deg + var(--sx,0deg) * .7)) rotateX(calc(var(--sy,0deg) * .7)) rotateZ(5deg); --dim:.2;}
+.ev-card[data-pos="2"]{z-index:2; transform:translate3d(-30px,10px,-60px) rotateY(calc(-10deg + var(--sx,0deg) * .5)) rotateX(calc(var(--sy,0deg) * .5)) rotateZ(-7deg); --dim:.38;}
+.ev-card[data-pos="3"]{z-index:1; transform:translate3d(8px,22px,-120px) rotateY(-10deg) rotateZ(3deg); --dim:.55;}
 .ev-card.ev-out{transform:translate3d(calc(var(--fly,-1) * 160px),-40px,120px) rotateY(calc(var(--fly,-1) * 40deg)) rotateZ(calc(var(--fly,-1) * 14deg)) !important; opacity:0;}
 @media (hover:hover){
   .ev-card[data-pos="0"]:hover{filter:brightness(1.06);}
@@ -249,4 +249,19 @@
   .stat-strip .fx3d-flip:nth-child(2),.room-feats .fx3d-flip:nth-child(2){transition-delay:.08s;}
   .stat-strip .fx3d-flip:nth-child(3),.room-feats .fx3d-flip:nth-child(3){transition-delay:.16s;}
   .stat-strip .fx3d-flip:nth-child(4),.room-feats .fx3d-flip:nth-child(4){transition-delay:.24s;}
+}
+
+/* затемнение задних кадров — слоем, а не фильтром (дешевле для телефона) */
+.ev-card::before{content:""; position:absolute; inset:0; z-index:3; pointer-events:none; border-radius:inherit; background:#000;
+  opacity:var(--dim,0); transition:opacity .3s ease-out;}
+.ev-card[data-pos="0"],.ev-card[data-pos="fly"]{--dim:0;}
+
+/* телефон: всё лёгкое — без смешивания слоёв, короткие переходы, чтобы листалось плавно */
+@media (max-width:860px){
+  .ev-card{transition:transform .3s cubic-bezier(.2,0,0,1), opacity .3s ease-out; box-shadow:0 14px 30px -12px rgba(0,0,0,.85);}
+  .ev-card::after{display:none;}
+  .fx3d-film .grain{mix-blend-mode:normal; opacity:.06; animation:none !important;}
+  .fx3d-film .leak{display:none;}
+  .fx3d-canvas{mix-blend-mode:normal;}
+  .fx3d-on .stat{-webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(20,20,20,.82) !important;}
 }
