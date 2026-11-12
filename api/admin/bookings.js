@@ -406,6 +406,34 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, booking: record, roomBookings, sms });
     }
 
+    // 12.11.2026: счётчик комнаты за месяц (окно «Комната отдыха», листается
+    // стрелками): по источникам — сколько броней и сколько реально оплачено
+    // (нал + безнал + ЕРИП из сверки), технические брони отдельно.
+    if (action === 'roomMonthStats') {
+      const y = Number(body.year), m = Number(body.month); // month: 1..12
+      if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12 || y < 2024 || y > 2100) return res.status(400).json({ error: 'Некорректный месяц.' });
+      const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const dates = Array.from({ length: daysInMonth }, (_, i) => `${y}-${String(m).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`);
+      const results = await kvCachedRead(dates.map((iso) => ['HGETALL', `roombookings:${iso}`]));
+      if (!results && isKvConfigured()) return res.status(503).json({ error: `База данных не отвечает: ${getLastKvError() || 'неизвестная ошибка'}` });
+      const stats = { year: y, month: m, bySource: {}, total: { count: 0, paid: 0 }, technical: 0, notPlayed: 0, unsettled: 0 };
+      ROOM_SOURCES.forEach((src) => { stats.bySource[src] = { count: 0, paid: 0 }; });
+      const num = (v) => { const x = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(x) ? x : 0; };
+      (results || []).forEach((entry) => {
+        uniqueRoomRecords(entry && entry.result).forEach((rec) => {
+          if (rec.technical) { stats.technical += 1; return; }
+          if (rec.closeout && rec.closeout.played === false) { stats.notPlayed += 1; return; }
+          const paid = rec.closeout && rec.closeout.done ? num(rec.payCash) + num(rec.payCard) + num(rec.payErip) : 0;
+          if (!(rec.closeout && rec.closeout.done)) stats.unsettled += 1;
+          const src = roomSourceOf(rec);
+          if (!stats.bySource[src]) stats.bySource[src] = { count: 0, paid: 0 };
+          stats.bySource[src].count += 1; stats.bySource[src].paid += paid;
+          stats.total.count += 1; stats.total.paid += paid;
+        });
+      });
+      return res.status(200).json({ ok: true, stats });
+    }
+
     if (action === 'cancelRoomBooking') {
       const record = await cancelRoomBooking(body.dateISO, body.bookingId);
       if (!record) {
@@ -1028,6 +1056,7 @@ export default async function handler(req, res) {
       ROOM_SOURCES.forEach((src) => { room.bySource[src] = { count: 0, total: 0 }; });
       (roomResults || []).forEach((entry) => {
         uniqueRoomRecords(entry && entry.result).forEach((rec) => {
+          if (rec.technical) return; // 12.11.2026: техническая бронь — не бронь гостя
           if (rec.closeout && rec.closeout.played === false) { room.notPlayed += 1; return; }
           const price = parseFloat(String(rec.price || '0').replace(',', '.')) || 0;
           room.count += 1; room.hours += Number(rec.hours) || 0;

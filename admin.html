@@ -205,6 +205,9 @@
   .source-tracker-head{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;}
   .source-tracker-title{font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
   .source-tracker-title span{color:var(--paper);}
+  .src-nav{display:flex; gap:6px;}
+  .room-month{margin-bottom:14px;}
+  .src-nav .cal-nav:disabled{opacity:.3; cursor:default;}
   .source-tracker-items{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
   .source-item{
     background:var(--black-3); border:1px solid #262626; border-radius:10px; padding:10px 12px;
@@ -346,6 +349,9 @@
   .row-type.room{background:rgba(167,139,250,.18); color:#c4b5fd;}
   .booking-row.room-row{border-color:rgba(167,139,250,.35);}
   .row-room-end{display:block; font-family:var(--sans); font-size:11px; color:var(--muted); margin-top:2px; white-space:nowrap;}
+  .room-card.tech{opacity:.85; border-style:dashed;}
+  .room-tech-tag{font-size:12px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;}
+  .booking-row.room-row.room-tech{border-style:dashed; border-color:#3a3a3a;}
   .room-card.flash{outline:2px solid #c4b5fd; outline-offset:2px; transition:outline-color .3s;}
   .row-type.technical{background:rgba(185,180,166,.18); color:var(--muted);}
   .row-type.status-cancelled{background:rgba(229,72,77,.18); color:var(--danger-bright);}
@@ -481,6 +487,8 @@
   .ra-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;}
   .ra-grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
   @media (max-width:560px){ .ra-grid{grid-template-columns:1fr 1fr;} .ra-grid .ra-date{grid-column:1 / -1;} .ra-grid2{grid-template-columns:1fr;} }
+  .ra-tech-note{font-size:12.5px; color:var(--muted); line-height:1.45;}
+  .ra-tech-note[hidden], .room-add [hidden]{display:none !important;}
   .ra-hint{font-size:12.5px; color:var(--muted);}
   .ra-hint b{color:var(--ochre-bright);}
   .ra-busy{font-size:12.5px; color:var(--muted);}
@@ -990,6 +998,10 @@
     <div class="source-tracker" id="sourceTracker">
       <div class="source-tracker-head">
         <span class="source-tracker-title">Источники броней — <span id="sourceTrackerMonth"></span></span>
+        <span class="src-nav">
+          <button type="button" class="cal-nav" id="sourceMonthPrev" aria-label="Предыдущий месяц">‹</button>
+          <button type="button" class="cal-nav" id="sourceMonthNext" aria-label="Следующий месяц">›</button>
+        </span>
       </div>
       <div class="source-tracker-items" id="sourceTrackerItems"><div class="load-note">Загрузка…</div></div>
     </div>
@@ -1466,6 +1478,17 @@
     <button class="modal-close-x" data-close="roomBookings">✕</button>
     <h2>Комната отдыха — брони</h2>
     <p style="color:var(--muted); font-size:13px; margin:-6px 0 16px;">Почасовые брони Loony Room. После брони проведите сверку: была ли комната занята, сколько заплатили и как, кто был ответственный — деньги попадут в Кассу и Бухгалтерию.</p>
+    <!-- 12.11.2026: счётчик комнаты за месяц (листается стрелками) -->
+    <div class="source-tracker room-month" id="roomMonth">
+      <div class="source-tracker-head">
+        <span class="source-tracker-title">Комната — <span id="roomMonthLabel"></span></span>
+        <span class="src-nav">
+          <button type="button" class="cal-nav" id="roomMonthPrev" aria-label="Предыдущий месяц">‹</button>
+          <button type="button" class="cal-nav" id="roomMonthNext" aria-label="Следующий месяц">›</button>
+        </span>
+      </div>
+      <div class="source-tracker-items" id="roomMonthItems"><div class="load-note">Загрузка…</div></div>
+    </div>
     <button type="button" class="btn room-add-btn" id="roomAddBtn">+ Добавить бронь комнаты</button>
     <div class="room-add" id="roomAddBox" hidden></div>
     <div class="room-tabs">
@@ -2013,6 +2036,17 @@
     return Date.now() >= Date.UTC(y, m - 1, d, hh || 0, mm || 0) - 3 * 3600 * 1000; // Минск = UTC+3
   }
   function roomListRowHtml(r){
+    if (r.technical){
+      return `
+            <div class="booking-row room-row room-tech" data-room-id="${escapeHtml(r.bookingId)}" data-room-date="${escapeHtml(r.dateISO)}">
+              <div class="row-time">${escapeHtml(r.startTime)}<small class="row-room-end">до ${escapeHtml(r.endTime || '')}</small></div>
+              <div class="row-type technical">Комната · тех.</div>
+              <div class="row-main">
+                <div class="row-name">Техническая бронь комнаты</div>
+                ${r.comment ? `<div class="row-sub">${escapeHtml(r.comment)}</div>` : ''}
+              </div>
+            </div>`;
+    }
     const done = r.closeout && r.closeout.done;
     const notPlayed = done && r.closeout.played === false;
     // 22.10.2026: плашки как у квеста — сверка на каждой брони, слева прозвон.
@@ -4449,13 +4483,26 @@
   // для порядка.
   const TRACKED_SOURCES = ['Сайт', 'Мир Квестов', 'ExtraReality'];
 
+  // 12.11.2026: стрелками ‹ › можно листать месяцы (вперёд — не дальше текущего)
+  let srcViewYear = new Date().getFullYear(), srcViewMonth = new Date().getMonth();
+  function srcIsCurrentMonth(){ const n = new Date(); return srcViewYear === n.getFullYear() && srcViewMonth === n.getMonth(); }
+  document.getElementById('sourceMonthPrev').addEventListener('click', () => {
+    srcViewMonth -= 1; if (srcViewMonth < 0){ srcViewMonth = 11; srcViewYear -= 1; }
+    loadSourceTracker();
+  });
+  document.getElementById('sourceMonthNext').addEventListener('click', () => {
+    if (srcIsCurrentMonth()) return;
+    srcViewMonth += 1; if (srcViewMonth > 11){ srcViewMonth = 0; srcViewYear += 1; }
+    loadSourceTracker();
+  });
   async function loadSourceTracker(){
     const itemsEl = document.getElementById('sourceTrackerItems');
     const monthEl = document.getElementById('sourceTrackerMonth');
-    const now = new Date();
-    monthEl.textContent = MONTH_NAMES_NOM[now.getMonth()] + ' ' + now.getFullYear();
+    monthEl.textContent = MONTH_NAMES_NOM[srcViewMonth] + ' ' + srcViewYear;
+    document.getElementById('sourceMonthNext').disabled = srcIsCurrentMonth();
+    itemsEl.style.opacity = '.55';
     try{
-      const { toISO, days } = monthRangeISO(now.getFullYear(), now.getMonth());
+      const { toISO, days } = monthRangeISO(srcViewYear, srcViewMonth);
       const res = await fetch(`/api/admin/report?to=${toISO}&days=${days}`, { headers: authHeaders(), cache:'no-store' });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){
@@ -4489,8 +4536,10 @@
         + `<button type="button" class="source-item si-tech" data-source="__technical__"><div class="si-label">Технич. / заблокировано</div><div class="si-count">${technicalCount}</div><div class="si-sum">не источник брони</div></button>`
         + `<div class="source-tracker-note">В списке броней за месяц строк: ${totalAll.count + technicalCount} (клиентские + технические/заблокированные). Нажмите на плитку, чтобы увидеть список.</div>`;
       itemsEl.innerHTML = tiles;
+      itemsEl.style.opacity = '';
     } catch(err){
       itemsEl.innerHTML = '<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">Ошибка сети.</div>';
+      itemsEl.style.opacity = '';
     }
   }
 
@@ -4502,15 +4551,14 @@
   };
 
   async function openSourceBookingsModal(source){
-    const now = new Date();
-    const monthLabel = MONTH_NAMES_NOM[now.getMonth()] + ' ' + now.getFullYear();
+    const monthLabel = MONTH_NAMES_NOM[srcViewMonth] + ' ' + srcViewYear;
     const title = SOURCE_TILE_TITLES[source] || source;
     document.getElementById('sourceBookingsTitle').textContent = `${title} — ${monthLabel}`;
     const bodyEl = document.getElementById('sourceBookingsBody');
     bodyEl.innerHTML = '<div class="load-note">Загрузка…</div>';
     sourceBookingsOverlay.classList.add('show');
     try{
-      const { toISO, days } = monthRangeISO(now.getFullYear(), now.getMonth());
+      const { toISO, days } = monthRangeISO(srcViewYear, srcViewMonth);
       const res = await fetch(`/api/admin/report?to=${toISO}&days=${days}&detailed=1`, { headers: authHeaders(), cache:'no-store' });
       const out = await res.json().catch(() => ({}));
       if (!res.ok){
@@ -5440,7 +5488,7 @@
     const today = todayISO();
     const upcoming = roomBookingsData.filter(b => b.dateISO >= today);
     const past = roomBookingsData.filter(b => b.dateISO < today).reverse();
-    const needSverka = roomBookingsData.filter(b => roomStarted(b) && !(b.closeout && b.closeout.done)).length;
+    const needSverka = roomBookingsData.filter(b => !b.technical && roomStarted(b) && !(b.closeout && b.closeout.done)).length;
     document.getElementById('roomCountUpcoming').textContent = upcoming.length ? `(${upcoming.length})` : '';
     document.getElementById('roomCountPast').textContent = needSverka ? `· без сверки: ${needSverka}` : '';
     const list = roomTab === 'upcoming' ? upcoming : past;
@@ -5454,6 +5502,14 @@
       const tel = String(b.phone || '').replace(/[^\d+]/g, '');
       const started = roomStarted(b);
       const done = b.closeout && b.closeout.done;
+      if (b.technical){
+        html += `<div class="room-card tech" data-room-card="${escapeHtml(b.bookingId)}">
+        <div class="room-card-top"><span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span><span class="room-tech-tag">Техническая · ${b.sessions ? roomSessWord(Number(b.sessions)) : roomHoursWord(Number(b.hours) || 0)}</span></div>
+        ${b.comment ? `<div class="room-meta">${escapeHtml(b.comment)}</div>` : '<div class="room-meta">Сеансы закрыты</div>'}
+        ${ROOM_CAN_CANCEL ? `<div class="room-actions"><button type="button" class="btn-secondary room-cancel" data-date="${escapeHtml(b.dateISO)}" data-id="${escapeHtml(b.bookingId)}">Открыть сеансы (отменить)</button></div>` : ''}
+      </div>`;
+        return;
+      }
       html += `<div class="room-card${done ? ' done' : ''}" data-room-card="${escapeHtml(b.bookingId)}">
         <div class="room-card-top">
           <span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span>
@@ -5476,7 +5532,7 @@
     const form = roomBookingsList.querySelector('.room-form');
     if (form) bindRoomForm(form);
     // Общий список держим в курсе: добавили/отменили/сверили комнату — видно сразу.
-    if (roomDataLoaded){ mainRoomRows = roomBookingsData.slice(); renderList(); }
+    if (roomDataLoaded){ mainRoomRows = roomBookingsData.slice(); renderList(); if (roomBookingsOverlay.classList.contains('show')) loadRoomMonth(); }
   }
   let roomDataLoaded = false;
   function openRoomFromList(id, dateISO){
@@ -5657,30 +5713,42 @@
     const today = todayISO();
     roomAddBox.innerHTML = `<h3>Новая бронь комнаты</h3>
       <div class="room-form">
+        <div class="room-yn ra-type"><button type="button" class="on" data-ratype="guest">Гость</button><button type="button" data-ratype="tech">Техническая</button></div>
+        <div class="ra-tech-note" hidden>Техническая бронь просто закрывает сеансы (уборка, ремонт, своё мероприятие): без гостя, цены, SMS и сверки.</div>
         <div class="ra-grid">
           <div class="room-form-row ra-date"><span class="rf-label">Дата</span><input type="date" class="ra-date-in" value="${today}" min="${roomShiftISO(today, -31)}" max="${roomShiftISO(today, 59)}"></div>
           <div class="room-form-row"><span class="rf-label">Начало</span><select class="ra-start"></select></div>
           <div class="room-form-row"><span class="rf-label">До скольки</span><select class="ra-hours"></select></div>
         </div>
         <div class="ra-busy"></div>
-        <div class="ra-grid2">
+        <div class="ra-grid2 ra-guest">
           <div class="room-form-row"><span class="rf-label">Имя гостя</span><input class="ra-name" maxlength="100" placeholder="Например: Марина"></div>
           <div class="room-form-row"><span class="rf-label">Телефон (необязательно)</span><input class="ra-phone" type="tel" maxlength="40" placeholder="+375 29 …"></div>
         </div>
-        <div class="ra-grid2">
+        <div class="ra-grid2 ra-guest">
           <div class="room-form-row"><span class="rf-label">Откуда бронь</span><select class="ra-channel">${ROOM_CHANNELS.map(c => `<option>${escapeHtml(c)}</option>`).join('')}</select></div>
           <div class="room-form-row"><span class="rf-label">Цена, Br</span><input class="ra-price" inputmode="decimal"></div>
         </div>
-        <div class="ra-hint"></div>
-        <div class="room-form-row"><span class="rf-label">Доп. опция</span><select class="ra-game"><option value="">— нет —</option><option value="mafia">Мафия с ведущим</option><option value="bunker">Бункер с ведущим</option><option value="mafia,bunker">Мафия и Бункер с ведущим</option></select></div>
+        <div class="ra-hint ra-guest"></div>
+        <div class="room-form-row ra-guest"><span class="rf-label">Доп. опция</span><select class="ra-game"><option value="">— нет —</option><option value="mafia">Мафия с ведущим</option><option value="bunker">Бункер с ведущим</option><option value="mafia,bunker">Мафия и Бункер с ведущим</option></select></div>
         <div class="room-form-row"><span class="rf-label">Комментарий (необязательно)</span><input class="ra-comment" maxlength="500" placeholder="Например: день рождения, 8 человек"></div>
-        <label class="sms-check"><input type="checkbox" class="ra-sms" checked> Отправить гостю SMS о брони (если указан телефон)</label>
+        <label class="sms-check ra-guest"><input type="checkbox" class="ra-sms" checked> Отправить гостю SMS о брони (если указан телефон)</label>
         <div class="room-form-actions"><button type="button" class="btn ra-save">Сохранить бронь</button><button type="button" class="btn-secondary ra-close">Отмена</button></div>
         <div class="modal-msg ra-msg"></div>
       </div>`;
     roomAddBox.hidden = false;
     roomAddBtn.hidden = true;
     const q = (sel) => roomAddBox.querySelector(sel);
+    // 12.11.2026: гость / техническая бронь
+    let raTech = false;
+    roomAddBox.querySelectorAll('[data-ratype]').forEach(b => b.addEventListener('click', () => {
+      raTech = b.dataset.ratype === 'tech';
+      roomAddBox.querySelectorAll('[data-ratype]').forEach(x => x.classList.toggle('on', x === b));
+      roomAddBox.querySelectorAll('.ra-guest').forEach(el => { el.hidden = raTech; });
+      q('.ra-tech-note').hidden = !raTech;
+      q('.ra-comment').placeholder = raTech ? 'Например: уборка, ремонт, фотосессия' : 'Например: день рождения, 8 человек';
+      q('.ra-save').textContent = raTech ? 'Закрыть сеансы' : 'Сохранить бронь';
+    }));
     let priceTouched = false;
     const updatePrice = () => {
       const iso = q('.ra-date-in').value, n = Number(q('.ra-hours').value) || 0;
@@ -5717,10 +5785,11 @@
       const payload = { action:'createRoomBooking', dateISO: q('.ra-date-in').value, startTime: q('.ra-start').value, hours: Number(q('.ra-hours').value),
         name: q('.ra-name').value.trim(), phone: q('.ra-phone').value.trim(), channel: q('.ra-channel').value,
         price: q('.ra-price').value.trim(), hostGame: q('.ra-game').value, comment: q('.ra-comment').value.trim(), sendSms: q('.ra-sms').checked };
+      if (raTech){ Object.assign(payload, { technical: true, name: '', phone: '', price: '', hostGame: '', sendSms: false }); }
       msg.className = 'modal-msg ra-msg err';
       if (!payload.dateISO){ msg.textContent = 'Выберите дату.'; return; }
       if (!payload.hours){ msg.textContent = 'На это время комната занята — выберите другое начало.'; return; }
-      if (!payload.name){ msg.textContent = 'Укажите имя гостя.'; q('.ra-name').focus(); return; }
+      if (!raTech && !payload.name){ msg.textContent = 'Укажите имя гостя.'; q('.ra-name').focus(); return; }
       btn.disabled = true; msg.textContent = ''; msg.className = 'modal-msg ra-msg';
       try{
         const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify(payload) });
@@ -5737,7 +5806,9 @@
         document.querySelectorAll('[data-room-tab]').forEach(t => t.classList.toggle('active', t.dataset.roomTab === roomTab));
         renderRoomBookings();
         const smsNote = !out.sms ? '' : out.sms.ok ? ' SMS гостю отправлена.' : ` SMS гостю не ушла: ${smsErrorText(out.sms.error)}.`;
-        roomBookingsMsg.textContent = `Бронь добавлена: ${formatDateHeading(b.dateISO)}, ${b.startTime}–${b.endTime || ''}.${b.dateISO < todayISO() ? ' Она уже прошла — проведите по ней сверку.' : ''}${smsNote}`;
+        roomBookingsMsg.textContent = b.technical
+          ? `Сеансы закрыты (техническая бронь): ${formatDateHeading(b.dateISO)}, ${b.startTime}–${b.endTime || ''}.`
+          : `Бронь добавлена: ${formatDateHeading(b.dateISO)}, ${b.startTime}–${b.endTime || ''}.${b.dateISO < todayISO() ? ' Она уже прошла — проведите по ней сверку.' : ''}${smsNote}`;
         roomBookingsMsg.className = out.sms && !out.sms.ok ? 'modal-msg err' : 'modal-msg ok';
       } catch(err){ msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg ra-msg err'; btn.disabled = false; }
     });
@@ -5754,6 +5825,36 @@
       if (res.ok) roomPeople = [...new Set(Object.values(out.actors || {}).map(a => a.name || a.displayName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
     } catch(err){ /* без списка — можно выбрать из уже сохранённого */ }
   }
+  // 12.11.2026: счётчик комнаты за месяц — брони по источникам и сколько реально оплачено
+  let roomMonthY = new Date().getFullYear(), roomMonthM = new Date().getMonth(); // M: 0..11
+  const ROOM_MONTH_SOURCES = ['Сайт', 'Мир Квестов', 'ExtraReality', 'Телефон', 'Instagram'];
+  function roomMonthIsCurrent(){ const n = new Date(); return roomMonthY === n.getFullYear() && roomMonthM === n.getMonth(); }
+  async function loadRoomMonth(){
+    const items = document.getElementById('roomMonthItems');
+    document.getElementById('roomMonthLabel').textContent = MONTH_NAMES_NOM[roomMonthM] + ' ' + roomMonthY;
+    document.getElementById('roomMonthNext').disabled = roomMonthIsCurrent();
+    items.style.opacity = '.55';
+    try{
+      const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'roomMonthStats', year: roomMonthY, month: roomMonthM + 1 }) });
+      const out = await res.json().catch(() => ({}));
+      items.style.opacity = '';
+      if (!res.ok || !out.stats){ items.innerHTML = `<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">${escapeHtml(out.error || 'Не удалось загрузить.')}</div>`; return; }
+      const st = out.stats;
+      const amt = (v) => Math.round(Number(v) || 0);
+      const extra = Object.keys(st.bySource).filter(k => !ROOM_MONTH_SOURCES.includes(k) && st.bySource[k].count);
+      const tile = (label, v, cls = '') => `<div class="source-item${cls}"><div class="si-label">${escapeHtml(label)}</div><div class="si-count">${v.count}</div><div class="si-sum">${amt(v.paid)} Br</div></div>`;
+      items.innerHTML = [...ROOM_MONTH_SOURCES, ...extra].map(src => tile(src, st.bySource[src] || { count: 0, paid: 0 }, src === 'Сайт' ? ' si-site' : '')).join('')
+        + tile('Всего броней', st.total)
+        + `<div class="source-item si-tech"><div class="si-label">Технич. / закрыто</div><div class="si-count">${st.technical}</div><div class="si-sum">не бронь гостя</div></div>`
+        + `<div class="source-tracker-note">Сумма — сколько реально оплачено (нал + безнал + ЕРИП из сверки).${st.unsettled ? ` Без сверки: ${st.unsettled} — их деньги появятся после сверки.` : ''}${st.notPlayed ? ` Не состоялось: ${st.notPlayed}.` : ''}</div>`;
+    } catch(err){
+      items.style.opacity = '';
+      items.innerHTML = '<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">Ошибка сети.</div>';
+    }
+  }
+  document.getElementById('roomMonthPrev').addEventListener('click', () => { roomMonthM -= 1; if (roomMonthM < 0){ roomMonthM = 11; roomMonthY -= 1; } loadRoomMonth(); });
+  document.getElementById('roomMonthNext').addEventListener('click', () => { if (roomMonthIsCurrent()) return; roomMonthM += 1; if (roomMonthM > 11){ roomMonthM = 0; roomMonthY += 1; } loadRoomMonth(); });
+
   async function loadRoomBookings(){
     roomBookingsList.innerHTML = '<div class="load-note">Загрузка…</div>';
     roomBookingsMsg.textContent = ''; roomBookingsMsg.className = 'modal-msg';

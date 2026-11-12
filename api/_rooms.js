@@ -231,8 +231,11 @@ export function roomSourceOf(rec) {
 // телефон необязателен, можно задним числом (до месяца назад — чтобы потом
 // провести сверку) и без отсечки «за час до начала», цену можно поменять.
 export function validateRoomRequest(body, { admin = false } = {}) {
-  const name = clean(body.name, 100);
-  const phone = clean(body.phone, 40);
+  // 12.11.2026: техническая бронь комнаты (только из админки) — просто
+  // закрывает сеансы: без гостя, телефона, цены, SMS и сверки.
+  const technical = admin && body.technical === true;
+  const name = technical ? 'Техническая бронь' : clean(body.name, 100);
+  const phone = technical ? '' : clean(body.phone, 40);
   const comment = clean(body.comment, 500);
   const dateISO = typeof body.dateISO === 'string' ? body.dateISO : '';
   const startTime = typeof body.startTime === 'string' ? body.startTime.trim() : '';
@@ -242,7 +245,9 @@ export function validateRoomRequest(body, { admin = false } = {}) {
   const gameKeys = Object.keys(HOST_GAMES).filter((k) => rawGames.map((g) => String(g).trim()).includes(k));
   const hostGame = gameKeys.join(',');
 
-  if (admin) {
+  if (technical) {
+    // ничего не нужно, кроме даты и сеансов
+  } else if (admin) {
     if (!name) return { ok: false, status: 400, error: 'Укажите имя гостя.' };
     if (phone && (phone.match(/\d/g) || []).length < 7) return { ok: false, status: 400, error: 'Проверьте номер телефона.' };
   } else {
@@ -278,13 +283,13 @@ export function validateRoomRequest(body, { admin = false } = {}) {
   const rate = roomRateFor(dateISO);
   const attribution = admin ? {} : cleanAttribution(body.attribution);
   // Admin may set its own price (discount, deal by phone); empty -> by the rate.
-  let price = rate * hours;
-  if (admin && body.price !== undefined && String(body.price).trim() !== '') {
+  let price = technical ? 0 : rate * hours;
+  if (admin && !technical && body.price !== undefined && String(body.price).trim() !== '') {
     const p = Number(String(body.price).replace(',', '.').trim());
     if (!Number.isFinite(p) || p < 0 || p > 100000) return { ok: false, status: 400, error: 'Проверьте цену.' };
     price = Math.round(p * 100) / 100;
   }
-  const channel = admin
+  const channel = technical ? 'Техническая' : admin
     ? (ROOM_ADMIN_CHANNELS.includes(body.channel) ? body.channel : 'Телефон')
     : 'Сайт';
   const record = {
@@ -302,13 +307,14 @@ export function validateRoomRequest(body, { admin = false } = {}) {
     times,
     rate,
     price, // the room only — a hosted game is priced separately by phone
-    hostGame,
-    hostGameLabel: gameKeys.map((k) => HOST_GAMES[k]).join(' + '),
+    hostGame: technical ? '' : hostGame,
+    hostGameLabel: technical ? '' : gameKeys.map((k) => HOST_GAMES[k]).join(' + '),
     channel,
     attribution,
     createdAt: new Date().toISOString(),
   };
   if (admin) record.createdBy = 'admin';
+  if (technical) record.technical = true;
   return { ok: true, record };
 }
 
@@ -352,6 +358,9 @@ export async function releaseRoomHours(record) {
 }
 
 export function roomBookingTelegramText(record) {
+  if (record.technical) {
+    return `ТЕХНИЧЕСКАЯ БРОНЬ — LOONY ROOM (добавлена в админке)\n\nДата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>\nВремя: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${hoursLabel(record.hours)})${record.comment ? `\nКомментарий: ${escapeTgHtml(record.comment)}` : ''}`;
+  }
   const fields = [
     `Дата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>`,
     `Время: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${hoursLabel(record.hours)})`,

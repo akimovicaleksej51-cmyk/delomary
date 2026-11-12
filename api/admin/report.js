@@ -316,7 +316,7 @@ export default async function handler(req, res) {
     const day = byDay[dates[i]];
     uniqueRoomRecords(entry && entry.result).forEach((rec) => {
       if (wantDetailed) roomRows.push({ ...rec, dateISO: dates[i] });
-      if (!day || (rec.closeout && rec.closeout.played === false)) return;
+      if (!day || rec.technical || (rec.closeout && rec.closeout.played === false)) return;
       // 23.10.2026: кто вёл сеансы комнаты — для ЗП (только в actorGames,
       // в счётчики игр квеста не идёт). time = "комната HH:MM" = ключ выплаты.
       if (rec.closeout && rec.closeout.done && Array.isArray(rec.closeout.staff)) {
