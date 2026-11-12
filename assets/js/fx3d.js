@@ -275,8 +275,12 @@
     var U = {}; ['t','m','asp','dpr','sc'].forEach(function(n){ U[n] = gl.getUniformLocation(pr, n); });
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
     var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    var lw = 0, lh = 0;
     function size(){
       var w = hero.clientWidth, h = hero.clientHeight;
+      // на телефоне resize прилетает при каждом появлении/скрытии адресной строки — не пересоздаём холст зря
+      if (w === lw && Math.abs(h - lh) < 120) return;
+      lw = w; lh = h;
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
       gl.viewport(0, 0, cv.width, cv.height);
       gl.uniform1f(U.asp, w / h); gl.uniform1f(U.dpr, dpr); gl.uniform1f(U.sc, SMALL ? 5 : 6.5);
@@ -319,16 +323,6 @@
     });
   }
 
-  /* ---------- телефон: карточки «встают» из плоскости при прокрутке ---------- */
-  if (SMALL && 'IntersectionObserver' in window){
-    var flip = new IntersectionObserver(function(es){
-      es.forEach(function(e){ if (e.isIntersecting){ e.target.classList.add('fx3d-up'); flip.unobserve(e.target); } });
-    }, { threshold: 0.25, rootMargin: '0px 0px -8% 0px' });
-    $$('.stat, .room-feats > div, .faq-item, .rating-hero, .rbar-row, .about-photo, .loc-grid li, .intake').forEach(function(el){
-      el.classList.add('fx3d-flip'); flip.observe(el);
-    });
-  }
-
   /* ---------- метки секций: «расшифровка» при появлении ---------- */
   var GLYPHS = 'АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ0123456789#%/';
   function decode(el){
@@ -343,7 +337,7 @@
       if (p < 1) requestAnimationFrame(step); else el.textContent = fin;
     })(t0);
   }
-  if ('IntersectionObserver' in window){
+  if (!SMALL && 'IntersectionObserver' in window){   // на телефоне без «расшифровки»: перенос строк скакал бы
     var io = new IntersectionObserver(function(es){
       es.forEach(function(e){ if (e.isIntersecting){ decode(e.target); io.unobserve(e.target); } });
     }, { threshold: 0.8 });

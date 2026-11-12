@@ -241,15 +241,6 @@
   .fx3d-rdots i.on{width:22px; background:#F5C518;}
 }
 
-/* телефон: карточки «встают» из плоскости при прокрутке */
-@media (prefers-reduced-motion:no-preference){
-  .fx3d-flip{transform:perspective(700px) rotateX(-28deg) translateY(26px); opacity:.0; transform-origin:50% 100%;
-    transition:transform .8s cubic-bezier(.2,0,0,1), opacity .6s ease-out;}
-  .fx3d-flip.fx3d-up{transform:none; opacity:1;}
-  .stat-strip .fx3d-flip:nth-child(2),.room-feats .fx3d-flip:nth-child(2){transition-delay:.08s;}
-  .stat-strip .fx3d-flip:nth-child(3),.room-feats .fx3d-flip:nth-child(3){transition-delay:.16s;}
-  .stat-strip .fx3d-flip:nth-child(4),.room-feats .fx3d-flip:nth-child(4){transition-delay:.24s;}
-}
 
 /* затемнение задних кадров — слоем, а не фильтром (дешевле для телефона) */
 .ev-card::before{content:""; position:absolute; inset:0; z-index:3; pointer-events:none; border-radius:inherit; background:#000;
@@ -264,4 +255,10 @@
   .fx3d-film .leak{display:none;}
   .fx3d-canvas{mix-blend-mode:normal;}
   .fx3d-on .stat{-webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(20,20,20,.82) !important;}
+}
+
+/* телефон: секции появляются как раньше — без 3D-подъёма, чтобы при быстрой прокрутке ничего не скакало */
+@media (max-width:860px){
+  .fx3d-on .reveal{transform:translateY(24px); transition:opacity .7s ease, transform .7s ease;}
+  .fx3d-on .reveal.in{transform:none;}
 }
