@@ -61,27 +61,55 @@
     var settle = function(f){
       clearTimeout(f.timer);
       var el = f.el;
-      el.style.transition = 'none'; el.style.opacity = '0'; el.style.transform = '';
+      el.style.transition = 'none'; el.style.opacity = '0'; el.style.transform = ''; el.style.zIndex = '';
+      place();
       void el.offsetWidth;
       el.style.transition = 'opacity .18s ease-out'; el.style.opacity = '';
       setTimeout(function(){ if (el.style.transition.indexOf('opacity') === 0) el.style.transition = ''; }, 200);
+    };
+    // положение верхнего кадра, сдвинутого на dx: тот же набор преобразований, что у него в покое
+    // (на компьютере — с глубиной и поворотом), чтобы при старте движения ничего не «прыгало»
+    var held = function(dx, dy, rz){
+      return SMALL
+        ? 'translate3d(' + dx + 'px,' + dy + 'px,0) rotateZ(' + rz + 'deg)'
+        : 'translate3d(' + dx + 'px,' + dy + 'px,60px) rotateY(' + (-10 + (parseFloat(stack.style.getPropertyValue('--sx')) || 0)).toFixed(2) + 'deg) rotateX(' + (parseFloat(stack.style.getPropertyValue('--sy')) || 0).toFixed(2) + 'deg) rotateZ(' + rz + 'deg)';
     };
     var go = function(dir, flyX, fromX){
       if (flying){ settle(flying); flying = null; }
       if (dir < 0){ order.unshift(order.pop()); place(); return; }
       var top = cards[order[0]], sign = (flyX || -1) > 0 ? 1 : -1;
+      var dragged0 = typeof fromX === 'number';
+      if (!dragged0){
+        // мягкий уход (автолистание, клик, клавиатура): с текущего места, без рывка
+        var cs = getComputedStyle(top).transform;
+        top.style.transition = 'none'; top.style.transform = cs === 'none' ? '' : cs;
+      }
       order.push(order.shift()); place();            // точки и следующий кадр — сразу
       top.setAttribute('data-pos', 'fly');
       top.style.zIndex = '6';
       if (RM){ var f0 = { el: top }; settle(f0); top.style.zIndex = ''; top.setAttribute('data-pos', '3'); place(); return; }
-      var x0 = fromX || 0, x1 = sign * (window.innerWidth + 160);
-      top.style.transition = 'none';
-      top.style.transform = 'translate3d(' + x0 + 'px,' + (Math.abs(x0) * -0.08) + 'px,0) rotateZ(' + (x0 * 0.06 - 2) + 'deg)';
-      void top.offsetWidth;
-      top.style.transition = 'transform .24s cubic-bezier(.2,.6,.4,1), opacity .24s linear';
-      top.style.transform = 'translate3d(' + x1 + 'px,-40px,0) rotateZ(' + (sign * 24) + 'deg)';
+      var dur;
+      if (dragged0){
+        // после свайпа — продолжает движение пальца и улетает за край стопки
+        var w = stack.offsetWidth, x1 = sign * (w + 220);
+        top.style.transition = 'none';
+        top.style.transform = held(fromX, Math.abs(fromX) * -0.08, fromX * 0.06 - 2);
+        void top.offsetWidth;
+        dur = SMALL ? 260 : 380;
+        top.style.transition = 'transform ' + dur + 'ms cubic-bezier(.2,.6,.4,1), opacity ' + dur + 'ms ease-in';
+        top.style.transform = held(x1, -40, sign * 22);
+      } else {
+        void top.offsetWidth;
+        dur = 560;
+        top.style.transition = 'transform ' + dur + 'ms cubic-bezier(.3,0,.2,1), opacity ' + (dur - 60) + 'ms ease-in';
+        top.style.transform = held(sign * (SMALL ? 150 : 190), -30, sign * 12);
+      }
       top.style.opacity = '0';
-      flying = { el: top, timer: setTimeout(function(){ var f = flying; flying = null; if (f){ f.el.style.zIndex = ''; place(); settle(f); } }, 250) };
+      // завершаем по реальному окончанию анимации (а не по таймеру), чтобы кадр не обрывался на полпути
+      var land = function(){ top.removeEventListener('transitionend', onEnd); if (!flying || flying.el !== top) return; var f = flying; flying = null; f.el.style.zIndex = ''; place(); settle(f); };
+      var onEnd = function(e){ if (e.target === top && e.propertyName === 'transform') land(); };
+      top.addEventListener('transitionend', onEnd);
+      flying = { el: top, timer: setTimeout(land, dur + 400) };
     };
     deck = { go: go, get dragging(){ return active || !!flying; } };
 
@@ -102,7 +130,7 @@
     var sx = 0, sy = 0, dx = 0, active = false, horiz = null, topEl = null, raf = 0, lastX = 0, lastT = 0, vel = 0;
     var paintDrag = function(){
       raf = 0; if (!active || !topEl) return;
-      topEl.style.transform = 'translate3d(' + dx + 'px,' + (Math.abs(dx) * -0.08) + 'px,0) rotateZ(' + (dx * 0.06 - 2) + 'deg)';
+      topEl.style.transform = held(dx, Math.abs(dx) * -0.08, dx * 0.06 - 2);
     };
     stack.addEventListener('pointerdown', function(e){
       if (e.button > 0) return;
@@ -220,14 +248,23 @@
     }, { passive: true });
   }
   var stackEl = $('.fx3d-evidence');
+  var lastHW = '', lastSX = '', lastSY = '';
   (function loop(){
     requestAnimationFrame(loop);
     if (!heroVisible) return;
-    if (SMALL && deck && deck.dragging) return;
+    // пока кадр стопки летит или его тянут — первый экран не двигаем: любое изменение 3D-сцены
+    // перезапускает анимацию кадра, и он «застывает», а потом резко исчезает
+    if (deck && deck.dragging) return;
     if (!FINE){ var tt = performance.now() / 1000; T.x = Math.sin(tt * 0.35) * 0.5; T.y = Math.cos(tt * 0.27) * 0.35; }
     M.x += (T.x - M.x) * 0.06; M.y += (T.y - M.y) * 0.06;
-    if (heroWrap && !SMALL) heroWrap.style.transform = 'rotateY(' + (M.x * 5).toFixed(2) + 'deg) rotateX(' + (M.y * 3.5).toFixed(2) + 'deg)';
-    if (stackEl && !SMALL){ stackEl.style.setProperty('--sx', (M.x * 10).toFixed(2) + 'deg'); stackEl.style.setProperty('--sy', (M.y * 8).toFixed(2) + 'deg'); }
+    if (SMALL) return;
+    var hw = 'rotateY(' + (M.x * 5).toFixed(2) + 'deg) rotateX(' + (M.y * 3.5).toFixed(2) + 'deg)';
+    if (heroWrap && hw !== lastHW){ heroWrap.style.transform = lastHW = hw; }
+    if (stackEl){
+      var sxv = (M.x * 10).toFixed(1) + 'deg', syv = (M.y * 8).toFixed(1) + 'deg';
+      if (sxv !== lastSX){ stackEl.style.setProperty('--sx', lastSX = sxv); }
+      if (syv !== lastSY){ stackEl.style.setProperty('--sy', lastSY = syv); }
+    }
   })();
 
   /* ---------- WebGL: пыль и искры в объёме ---------- */
