@@ -67,10 +67,10 @@
 .fx3d-tilt.is-tilting .fx3d-glare{opacity:1;}
 
 /* ---------- галерея: 3D-лента (coverflow) ---------- */
-.fx3d-on .gallery-grid{perspective:1200px; perspective-origin:50% 50%;}
-.fx3d-on .gallery-grid figure{transition:border-color .25s !important; will-change:transform; backface-visibility:hidden;}
-.fx3d-on .reveal.in .gallery-grid figure{opacity:1;}
-.fx3d-on .gallery-grid figure::before{content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
+.fx3d-ui .gallery-grid{perspective:1200px; perspective-origin:50% 50%;}
+.fx3d-ui .gallery-grid figure{transition:border-color .25s !important; will-change:transform; backface-visibility:hidden;}
+.fx3d-ui .reveal.in .gallery-grid figure{opacity:1;}
+.fx3d-ui .gallery-grid figure::before{content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
   background:linear-gradient(90deg, rgba(0,0,0,var(--shadeL,0)), rgba(0,0,0,0) 60%), linear-gradient(270deg, rgba(0,0,0,var(--shadeR,0)), rgba(0,0,0,0) 60%);}
 
 /* ---------- появление секций: подъём из глубины ---------- */
@@ -187,11 +187,10 @@
 .ev-card[data-pos="1"]{z-index:3; transform:translate3d(34px,-14px,0) rotateY(calc(-10deg + var(--sx,0deg) * .7)) rotateX(calc(var(--sy,0deg) * .7)) rotateZ(5deg); filter:brightness(.8);}
 .ev-card[data-pos="2"]{z-index:2; transform:translate3d(-30px,10px,-60px) rotateY(calc(-10deg + var(--sx,0deg) * .5)) rotateX(calc(var(--sy,0deg) * .5)) rotateZ(-7deg); filter:brightness(.62);}
 .ev-card[data-pos="3"]{z-index:1; transform:translate3d(8px,22px,-120px) rotateY(-10deg) rotateZ(3deg); filter:brightness(.45);}
-.ev-card.ev-out{transform:translate3d(-140px,-40px,120px) rotateY(-40deg) rotateZ(-14deg) !important; opacity:0;}
+.ev-card.ev-out{transform:translate3d(calc(var(--fly,-1) * 160px),-40px,120px) rotateY(calc(var(--fly,-1) * 40deg)) rotateZ(calc(var(--fly,-1) * 14deg)) !important; opacity:0;}
 @media (hover:hover){
   .ev-card[data-pos="0"]:hover{filter:brightness(1.06);}
 }
-.fx3d-evidence:not(:has([data-pos])) .ev-card:nth-child(n+2){display:none;}  /* без анимаций — один кадр */
 
 @media (max-width:999px){
   .fx3d-evidence{aspect-ratio:auto; width:74%; max-width:300px; height:270px; margin:30px 0 34px 6px; perspective:none;}
@@ -202,9 +201,52 @@
   .ev-card[data-pos="1"]{transform:translate(22px,-8px) rotateZ(4deg);}
   .ev-card[data-pos="2"]{transform:translate(40px,4px) rotateZ(9deg);}
   .ev-card[data-pos="3"]{transform:translate(52px,10px) rotateZ(13deg);}
-  .ev-card.ev-out{transform:translate(-120px,-20px) rotateZ(-18deg) !important;}
+  .ev-card.ev-out{transform:translate(calc(var(--fly,-1) * 150px),-20px) rotateZ(calc(var(--fly,-1) * 18deg)) !important;}
 }
 @media (prefers-reduced-motion:reduce){
   .ev-card{transition:none;}
   .ev-card:nth-child(1){transform:rotateZ(-2deg);}
+}
+
+/* колода: свайп, точки-индикатор */
+.fx3d-evidence{touch-action:pan-y; -webkit-user-select:none; user-select:none;}
+.ev-card img{-webkit-user-drag:none; pointer-events:none;}
+.ev-dots{position:absolute; left:0; right:0; bottom:-26px; display:flex; justify-content:center; gap:8px; z-index:5;}
+.ev-dots i{width:6px; height:6px; border-radius:3px; background:rgba(243,239,228,.3); transition:width .3s cubic-bezier(.2,0,0,1), background-color .3s;}
+.ev-dots i.on{width:22px; background:#F5C518;}
+
+/* =========================================================================
+   ТЕЛЕФОН — своя подача
+   ========================================================================= */
+@media (max-width:860px){
+  /* колода в первом экране: крупнее, по центру, видно, что листается */
+  .fx3d-evidence{width:76%; max-width:320px; height:300px; margin:34px auto 52px; }
+  .ev-card[data-pos="1"]{transform:translate(18px,-6px) rotateZ(5deg) scale(.97);}
+  .ev-card[data-pos="2"]{transform:translate(32px,4px) rotateZ(10deg) scale(.94);}
+  .ev-card[data-pos="3"]{transform:translate(42px,10px) rotateZ(14deg) scale(.91);}
+
+  /* галерея: кадр по центру, соседи выглядывают и развёрнуты в 3D */
+  .fx3d-ui .gallery-grid{perspective:900px; gap:14px !important; padding-left:17vw !important; padding-right:17vw !important;
+    scroll-padding-left:0 !important; scroll-snap-type:x mandatory; padding-top:12px; padding-bottom:22px;}
+  .fx3d-ui .gallery-grid figure{width:66vw !important; scroll-snap-align:center !important; aspect-ratio:4/5;}
+  .fx3d-ui .gallery-grid figure.cf-center{border-color:rgba(245,197,24,.6);}
+
+  /* отзывы: лента «показаний», листается пальцем */
+  .fx3d-ui .reviews-grid.fx3d-swipe{display:flex !important; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; perspective:900px;
+    margin:0 -20px; padding:8px 12vw 14px; scrollbar-width:none;}
+  .fx3d-ui .reviews-grid.fx3d-swipe::-webkit-scrollbar{display:none;}
+  .fx3d-ui .reviews-grid.fx3d-swipe .review{flex:0 0 76vw; scroll-snap-align:center; opacity:1 !important; transition:border-color .25s !important; will-change:transform;}
+  .fx3d-rdots{display:flex; justify-content:center; gap:8px; margin:6px 0 18px;}
+  .fx3d-rdots i{width:6px; height:6px; border-radius:3px; background:rgba(243,239,228,.3); transition:width .3s cubic-bezier(.2,0,0,1), background-color .3s;}
+  .fx3d-rdots i.on{width:22px; background:#F5C518;}
+}
+
+/* телефон: карточки «встают» из плоскости при прокрутке */
+@media (prefers-reduced-motion:no-preference){
+  .fx3d-flip{transform:perspective(700px) rotateX(-28deg) translateY(26px); opacity:.0; transform-origin:50% 100%;
+    transition:transform .8s cubic-bezier(.2,0,0,1), opacity .6s ease-out;}
+  .fx3d-flip.fx3d-up{transform:none; opacity:1;}
+  .stat-strip .fx3d-flip:nth-child(2),.room-feats .fx3d-flip:nth-child(2){transition-delay:.08s;}
+  .stat-strip .fx3d-flip:nth-child(3),.room-feats .fx3d-flip:nth-child(3){transition-delay:.16s;}
+  .stat-strip .fx3d-flip:nth-child(4),.room-feats .fx3d-flip:nth-child(4){transition-delay:.24s;}
 }
