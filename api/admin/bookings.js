@@ -416,14 +416,25 @@ export default async function handler(req, res) {
       const dates = Array.from({ length: daysInMonth }, (_, i) => `${y}-${String(m).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`);
       const results = await kvCachedRead(dates.map((iso) => ['HGETALL', `roombookings:${iso}`]));
       if (!results && isKvConfigured()) return res.status(503).json({ error: `База данных не отвечает: ${getLastKvError() || 'неизвестная ошибка'}` });
-      const stats = { year: y, month: m, bySource: {}, total: { count: 0, paid: 0 }, technical: 0, notPlayed: 0, unsettled: 0 };
+      const stats = { year: y, month: m, bySource: {}, total: { count: 0, paid: 0 }, technical: 0, notPlayed: 0, unsettled: 0, cash: 0, card: 0, erip: 0, rows: [] };
       ROOM_SOURCES.forEach((src) => { stats.bySource[src] = { count: 0, paid: 0 }; });
       const num = (v) => { const x = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(x) ? x : 0; };
       (results || []).forEach((entry) => {
         uniqueRoomRecords(entry && entry.result).forEach((rec) => {
+          // 12.11.2026: список броней месяца — для плиток (нажатие показывает брони)
+          const settledRow = !!(rec.closeout && rec.closeout.done);
+          stats.rows.push({
+            bookingId: rec.bookingId, dateISO: rec.dateISO, startTime: rec.startTime || '', endTime: rec.endTime || '',
+            name: rec.name || '', sessions: Number(rec.sessions || rec.hours) || 0, price: rec.price,
+            source: rec.technical ? '__technical__' : roomSourceOf(rec), technical: !!rec.technical,
+            status: rec.technical ? 'technical' : (settledRow ? (rec.closeout.played === false ? 'notPlayed' : 'settled') : 'unsettled'),
+            paid: settledRow && rec.closeout.played !== false ? num(rec.payCash) + num(rec.payCard) + num(rec.payErip) : 0,
+          });
           if (rec.technical) { stats.technical += 1; return; }
           if (rec.closeout && rec.closeout.played === false) { stats.notPlayed += 1; return; }
-          const paid = rec.closeout && rec.closeout.done ? num(rec.payCash) + num(rec.payCard) + num(rec.payErip) : 0;
+          const settled = !!(rec.closeout && rec.closeout.done);
+          const paid = settled ? num(rec.payCash) + num(rec.payCard) + num(rec.payErip) : 0;
+          if (settled) { stats.cash += num(rec.payCash); stats.card += num(rec.payCard); stats.erip += num(rec.payErip); }
           if (!(rec.closeout && rec.closeout.done)) stats.unsettled += 1;
           const src = roomSourceOf(rec);
           if (!stats.bySource[src]) stats.bySource[src] = { count: 0, paid: 0 };

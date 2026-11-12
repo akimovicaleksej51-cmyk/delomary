@@ -207,6 +207,11 @@
   .source-tracker-title span{color:var(--paper);}
   .src-nav{display:flex; gap:6px;}
   .room-month{margin-bottom:14px;}
+  .room-src-row{cursor:pointer;}
+  .room-src-row:hover td{background:rgba(255,255,255,.03);}
+  .room-pay-split{grid-column:1/-1; display:flex; gap:8px; flex-wrap:wrap;}
+  .room-pay-split span{flex:1 1 110px; background:var(--black-2); border:1px solid #2a2a2a; border-radius:10px; padding:8px 12px; font-size:12px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.02em; display:flex; justify-content:space-between; align-items:baseline; gap:8px;}
+  .room-pay-split b{font-size:15px; color:var(--paper); text-transform:none; letter-spacing:0;}
   .src-nav .cal-nav:disabled{opacity:.3; cursor:default;}
   .source-tracker-items{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
   .source-item{
@@ -4152,6 +4157,7 @@
     const nonEmptyDays = days.filter(d => d.bookings || d.cash || d.card || d.erip || d.expenses || d.payroll || d.roomCount);
     const totalRoom = days.reduce((sum, d) => sum + (d.room || 0), 0);
     const totalRoomCount = days.reduce((sum, d) => sum + (d.roomCount || 0), 0);
+    const roomSplit = ['roomCash', 'roomCard', 'roomErip'].map(k => Math.round(days.reduce((sum, d) => sum + (d[k] || 0), 0)));
     const dayRows = nonEmptyDays.slice().reverse().map(d => `
         <tr>
           <td>${formatDateHeading(d.dateISO)}</td>
@@ -4189,7 +4195,7 @@
         <div class="stat-tile"><div class="stat-label">ЕРИП</div><div class="stat-value">${Math.round(totalErip)}</div></div>
         <div class="stat-tile"><div class="stat-label">Расходы + ЗП</div><div class="stat-value">${Math.round(totalOut)}</div></div>
       </div>
-      <div class="report-room-note">Комната отдыха: <b>${Math.round(totalRoom)} Br</b> за ${totalRoomCount} ${totalRoomCount % 10 === 1 && totalRoomCount % 100 !== 11 ? 'бронь' : (totalRoomCount % 10 >= 2 && totalRoomCount % 10 <= 4 && (totalRoomCount % 100 < 12 || totalRoomCount % 100 > 14)) ? 'брони' : 'броней'} со сверкой — уже включено в Нал / Безнал / ЕРИП выше.</div>
+      <div class="report-room-note">Комната отдыха: <b>${Math.round(totalRoom)} Br</b> (нал ${roomSplit[0]} · безнал ${roomSplit[1]} · ЕРИП ${roomSplit[2]}) за ${totalRoomCount} ${totalRoomCount % 10 === 1 && totalRoomCount % 100 !== 11 ? 'бронь' : (totalRoomCount % 10 >= 2 && totalRoomCount % 10 <= 4 && (totalRoomCount % 100 < 12 || totalRoomCount % 100 > 14)) ? 'брони' : 'броней'} со сверкой — уже включено в Нал / Безнал / ЕРИП выше.</div>
       <div style="text-align:right; margin-bottom:8px;"><button class="stats-toggle-table" id="reportToggleDaysBtn">Показать по дням</button></div>
       <div id="reportDaysTableWrap" hidden>
         <div class="stats-chart-head"><span class="stats-chart-title">Дни, когда что-то было (${escapeHtml(data.from || '')} — ${escapeHtml(data.to || '')})</span></div>
@@ -5827,7 +5833,9 @@
   }
   // 12.11.2026: счётчик комнаты за месяц — брони по источникам и сколько реально оплачено
   let roomMonthY = new Date().getFullYear(), roomMonthM = new Date().getMonth(); // M: 0..11
-  const ROOM_MONTH_SOURCES = ['Сайт', 'Мир Квестов', 'ExtraReality', 'Телефон', 'Instagram'];
+  // 12.11.2026: только 3 источника + «Всего» + «Технич.», как в «Источниках броней»;
+  // брони «Телефон» / «Instagram» из админки входят во «Всего».
+  const ROOM_MONTH_SOURCES = ['Сайт', 'Мир Квестов', 'ExtraReality'];
   function roomMonthIsCurrent(){ const n = new Date(); return roomMonthY === n.getFullYear() && roomMonthM === n.getMonth(); }
   async function loadRoomMonth(){
     const items = document.getElementById('roomMonthItems');
@@ -5841,16 +5849,53 @@
       if (!res.ok || !out.stats){ items.innerHTML = `<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">${escapeHtml(out.error || 'Не удалось загрузить.')}</div>`; return; }
       const st = out.stats;
       const amt = (v) => Math.round(Number(v) || 0);
-      const extra = Object.keys(st.bySource).filter(k => !ROOM_MONTH_SOURCES.includes(k) && st.bySource[k].count);
-      const tile = (label, v, cls = '') => `<div class="source-item${cls}"><div class="si-label">${escapeHtml(label)}</div><div class="si-count">${v.count}</div><div class="si-sum">${amt(v.paid)} Br</div></div>`;
-      items.innerHTML = [...ROOM_MONTH_SOURCES, ...extra].map(src => tile(src, st.bySource[src] || { count: 0, paid: 0 }, src === 'Сайт' ? ' si-site' : '')).join('')
-        + tile('Всего броней', st.total)
-        + `<div class="source-item si-tech"><div class="si-label">Технич. / закрыто</div><div class="si-count">${st.technical}</div><div class="si-sum">не бронь гостя</div></div>`
+      roomMonthRows = st.rows || [];
+      const tile = (label, v, cls = '', key = label) => `<button type="button" class="source-item${cls}" data-room-src="${escapeHtml(key)}"><div class="si-label">${escapeHtml(label)}</div><div class="si-count">${v.count}</div><div class="si-sum">${amt(v.paid)} Br</div></button>`;
+      items.innerHTML = ROOM_MONTH_SOURCES.map(src => tile(src, st.bySource[src] || { count: 0, paid: 0 }, src === 'Сайт' ? ' si-site' : '')).join('')
+        + tile('Всего броней', st.total, '', '__all__')
+        + `<button type="button" class="source-item si-tech" data-room-src="__technical__"><div class="si-label">Технич. / закрыто</div><div class="si-count">${st.technical}</div><div class="si-sum">не бронь гостя</div></button>`
+        + `<div class="room-pay-split"><span>Нал <b>${amt(st.cash)} Br</b></span><span>Безнал <b>${amt(st.card)} Br</b></span><span>ЕРИП <b>${amt(st.erip)} Br</b></span></div>`
         + `<div class="source-tracker-note">Сумма — сколько реально оплачено (нал + безнал + ЕРИП из сверки).${st.unsettled ? ` Без сверки: ${st.unsettled} — их деньги появятся после сверки.` : ''}${st.notPlayed ? ` Не состоялось: ${st.notPlayed}.` : ''}</div>`;
     } catch(err){
       items.style.opacity = '';
       items.innerHTML = '<div class="stats-empty" style="grid-column:1/-1; padding:8px 0;">Ошибка сети.</div>';
     }
+  }
+  // 12.11.2026: нажатие на плитку — список броней комнаты этого месяца (как у квеста)
+  let roomMonthRows = [];
+  document.getElementById('roomMonthItems').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-room-src]');
+    if (!btn) return;
+    openRoomSourceBookings(btn.dataset.roomSrc);
+  });
+  function openRoomSourceBookings(src){
+    const title = src === '__all__' ? 'Комната — все брони' : src === '__technical__' ? 'Комната — технические' : `Комната — ${src}`;
+    document.getElementById('sourceBookingsTitle').textContent = `${title} — ${MONTH_NAMES_NOM[roomMonthM]} ${roomMonthY}`;
+    const bodyEl = document.getElementById('sourceBookingsBody');
+    let rows = src === '__all__' ? roomMonthRows.filter(r => !r.technical)
+      : src === '__technical__' ? roomMonthRows.filter(r => r.technical)
+      : roomMonthRows.filter(r => r.source === src && !r.technical && r.status !== 'notPlayed');
+    if (src === '__all__') rows = rows.filter(r => r.status !== 'notPlayed');
+    rows = rows.slice().sort((a, b) => (a.dateISO + a.startTime).localeCompare(b.dateISO + b.startTime));
+    const STATUS = { settled: 'Сверка ✓', unsettled: 'Без сверки', notPlayed: 'Не состоялась', technical: '—' };
+    bodyEl.innerHTML = !rows.length ? '<div class="stats-empty">За этот месяц броней не найдено.</div>' : `
+      <div class="source-bookings-summary">Найдено: ${rows.length}</div>
+      <table class="source-bookings-table">
+        <thead><tr><th>Дата</th><th>Время</th><th>Гость</th><th>Статус</th><th>Оплачено</th></tr></thead>
+        <tbody>${rows.map(r => `<tr class="room-src-row" data-id="${escapeHtml(r.bookingId)}" data-date="${escapeHtml(r.dateISO)}" title="Открыть бронь">
+          <td>${escapeHtml(formatDateHeading(r.dateISO))}</td>
+          <td>${escapeHtml(r.startTime)}–${escapeHtml(r.endTime)}</td>
+          <td>${escapeHtml(r.technical ? 'Техническая бронь' : (r.name || '—'))}${r.sessions ? ` <span style="color:var(--muted);">· ${r.sessions} сеанс.</span>` : ''}</td>
+          <td>${escapeHtml(STATUS[r.status] || '')}</td>
+          <td>${r.technical ? '—' : r.status === 'settled' ? `${Math.round(r.paid)} Br` : `<span style="color:var(--muted);">${Math.round(Number(r.price) || 0)} Br по цене</span>`}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    bodyEl.querySelectorAll('.room-src-row').forEach(tr => tr.addEventListener('click', () => {
+      sourceBookingsOverlay.classList.remove('show');
+      openRoomFromList(tr.dataset.id, tr.dataset.date);
+    }));
+    sourceBookingsOverlay.style.zIndex = '60';
+    sourceBookingsOverlay.classList.add('show');
   }
   document.getElementById('roomMonthPrev').addEventListener('click', () => { roomMonthM -= 1; if (roomMonthM < 0){ roomMonthM = 11; roomMonthY -= 1; } loadRoomMonth(); });
   document.getElementById('roomMonthNext').addEventListener('click', () => { if (roomMonthIsCurrent()) return; roomMonthM += 1; if (roomMonthM > 11){ roomMonthM = 0; roomMonthY += 1; } loadRoomMonth(); });

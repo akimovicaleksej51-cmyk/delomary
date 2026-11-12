@@ -180,7 +180,7 @@ export default async function handler(req, res) {
 
   const byDay = {};
   dates.forEach((iso) => {
-    byDay[iso] = { dateISO: iso, bookings: 0, cash: 0, card: 0, erip: 0, expenses: 0, payroll: 0, room: 0, roomCount: 0 };
+    byDay[iso] = { dateISO: iso, bookings: 0, cash: 0, card: 0, erip: 0, expenses: 0, payroll: 0, room: 0, roomCount: 0, roomCash: 0, roomCard: 0, roomErip: 0 };
   });
 
   const channelTotals = {};
@@ -331,6 +331,7 @@ export default async function handler(req, res) {
       const paid = roomPaid(rec);
       day.cash += paid.cash; day.card += paid.card; day.erip += paid.erip;
       day.room += paid.cash + paid.card + paid.erip;
+      day.roomCash += paid.cash; day.roomCard += paid.card; day.roomErip += paid.erip; // 12.11.2026: комната отдельно — для статистики
       day.roomCount += 1;
     });
   });
