@@ -1369,6 +1369,8 @@
     footer{padding:48px 16px calc(36px + env(safe-area-inset-bottom));}
     .foot-links{display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:16px;}
     .foot-links a{padding:12px 8px; border-radius:12px; background:rgba(255,255,255,.03);}
+    /* 13.11.2026: последняя плашка (телефон) — по центру под остальными, той же ширины */
+    .foot-links a:last-child:nth-child(odd){grid-column:1 / -1; justify-self:center; width:calc(50% - 2px);}
     .foot-fine, .foot-unp{font-size:13.5px;}
 
   }
