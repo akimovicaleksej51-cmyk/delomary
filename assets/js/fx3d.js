@@ -54,14 +54,25 @@
     };
     place();
     // dir: 1 — вперёд (верхний кадр уходит назад), -1 — назад (последний выходит наверх)
+    // dir: 1 — вперёд (верхний кадр улетает в сторону свайпа и тихо появляется в конце стопки),
+    // -1 — назад (последний кадр выходит наверх)
     var go = function(dir, flyX){
       if (busy) return; busy = true;
       if (dir > 0){
-        var top = cards[order[0]];
-        top.style.transition = ''; top.style.transform = '';
-        top.style.setProperty('--fly', (flyX || -1) > 0 ? '1' : '-1');
-        top.classList.add('ev-out');
-        setTimeout(function(){ order.push(order.shift()); place(); top.classList.remove('ev-out'); busy = false; }, RM ? 0 : 340);
+        var top = cards[order[0]], sign = (flyX || -1) > 0 ? 1 : -1;
+        var out = 'translate(' + (sign * (window.innerWidth * 0.9 + 120)) + 'px,' + (-30) + 'px) rotateZ(' + (sign * 22) + 'deg)';
+        var finish = function(){
+          // в конец стопки — мгновенно и невидимо, без обратного «проезда»
+          top.style.transition = 'none'; top.style.opacity = '0'; top.style.transform = '';
+          order.push(order.shift()); place();
+          void top.offsetWidth;
+          top.style.transition = 'opacity .35s ease-out'; top.style.opacity = '';
+          setTimeout(function(){ top.style.transition = ''; busy = false; }, 360);
+        };
+        if (RM){ finish(); return; }
+        top.style.transition = 'transform .32s cubic-bezier(.4,0,1,1), opacity .32s ease-in';
+        top.style.transform = out; top.style.opacity = '0';
+        setTimeout(finish, 330);
       } else {
         order.unshift(order.pop()); place(); setTimeout(function(){ busy = false; }, RM ? 0 : 340);
       }
@@ -102,8 +113,7 @@
       if (!active) return; active = false; lastTouch = Date.now();
       if (!horiz){ return; }
       dragged = Math.abs(dx) > 8;
-      topEl.style.transition = '';
-      if (Math.abs(dx) > 60) go(1, dx); else topEl.style.transform = '';
+      if (Math.abs(dx) > 60) go(1, dx); else { topEl.style.transition = ''; topEl.style.transform = ''; }
     };
     window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
     stack.addEventListener('pointerenter', function(e){ if (e.pointerType === 'mouse') hoverMouse = true; });
