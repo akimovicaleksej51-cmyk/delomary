@@ -69,6 +69,44 @@ export function roomRateFor(dateISO) {
   return isWeekendISO(dateISO) ? ROOM_RATE_WEEKEND : ROOM_RATE_WEEKDAY;
 }
 
+// 18.11.2026: доплата за время между сеансами. Гости, взявшие несколько
+// сеансов подряд, не уходят на уборку — перерывы между их сеансами тоже
+// их время. Поэтому к цене сеансов прибавляется это время:
+//   будни   (перерыв 30 мин): каждые 30 мин = полчаса = 35 Br
+//           2 сеанса +35, 3 сеанса +70, 4 сеанса +105 …
+//   выходные (перерыв 20 мин, час 90 Br): полные часы по 90 Br, а остаток
+//           20 мин — бесплатно, 40 мин — 50 Br (так решил владелец)
+//           2 сеанса +0, 3 +50, 4 +90, 5 +90, 6 +140 …
+// Если сетку или тариф поменяют — поменять и roomGapExtraFor() в
+// loonyroom.html и в admin.html (статичные страницы, импортировать не могут).
+export const ROOM_WEEKEND_40MIN_EXTRA = 50;
+export function roomGapMinutes(startTime, sessions, dateISO = '') {
+  const n = Number(sessions) || 0;
+  if (n < 2) return 0;
+  const total = roomMin(endTimeFor(startTime, n, dateISO)) - roomMin(startTime);
+  return Math.max(0, total - n * ROOM_SESSION_MINUTES);
+}
+export function roomGapExtraFor(dateISO, gapMinutes) {
+  const rate = roomRateFor(dateISO);
+  const full = Math.floor(gapMinutes / 60), rem = gapMinutes % 60;
+  let part = 0;
+  if (rem >= 40) part = isWeekendISO(dateISO) ? ROOM_WEEKEND_40MIN_EXTRA : rate;
+  else if (rem >= 30) part = Math.round(rate / 2);
+  return full * rate + part;
+}
+// Полная цена брони по тарифу: сеансы + доплата за перерывы между ними.
+export function roomPriceFor(dateISO, startTime, sessions) {
+  const n = Number(sessions) || 0;
+  const extra = roomGapExtraFor(dateISO, roomGapMinutes(startTime, n, dateISO));
+  return roomRateFor(dateISO) * n + extra;
+}
+export function roomPriceParts(dateISO, startTime, sessions) {
+  const n = Number(sessions) || 0, rate = roomRateFor(dateISO);
+  const gap = roomGapMinutes(startTime, n, dateISO);
+  const extra = roomGapExtraFor(dateISO, gap);
+  return { rate, sessions: n, base: rate * n, gapMinutes: gap, extra, total: rate * n + extra };
+}
+
 export function roomKey(dateISO) {
   return `roombookings:${dateISO}`;
 }
@@ -283,7 +321,7 @@ export function validateRoomRequest(body, { admin = false } = {}) {
   const rate = roomRateFor(dateISO);
   const attribution = admin ? {} : cleanAttribution(body.attribution);
   // Admin may set its own price (discount, deal by phone); empty -> by the rate.
-  let price = technical ? 0 : rate * hours;
+  let price = technical ? 0 : roomPriceFor(dateISO, startTime, hours);
   if (admin && !technical && body.price !== undefined && String(body.price).trim() !== '') {
     const p = Number(String(body.price).replace(',', '.').trim());
     if (!Number.isFinite(p) || p < 0 || p > 100000) return { ok: false, status: 400, error: 'Проверьте цену.' };
@@ -306,6 +344,7 @@ export function validateRoomRequest(body, { admin = false } = {}) {
     sessions: hours,
     times,
     rate,
+    gapExtra: technical ? 0 : roomPriceParts(dateISO, startTime, hours).extra, // доплата за перерывы (входит в price по тарифу)
     price, // the room only — a hosted game is priced separately by phone
     hostGame: technical ? '' : hostGame,
     hostGameLabel: technical ? '' : gameKeys.map((k) => HOST_GAMES[k]).join(' + '),
@@ -357,19 +396,32 @@ export async function releaseRoomHours(record) {
   }
 }
 
+function sessionsWordRu(n) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return `${n} сеанс`;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} сеанса`;
+  return `${n} сеансов`;
+}
+// «Цена: 175 Br (2 сеанса × 70 Br + 35 Br за перерывы между сеансами)»
+function roomTgPriceLine(record) {
+  const p = roomPriceParts(record.dateISO, record.startTime, record.hours);
+  const byTariff = `${sessionsWordRu(p.sessions)} × ${p.rate} Br${p.extra ? ` + ${p.extra} Br за перерывы между сеансами` : ''}`;
+  return Number(record.price) === p.total
+    ? `Цена: ${record.price} Br (${byTariff})`
+    : `Цена: ${record.price} Br (договорная; по тарифу было бы ${p.total} Br: ${byTariff})`;
+}
+
 export function roomBookingTelegramText(record) {
   if (record.technical) {
-    return `ТЕХНИЧЕСКАЯ БРОНЬ — LOONY ROOM (добавлена в админке)\n\nДата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>\nВремя: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${hoursLabel(record.hours)})${record.comment ? `\nКомментарий: ${escapeTgHtml(record.comment)}` : ''}`;
+    return `ТЕХНИЧЕСКАЯ БРОНЬ — LOONY ROOM (добавлена в админке)\n\nДата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>\nВремя: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${sessionsWordRu(record.hours)})${record.comment ? `\nКомментарий: ${escapeTgHtml(record.comment)}` : ''}`;
   }
   const fields = [
     `Дата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>`,
-    `Время: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${hoursLabel(record.hours)})`,
+    `Время: <b>${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${sessionsWordRu(record.hours)})`,
     `Имя: ${escapeTgHtml(record.name)}`,
     tgPhoneLine(record.phone),
     record.hostGameLabel ? `Доп. опция: ${escapeTgHtml(record.hostGameLabel)} (цену уточнить)` : null,
-    Number(record.price) === record.rate * record.hours
-      ? `Цена: ${record.price} Br (${hoursLabel(record.hours)} × ${record.rate} Br)`
-      : `Цена: ${record.price} Br (договорная; по тарифу было бы ${record.rate * record.hours} Br)`,
+    roomTgPriceLine(record),
     record.createdBy === 'admin' || ROOM_AGGREGATOR_CHANNELS.includes(record.channel) ? `Откуда: ${escapeTgHtml(record.channel || '')}` : null,
     record.email ? `Email: ${escapeTgHtml(record.email)}` : null,
     record.comment ? `Комментарий: ${escapeTgHtml(record.comment)}` : null,
@@ -481,11 +533,11 @@ function hoursWordRu(n) {
 }
 
 // Варианты для одного времени начала: [{ hours, label, price }], label —
-// «1 час · до 19:00», «2 часа · до 20:30» (агрегатор вернёт его в тарифе).
+// «1 сеанс», «2 сеанса» (агрегатор вернёт его в тарифе).
 export function roomPackagesFor(dateISO, startTime, busy) {
-  const rate = roomRateFor(dateISO);
   const max = roomMaxHours(busy, startTime, dateISO);
-  return Array.from({ length: max }, (_, i) => ({ hours: i + 1, label: `${hoursWordRu(i + 1)} · до ${endTimeFor(startTime, i + 1, dateISO)}`, price: rate * (i + 1) }));
+  // 18.11.2026: подпись — число сеансов, без «до скольки»; цена — с доплатой за перерывы
+  return Array.from({ length: max }, (_, i) => ({ hours: i + 1, label: sessionsWordRu(i + 1), price: roomPriceFor(dateISO, startTime, i + 1) }));
 }
 
 // Расписание для агрегатора: одна запись на каждое время начала из сетки.
@@ -521,11 +573,18 @@ export function aggregatorHours({ hours, duration, tariff, price }, dateISO) {
     const fromDur = d > ROOM_MAX_HOURS ? Math.round((d + step - ROOM_SESSION_MINUTES) / step) : Math.round(d);
     if (fromDur >= 1 && fromDur <= ROOM_MAX_HOURS) return fromDur;
   }
-  const m = typeof tariff === 'string' ? tariff.match(/(\d+)\s*ч/i) : null;
+  const m = typeof tariff === 'string' ? tariff.match(/(\d+)\s*(ч|сеанс)/i) : null;
   if (m) { const n = Number(m[1]); if (n >= 1 && n <= ROOM_MAX_HOURS) return n; }
   const p = asInt(price);
   const rate = roomRateFor(dateISO);
-  if (Number.isFinite(p) && p >= rate) { const n = Math.round(p / rate); if (n >= 1 && n <= ROOM_MAX_HOURS) return n; }
+  if (Number.isFinite(p) && p >= rate) {
+    // 18.11.2026: цена включает доплату за перерывы — ищем ближайшее число сеансов
+    // (по первому сеансу дня: доплата зависит только от числа сеансов и сетки дня)
+    const first = roomStartsFor(dateISO)[1];
+    let best = 1, diff = Infinity;
+    for (let n = 1; n <= ROOM_MAX_HOURS; n++) { const d = Math.abs(roomPriceFor(dateISO, first, n) - p); if (d < diff) { diff = d; best = n; } }
+    return best;
+  }
   return 1;
 }
 

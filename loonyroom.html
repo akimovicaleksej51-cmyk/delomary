@@ -654,7 +654,7 @@
         <div class="per">за час</div>
       </div>
     </div>
-    <p class="price-fine">От 1 часа, с 10:30 до 23:30 (в выходные до 23:40). Например, с 18:00 до 20:30 в будний день — 140 Br.</p>
+    <p class="price-fine">От 1 часа, с 10:30 до 23:30 (в выходные до 23:40). Например, 2 сеанса подряд с 18:00 в будний день — 175 Br.</p>
   </div>
 </section>
 
@@ -811,6 +811,26 @@
     if (m10 === 1 && m100 !== 11) return n + ' час';
     if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' часа';
     return n + ' часов';
+  }
+  function sessionsWord(n){
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return n + ' сеанс';
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + ' сеанса';
+    return n + ' сеансов';
+  }
+  // 18.11.2026: цена = сеансы + время между ними (гости не уходят на уборку).
+  // Будни: каждые 30 мин перерыва = 35 Br. Выходные: полный час 90 Br,
+  // остаток 20 мин — бесплатно, 40 мин — 50 Br. Как roomPriceFor() в api/_rooms.js.
+  function gapExtraFor(iso, gap){
+    const rate = rateFor(iso), full = Math.floor(gap / 60), rem = gap % 60;
+    let part = 0;
+    if (rem >= 40) part = isWeekend(iso) ? 50 : rate;
+    else if (rem >= 30) part = Math.round(rate / 2);
+    return full * rate + part;
+  }
+  function priceFor(iso, time, n){
+    const gap = n > 1 ? Math.max(0, tMin(endOf(time, n, iso)) - tMin(time) - n * SESSION_MIN) : 0;
+    return rateFor(iso) * n + gapExtraFor(iso, gap);
   }
   // Конец брони из n сеансов подряд, начиная с `time` в день `iso`: начало последнего + 1 час.
   function endOf(time, n, iso){
@@ -987,12 +1007,14 @@
     }
     const hours = selCount();
     const start = selStart();
-    $('sumTime').textContent = start + '–' + endOf(start, hours);
-    $('sumHint').textContent = (hours > 1 ? hours + ' × ' + rate + ' Br' : rate + ' Br') + (selectedGame() ? ' + ведущий отдельно' : '');
-    setPrice(hours * rate);
-    btn.disabled = false; btn.textContent = 'Забронировать · ' + (hours * rate) + ' Br';
-    $('rbFloatText').textContent = start + '–' + endOf(start, hours) + ' · оформить';
-    $('rbFloatPrice').textContent = (hours * rate) + ' Br';
+    // 18.11.2026: начало и число сеансов, без «до скольки»; сумма — итоговая
+    const total = priceFor(selectedDate, start, hours);
+    $('sumTime').textContent = 'с ' + start + ' · ' + sessionsWord(hours);
+    $('sumHint').textContent = selectedGame() ? 'ведущий оплачивается отдельно' : '';
+    setPrice(total);
+    btn.disabled = false; btn.textContent = 'Забронировать · ' + total + ' Br';
+    $('rbFloatText').textContent = 'с ' + start + ' · ' + sessionsWord(hours) + ' · оформить';
+    $('rbFloatPrice').textContent = total + ' Br';
   }
   function setPrice(v){
     const el = $('sumPrice');
@@ -1078,8 +1100,8 @@
       });
       const out = await r.json().catch(() => ({}));
       if (r.ok && out.ok){
-        const b = out.booking || { dateISO: selectedDate, startTime, endTime: endOf(startTime, hours), hours, price: hours * rateFor(selectedDate) };
-        showMsg('Заявка принята: ' + escapeHtml(dayLabel(b.dateISO)) + ', ' + escapeHtml(b.startTime) + '–' + escapeHtml(b.endTime) +
+        const b = out.booking || { dateISO: selectedDate, startTime, hours, price: priceFor(selectedDate, startTime, hours) };
+        showMsg('Заявка принята: ' + escapeHtml(dayLabel(b.dateISO)) + ', с ' + escapeHtml(b.startTime) + ', ' + sessionsWord(Number(b.hours) || hours) +
           ', ' + b.price + ' Br' + (b.hostGameLabel ? ' + ' + escapeHtml(b.hostGameLabel.toLowerCase()) : '') +
           '. Мы позвоним, чтобы подтвердить бронь.', false);
         sel = null;

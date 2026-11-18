@@ -162,7 +162,8 @@ export function roomReceiptText(record) {
   const details = [];
   if (n) details.push(`${n} ${sessionsWord(n)}`);
   if (record.price) details.push(`${record.price} Br`);
-  return `Loony Room: заявка на ${when}, ${record.startTime}–${record.endTime} принята`
+  // 18.11.2026: без «до скольки» — только начало, число сеансов и сумма
+  return `Loony Room: заявка на ${when}, с ${record.startTime} принята`
     + (details.length ? ` (${details.join(', ')})` : '')
     + `. Скоро позвоним для подтверждения. ${SMS_PHONE}`;
 }
@@ -254,7 +255,7 @@ export function roomAdminText(record) {
   const details = [];
   if (n) details.push(`${n} ${sessionsWord(n)}`);
   if (record.price !== undefined && record.price !== '' && Number(record.price) > 0) details.push(`${record.price} Br`);
-  return `Loony Room: бронь на ${when}, ${record.startTime}–${record.endTime} подтверждена`
+  return `Loony Room: бронь на ${when}, с ${record.startTime} подтверждена`
     + (details.length ? ` (${details.join(', ')})` : '')
     + `. Ждём вас! ${SMS_PHONE}`;
 }

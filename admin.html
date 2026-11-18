@@ -5709,6 +5709,16 @@
     for (let k = idx; k < st.length && roomMinOf(st[k]) + ROOM_SESSION_MIN <= limit; k++) n++;
     return n;
   }
+  // 18.11.2026: цена = сеансы + время между ними (гости не уходят на уборку).
+  // Будни: каждые 30 мин = 35 Br; выходные: полный час 90 Br, остаток 20 мин —
+  // бесплатно, 40 мин — 50 Br. Как roomPriceFor() в api/_rooms.js.
+  function roomPriceParts(iso, t, n){
+    const rate = roomRateFor(iso), we = rate === ROOM_RATE_WE;
+    const gap = n > 1 ? Math.max(0, roomMinOf(roomEndOf(t, n, iso)) - roomMinOf(t) - n * ROOM_SESSION_MIN) : 0;
+    const full = Math.floor(gap / 60), rem = gap % 60;
+    const extra = full * rate + (rem >= 40 ? (we ? 50 : rate) : rem >= 30 ? Math.round(rate / 2) : 0);
+    return { rate, base: rate * n, gap, extra, total: rate * n + extra };
+  }
   function roomSessionsWord(n){
     const m10 = n % 10, m100 = n % 100;
     if (m10 === 1 && m100 !== 11) return n + ' сеанс';
@@ -5724,7 +5734,7 @@
         <div class="ra-grid">
           <div class="room-form-row ra-date"><span class="rf-label">Дата</span><input type="date" class="ra-date-in" value="${today}" min="${roomShiftISO(today, -31)}" max="${roomShiftISO(today, 59)}"></div>
           <div class="room-form-row"><span class="rf-label">Начало</span><select class="ra-start"></select></div>
-          <div class="room-form-row"><span class="rf-label">До скольки</span><select class="ra-hours"></select></div>
+          <div class="room-form-row"><span class="rf-label">Сколько сеансов</span><select class="ra-hours"></select></div>
         </div>
         <div class="ra-busy"></div>
         <div class="ra-grid2 ra-guest">
@@ -5759,15 +5769,15 @@
     const updatePrice = () => {
       const iso = q('.ra-date-in').value, n = Number(q('.ra-hours').value) || 0;
       if (!iso || !n) { q('.ra-hint').textContent = ''; return; }
-      const rate = roomRateFor(iso), byRate = rate * n;
+      const pp = roomPriceParts(iso, q('.ra-start').value, n), rate = pp.rate, byRate = pp.total;
       if (!priceTouched) q('.ra-price').value = String(byRate);
-      q('.ra-hint').innerHTML = `По тарифу: <b>${byRate} Br</b> (${roomSessionsWord(n)} × ${rate} Br, ${rate === ROOM_RATE_WE ? 'выходной' : 'будний день'}). Цену можно поменять — например, при скидке.`;
+      q('.ra-hint').innerHTML = `По тарифу: <b>${byRate} Br</b> (${roomSessionsWord(n)} × ${rate} Br${pp.extra ? ` + ${pp.extra} Br за перерывы между сеансами — ${pp.gap} мин` : ''}, ${rate === ROOM_RATE_WE ? 'выходной' : 'будний день'}). Цену можно поменять — например, при скидке.`;
     };
     const fillHours = () => {
       const iso = q('.ra-date-in').value, start = q('.ra-start').value;
       const prev = Number(q('.ra-hours').value) || 2;
       const max = start ? roomMaxHoursAt(iso, start) : 0;
-      q('.ra-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(prev, max) ? ' selected' : ''}>до ${roomEndOf(start, i + 1, iso)} · ${roomSessionsWord(i + 1)}</option>`).join('') : '<option value="">занято</option>';
+      q('.ra-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(prev, max) ? ' selected' : ''}>${roomSessionsWord(i + 1)}</option>`).join('') : '<option value="">занято</option>';
       updatePrice();
     };
     const fillStarts = () => {
