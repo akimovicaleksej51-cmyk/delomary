@@ -1188,7 +1188,29 @@
 
   // ---- Старт ----
   renderDays(); renderHours(); renderSummary();
-  loadAvailability().then(() => { renderDays(); renderHours(); });
+  // 18.11.2026: переход со страницы квеста «комната после игры» —
+  // /loonyroom?date=2026-11-25&start=19:30&n=1 сразу выбирает день и сеансы.
+  function applyPreselect(){
+    try {
+      const q = new URLSearchParams(location.search);
+      const d = q.get('date'), t = q.get('start'), n = Math.max(1, Math.min(10, Number(q.get('n')) || 1));
+      if (!d || !t || !/^\d{4}-\d{2}-\d{2}$/.test(d) || d < todayISO || d > lastISO) return;
+      const st = startsFor(d), i = st.indexOf(t);
+      if (i === -1 || !canStart(d, t)) { selectedDate = d; return true; }
+      selectedDate = d;
+      const k = Math.min(n, maxHours(d, t));
+      sel = { a: i, b: i + k - 1 };
+      return true;
+    } catch (e) { return false; }
+  }
+  loadAvailability().then(() => {
+    const pre = applyPreselect();
+    renderDays(); renderHours(); renderSummary();
+    if (pre){
+      const sec = document.getElementById('room-booking');
+      if (sec){ sec.classList.add('in'); setTimeout(() => sec.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150); }
+    }
+  });
 })();
 </script>
 <script defer src="/assets/js/fx.js"></script>

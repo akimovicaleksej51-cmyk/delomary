@@ -602,6 +602,20 @@
   .confirm-msg.show{display:block; animation:slidein .3s ease;}
   .confirm-msg.err{background:rgba(224,106,106,0.08); border-color:#e06a6a; color:#e06a6a;}
   .hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
+  /* 18.11.2026: после брони квеста — предложение комнаты отдыха на время после игры */
+  .room-offer{margin-top:12px; padding:16px 18px; border-radius:14px; background:var(--black-2, #0c0c0c); border:1px solid rgba(245,197,24,.28);
+    font-family:var(--sans); color:var(--paper); animation:slidein .3s ease;}
+  .room-offer[hidden]{display:none;}
+  .room-offer .ro-k{font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--ochre-bright); margin-bottom:6px;}
+  .room-offer .ro-t{font-size:16px; font-weight:700; line-height:1.35; margin-bottom:4px;}
+  .room-offer .ro-s{font-size:14px; color:var(--muted); line-height:1.45; margin-bottom:12px;}
+  .room-offer .ro-opts{display:flex; gap:8px; flex-wrap:wrap;}
+  .room-offer .ro-opt{display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:12px; text-decoration:none; font-weight:700; font-size:14px;
+    border:1px solid rgba(245,197,24,.45); color:var(--paper); background:rgba(245,197,24,.06); transition:background-color .15s, border-color .15s;}
+  .room-offer .ro-opt b{color:var(--ochre-bright);}
+  .room-offer .ro-opt.main{background:var(--ochre-bright); color:#151004; border-color:var(--ochre-bright);}
+  .room-offer .ro-opt.main b{color:#151004;}
+  @media (hover:hover){ .room-offer .ro-opt:hover{border-color:var(--ochre-bright); background:rgba(245,197,24,.14);} .room-offer .ro-opt.main:hover{background:#ffd84d;} }
   .submit-btn:disabled{opacity:.6; cursor:not-allowed; transform:none;}
   @keyframes slidein{from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:translateY(0);}}
   .fine{font-family:var(--sans); font-size:12.5px; color:var(--muted); margin-top:16px; line-height:1.6;}
@@ -1634,6 +1648,7 @@
         <button class="submit-btn submit-btn-inline" id="submitBtn">Отправить заявку на бронь</button>
       </div>
       <div class="confirm-msg" id="confirmMsg"></div>
+      <div class="room-offer" id="roomOffer" hidden></div>
       <div class="fine">Комиссия с игроков за бронирование на сайте не взимается. Оплата на месте. Тарифная сетка построена по структуре цен квеста (диапазоны 1–2 / 3–4 / 5 / 6 игроков) от базовой стоимости «от 140 <span class="byn-icon"></span>» — точную цену и время на выбранную дату всегда подтверждает администратор при звонке.</div>
     </div>
   </div>
@@ -2535,6 +2550,62 @@
     if (field) field.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitBtn.click(); } });
   });
 
+  // ---- 18.11.2026: «Комната отдыха после игры» ----
+  // После брони квеста показываем ближайший свободный сеанс комнаты, который
+  // начинается не раньше конца игры (игра — 1 час), и сразу цену. Сетка и
+  // цены — как в api/_rooms.js (сетку и занятость отдаёт сервер, тариф и
+  // доплата за перерывы — здесь, как в loonyroom.html).
+  const ROOM_OFFER_RATE_WD = 70, ROOM_OFFER_RATE_WE = 90, QUEST_GAME_MIN = 60;
+  function roHide(){ const el = document.getElementById('roomOffer'); if (el){ el.hidden = true; el.innerHTML = ''; } }
+  function hideRoomOffer(){ roHide(); }
+  function roMin(t){ const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; }
+  function roTime(m){ return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
+  function roSess(n){ const a = n % 10, b = n % 100; return n + ' ' + (a === 1 && b !== 11 ? 'сеанс' : (a >= 2 && a <= 4 && (b < 12 || b > 14)) ? 'сеанса' : 'сеансов'); }
+  async function showRoomOffer(dateISO, gameTime){
+    roHide();
+    try {
+      const r = await fetch('/api/lead?action=roomAvailability', { cache: 'no-store' });
+      const av = await r.json().catch(() => ({}));
+      if (!r.ok || !av || !Array.isArray(av.starts)) return;
+      const [y, mo, d] = dateISO.split('-').map(Number);
+      const wd = new Date(Date.UTC(y, mo - 1, d)).getUTCDay(), weekend = wd === 0 || wd === 6;
+      const starts = weekend && dateISO >= (av.weekendFrom || '9999') && Array.isArray(av.weekendStarts) ? av.weekendStarts : av.starts;
+      const SES = Number(av.session) || 60, CLEAN = Number(av.cleanup) || 20;
+      const busy = (av.busy && av.busy[dateISO]) || [];
+      const rate = weekend ? ROOM_OFFER_RATE_WE : ROOM_OFFER_RATE_WD;
+      const endOf = (t, n) => { const i = starts.indexOf(t); return roMin(starts[Math.min(starts.length - 1, i + n - 1)]) + SES; };
+      const maxAt = (t) => {
+        const idx = starts.indexOf(t), s0 = roMin(t);
+        if (idx === -1 || busy.some(([bs, be]) => s0 >= bs && s0 < be)) return 0;
+        let limit = Infinity; busy.forEach(([bs]) => { if (bs > s0) limit = Math.min(limit, bs - CLEAN); });
+        let n = 0; for (let k = idx; k < starts.length && roMin(starts[k]) + SES <= limit; k++) n++;
+        return n;
+      };
+      const price = (t, n) => {
+        const gap = n > 1 ? Math.max(0, endOf(t, n) - roMin(t) - n * SES) : 0;
+        const full = Math.floor(gap / 60), rem = gap % 60;
+        return rate * n + full * rate + (rem >= 40 ? (weekend ? 50 : rate) : rem >= 30 ? Math.round(rate / 2) : 0);
+      };
+      const gameEnd = roMin(gameTime) + QUEST_GAME_MIN;
+      // первый сеанс комнаты не раньше конца игры и не позже чем через 1,5 часа после неё
+      const start = starts.find((t) => roMin(t) >= gameEnd && roMin(t) - gameEnd <= 90 && maxAt(t) > 0);
+      if (!start) return;
+      const max = Math.min(maxAt(start), 3);
+      const link = (n) => '/loonyroom?date=' + encodeURIComponent(dateISO) + '&start=' + encodeURIComponent(start) + '&n=' + n;
+      const opts = [];
+      for (let n = 1; n <= max; n++){
+        opts.push('<a class="ro-opt' + (n === 1 ? ' main' : '') + '" href="' + link(n) + '">' + roSess(n) + ' · <b>' + price(start, n) + ' Br</b></a>');
+      }
+      const el = document.getElementById('roomOffer');
+      if (!el) return;
+      el.innerHTML = '<div class="ro-k">После игры</div>' +
+        '<div class="ro-t">Комната отдыха свободна с ' + start + '</div>' +
+        '<div class="ro-s">Отметить квест: караоке, проектор, PlayStation и Just Dance. 1 сеанс = 1 час, ' + rate + ' Br/час' + (weekend ? ' в выходные' : ' в будни') + '.</div>' +
+        '<div class="ro-opts">' + opts.join('') + '</div>';
+      el.hidden = false;
+    } catch (e) { /* без комнаты — бронь квеста уже прошла, это просто предложение */ }
+  }
+
   submitBtn.addEventListener('click', async ()=>{
     const msg = document.getElementById('confirmMsg');
     const nameField = document.getElementById('bookName');
@@ -2556,6 +2627,7 @@
     const comment = commentField.value.trim();
 
     msg.classList.remove('show', 'err');
+    hideRoomOffer();
 
     if(!name || phoneDigitCount(localPhone) !== 9){
       msg.textContent = 'Укажите имя и телефон полностью — без них мы не сможем перезвонить.';
@@ -2613,6 +2685,7 @@
         phoneField.value = '';
         commentField.value = '';
         animatorCheck.checked = false;
+        if (!night) showRoomOffer(bookISO, timeText);
       } else if(res.status === 409 || out.conflict){
         msg.textContent = out.error || 'Это время только что заняли — пожалуйста, выберите другое.';
         msg.classList.add('show', 'err');

@@ -874,6 +874,11 @@
   .shift-sub{font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.35;}
   .noncash-day{all:unset; box-sizing:border-box; display:block; width:100%; cursor:pointer; background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px; padding:12px 14px; margin:0 0 18px;}
   .noncash-day[hidden]{display:none;}
+  .summary-send{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:var(--black-3); border:1px solid #2a2a2a; border-radius:12px; padding:12px 14px; margin:0 0 6px;}
+  .summary-send-text{display:flex; flex-direction:column; gap:3px; min-width:0; flex:1 1 220px; font-size:13.5px;}
+  .summary-send-text span{color:var(--muted); font-size:12.5px; line-height:1.4;}
+  .summary-send .btn-secondary{padding:9px 14px; font-size:13px;}
+  #summarySendMsg{margin:0 0 14px;}
   .noncash-day:focus-visible{outline:2px solid var(--ochre-bright); outline-offset:2px;}
   .nc-head{display:grid; grid-template-columns:1fr auto 16px; gap:12px; align-items:center;}
   .nc-title{font-weight:800; font-size:14px; color:var(--paper);}
@@ -1529,6 +1534,13 @@
     <!-- 04.11.2026: безнал за день (с 01:00 до 01:00), только в админке менеджеров -->
     <button type="button" class="noncash-day" id="nonCashDay" aria-expanded="false" hidden></button>
 
+    <!-- 18.11.2026: сводка за день Наташе в Telegram (сама приходит каждую ночь в 00:00–01:00) -->
+    <div class="summary-send">
+      <div class="summary-send-text"><b>Сводка за день</b><span>приходит Наташе в Telegram каждую ночь (00:00–01:00): выручка, нал/безнал, игры, сеансы, что без сверки</span></div>
+      <button type="button" class="btn-secondary" id="summarySendBtn">Прислать сейчас</button>
+    </div>
+    <div class="modal-msg" id="summarySendMsg"></div>
+
     <div class="cash-count">
       <div class="cash-count-head">
         <span class="cash-count-title">Пересчёт кассы</span>
@@ -1811,6 +1823,19 @@
     return ({ NOT_CONFIGURED: 'в Vercel не заданы ROCKETSMS_LOGIN / ROCKETSMS_PASSWORD', DISABLED: 'квитанции выключены',
       BAD_PHONE: 'неправильный номер телефона', TIMEOUT: 'RocketSMS не ответил вовремя', FAILED: 'ошибка RocketSMS' })[code] || ('ответ RocketSMS: ' + (code || 'ошибка'));
   }
+  // 18.11.2026: «Прислать сводку сейчас» (Касса)
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('#summarySendBtn'); if (!btn) return;
+    const msg = document.getElementById('summarySendMsg');
+    btn.disabled = true; msg.textContent = 'Отправляем…'; msg.className = 'modal-msg';
+    try{
+      const res = await fetch('/api/admin/finance', { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'sendSummary' }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok){ msg.textContent = out.error || 'Не удалось отправить сводку.'; msg.className = 'modal-msg err'; }
+      else { msg.textContent = 'Сводка отправлена Наташе в Telegram.'; msg.className = 'modal-msg ok'; }
+    } catch(err){ msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg err'; }
+    btn.disabled = false;
+  });
   function authHeaders(){
     return { 'Content-Type':'application/json', 'X-Admin-Password': adminPassword || '' };
   }
@@ -5512,7 +5537,11 @@
         html += `<div class="room-card tech" data-room-card="${escapeHtml(b.bookingId)}">
         <div class="room-card-top"><span class="room-time">${escapeHtml(b.startTime)}–${escapeHtml(b.endTime)}</span><span class="room-tech-tag">Техническая · ${b.sessions ? roomSessWord(Number(b.sessions)) : roomHoursWord(Number(b.hours) || 0)}</span></div>
         ${b.comment ? `<div class="room-meta">${escapeHtml(b.comment)}</div>` : '<div class="room-meta">Сеансы закрыты</div>'}
-        ${ROOM_CAN_CANCEL ? `<div class="room-actions"><button type="button" class="btn-secondary room-cancel" data-date="${escapeHtml(b.dateISO)}" data-id="${escapeHtml(b.bookingId)}">Открыть сеансы (отменить)</button></div>` : ''}
+        <div class="room-actions">
+          <button type="button" class="btn-secondary room-move-btn" data-id="${escapeHtml(b.bookingId)}">Перенести</button>
+          ${ROOM_CAN_CANCEL ? `<button type="button" class="btn-secondary room-cancel" data-date="${escapeHtml(b.dateISO)}" data-id="${escapeHtml(b.bookingId)}">Открыть сеансы (отменить)</button>` : ''}
+        </div>
+        ${roomMoveOpen === b.bookingId ? roomMoveHtml(b) : ''}
       </div>`;
         return;
       }
@@ -5529,14 +5558,18 @@
         <div class="room-actions">
           ${started || done ? `<button type="button" class="btn-secondary room-sverka-btn" data-id="${escapeHtml(b.bookingId)}">${done ? 'Изменить сверку' : 'Провести сверку'}</button>` : ''}
           ${done ? `<button type="button" class="btn-secondary room-reset" data-date="${escapeHtml(b.dateISO)}" data-id="${escapeHtml(b.bookingId)}">Сбросить сверку</button>` : ''}
+          ${!done ? `<button type="button" class="btn-secondary room-move-btn" data-id="${escapeHtml(b.bookingId)}">Перенести</button>` : ''}
           ${ROOM_CAN_CANCEL && !started && !done ? `<button type="button" class="btn-secondary room-cancel" data-date="${escapeHtml(b.dateISO)}" data-id="${escapeHtml(b.bookingId)}">Отменить бронь</button>` : ''}
         </div>
         ${roomOpenForm === b.bookingId ? roomFormHtml(b) : ''}
+        ${roomMoveOpen === b.bookingId ? roomMoveHtml(b) : ''}
       </div>`;
     });
     roomBookingsList.innerHTML = html;
-    const form = roomBookingsList.querySelector('.room-form');
+    const form = roomBookingsList.querySelector('.room-form:not(.room-move)');
     if (form) bindRoomForm(form);
+    const moveForm = roomBookingsList.querySelector('.room-move');
+    if (moveForm) bindRoomMove(moveForm);
     // Общий список держим в курсе: добавили/отменили/сверили комнату — видно сразу.
     if (roomDataLoaded){ mainRoomRows = roomBookingsData.slice(); renderList(); if (roomBookingsOverlay.classList.contains('show')) loadRoomMonth(); }
   }
@@ -5672,9 +5705,92 @@
     }
     run();
   }
+  // ---- 18.11.2026: перенос брони комнаты ----
+  var roomMoveOpen = ''; // var: renderRoomBookings() может вызваться раньше этой строки
+  function roomMoveHtml(b){
+    const today = todayISO();
+    const n = Number(b.sessions || b.hours) || 1;
+    return `<div class="room-form room-move" data-id="${escapeHtml(b.bookingId)}">
+      <div class="rf-label" style="margin-bottom:4px;">Перенести бронь${b.technical ? '' : ` — ${escapeHtml(b.name || 'гость')}`}</div>
+      <div class="ra-grid">
+        <div class="room-form-row"><span class="rf-label">Новая дата</span><input type="date" class="rm-date" value="${escapeHtml(b.dateISO)}" min="${roomShiftISO(today, -31)}" max="${roomShiftISO(today, 59)}"></div>
+        <div class="room-form-row"><span class="rf-label">Начало</span><select class="rm-start"></select></div>
+        <div class="room-form-row"><span class="rf-label">Сколько сеансов</span><select class="rm-hours" data-n="${n}"></select></div>
+      </div>
+      <div class="ra-busy rm-busy"></div>
+      ${b.technical ? '' : `<div class="ra-hint rm-hint"></div>
+      <label class="sms-check"><input type="checkbox" class="rm-recalc"> Пересчитать цену по тарифу новой даты</label>
+      ${b.phone ? '<label class="sms-check"><input type="checkbox" class="rm-sms" checked> Отправить гостю SMS о новом времени</label>' : ''}`}
+      <div class="room-form-actions"><button type="button" class="btn rm-save">Перенести</button><button type="button" class="btn-secondary rm-close">Отмена</button></div>
+      <div class="modal-msg rm-msg"></div>
+    </div>`;
+  }
+  function bindRoomMove(form){
+    const b = roomBookingsData.find(x => x.bookingId === form.dataset.id);
+    if (!b) return;
+    const q = (sel) => form.querySelector(sel);
+    const updHint = () => {
+      const hint = q('.rm-hint'); if (!hint) return;
+      const iso = q('.rm-date').value, t = q('.rm-start').value, n = Number(q('.rm-hours').value) || 0;
+      if (!iso || !t || !n){ hint.textContent = ''; return; }
+      const pp = roomPriceParts(iso, t, n);
+      const recalc = q('.rm-recalc').checked;
+      hint.innerHTML = recalc
+        ? `Новая цена по тарифу: <b>${pp.total} Br</b> (было ${roomNum(b.price)} Br).`
+        : `Цена останется <b>${roomNum(b.price)} Br</b>.${pp.total !== roomNum(b.price) ? ` По тарифу новой даты было бы ${pp.total} Br — поставьте галочку ниже, если нужно пересчитать.` : ''}`;
+    };
+    const fillHours = () => {
+      const iso = q('.rm-date').value, t = q('.rm-start').value;
+      const want = Number(q('.rm-hours').dataset.n) || 1;
+      const max = t ? roomMaxHoursAt(iso, t, b.bookingId) : 0;
+      q('.rm-hours').innerHTML = max ? Array.from({ length: max }, (_, i) => `<option value="${i + 1}"${i + 1 === Math.min(want, max) ? ' selected' : ''}>${roomSessionsWord(i + 1)}</option>`).join('') : '<option value="">нет свободных сеансов</option>';
+      updHint();
+    };
+    const fillStarts = () => {
+      const iso = q('.rm-date').value;
+      const st = roomStartsFor(iso);
+      const free = st.filter(t => roomMaxHoursAt(iso, t, b.bookingId) > 0);
+      const prev = q('.rm-start').value || b.startTime;
+      q('.rm-start').innerHTML = st.map(t => { const off = !free.includes(t); return `<option value="${t}"${off ? ' disabled' : ''}>${t}${off ? ' — занято' : ''}</option>`; }).join('');
+      const pick = free.includes(prev) ? prev : free[0];
+      if (pick !== undefined) q('.rm-start').value = pick;
+      const busy = roomDayBookings(iso, b.bookingId).sort((a, c) => roomMinOf(a.startTime) - roomMinOf(c.startTime)).map(x => `${x.startTime}–${x.endTime}`);
+      q('.rm-busy').innerHTML = !iso ? '' : busy.length ? `Уже занято в этот день: <b>${busy.join(', ')}</b>` : 'В этот день комната свободна весь день.';
+      fillHours();
+    };
+    q('.rm-date').addEventListener('change', fillStarts);
+    q('.rm-start').addEventListener('change', fillHours);
+    q('.rm-hours').addEventListener('change', () => { q('.rm-hours').dataset.n = q('.rm-hours').value; updHint(); });
+    if (q('.rm-recalc')) q('.rm-recalc').addEventListener('change', updHint);
+    q('.rm-close').addEventListener('click', () => { roomMoveOpen = ''; renderRoomBookings(); });
+    q('.rm-save').addEventListener('click', async (e) => {
+      const btn = e.currentTarget, msg = q('.rm-msg');
+      const toDateISO = q('.rm-date').value, toStartTime = q('.rm-start').value, sessions = Number(q('.rm-hours').value) || 0;
+      if (!toDateISO || !toStartTime || !sessions){ msg.textContent = 'Выберите дату, начало и число сеансов.'; msg.className = 'modal-msg rm-msg err'; return; }
+      btn.disabled = true; msg.textContent = '';
+      try{
+        const res = await fetch('/api/admin/bookings', { method:'POST', headers: authHeaders(), body: JSON.stringify({
+          action:'rescheduleRoomBooking', dateISO: b.dateISO, bookingId: b.bookingId, toDateISO, toStartTime, sessions,
+          recalcPrice: !!(q('.rm-recalc') && q('.rm-recalc').checked), sendSms: !!(q('.rm-sms') && q('.rm-sms').checked) }) });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok){ msg.textContent = out.error || 'Не удалось перенести.'; msg.className = 'modal-msg rm-msg err'; btn.disabled = false; return; }
+        roomBookingsData = out.roomBookings || roomBookingsData;
+        roomMoveOpen = '';
+        const nb = out.booking || {};
+        const smsNote = out.sms ? (out.sms.ok ? ' SMS гостю отправлено.' : ' SMS не отправилось — проверьте «SMS-квитанции».') : '';
+        roomBookingsMsg.textContent = `Бронь перенесена: ${formatDateHeading(nb.dateISO || toDateISO)}, ${nb.startTime || toStartTime}–${nb.endTime || ''}, ${roomNum(nb.price)} Br.${smsNote}`;
+        roomBookingsMsg.className = 'modal-msg ok';
+        if (nb.dateISO){ roomTab = nb.dateISO < todayISO() ? 'past' : 'upcoming'; document.querySelectorAll('[data-room-tab]').forEach(t => t.classList.toggle('active', t.dataset.roomTab === roomTab)); }
+        renderRoomBookings();
+      } catch(err){ msg.textContent = 'Ошибка сети. Попробуйте ещё раз.'; msg.className = 'modal-msg rm-msg err'; btn.disabled = false; }
+    });
+    fillStarts();
+  }
   roomBookingsList.addEventListener('click', (e) => {
+    const mv = e.target.closest('.room-move-btn');
+    if (mv){ roomMoveOpen = roomMoveOpen === mv.dataset.id ? '' : mv.dataset.id; roomOpenForm = ''; renderRoomBookings(); return; }
     const sv = e.target.closest('.room-sverka-btn');
-    if (sv){ roomOpenForm = roomOpenForm === sv.dataset.id ? '' : sv.dataset.id; renderRoomBookings(); return; }
+    if (sv){ roomOpenForm = roomOpenForm === sv.dataset.id ? '' : sv.dataset.id; roomMoveOpen = ''; renderRoomBookings(); return; }
     const rs = e.target.closest('.room-reset');
     if (rs){ armOrRun(rs, 'Точно сбросить? Ещё раз', () => roomPost({ action:'cancelRoomCloseout', dateISO: rs.dataset.date, bookingId: rs.dataset.id }, 'Сверка сброшена — можно провести заново.', rs)); return; }
     const cn = e.target.closest('.room-cancel');
@@ -5698,10 +5814,10 @@
   const roomAddBtn = document.getElementById('roomAddBtn');
   function roomShiftISO(iso, days){ const [y, m, d] = iso.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + days)); return t.toISOString().slice(0, 10); }
   function roomRateFor(iso){ const [y, m, d] = iso.split('-').map(Number); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return (w === 0 || w === 6) ? ROOM_RATE_WE : ROOM_RATE_WD; }
-  function roomDayBookings(iso){ return roomBookingsData.filter(b => b.dateISO === iso && Number.isFinite(roomMinOf(b.startTime)) && Number.isFinite(roomMinOf(b.endTime))); }
-  function roomMaxHoursAt(iso, t){
+  function roomDayBookings(iso, exceptId){ return roomBookingsData.filter(b => b.dateISO === iso && b.bookingId !== exceptId && Number.isFinite(roomMinOf(b.startTime)) && Number.isFinite(roomMinOf(b.endTime))); }
+  function roomMaxHoursAt(iso, t, exceptId){
     const st = roomStartsFor(iso), idx = st.indexOf(t);
-    const s0 = roomMinOf(t), busy = roomDayBookings(iso).map(b => [roomMinOf(b.startTime), roomMinOf(b.endTime) + ROOM_CLEANUP_MIN]);
+    const s0 = roomMinOf(t), busy = roomDayBookings(iso, exceptId).map(b => [roomMinOf(b.startTime), roomMinOf(b.endTime) + ROOM_CLEANUP_MIN]);
     if (idx === -1 || busy.some(([bs, be]) => s0 >= bs && s0 < be)) return 0;
     let limit = Infinity;
     busy.forEach(([bs]) => { if (bs > s0) limit = Math.min(limit, bs - ROOM_CLEANUP_MIN); });

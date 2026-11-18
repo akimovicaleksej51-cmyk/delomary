@@ -9,6 +9,10 @@
     {
       "path": "/api/internal-jobs?job=sweep",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/internal-jobs?job=summary",
+      "schedule": "0 21 * * *"
     }
   ],
   "headers": [

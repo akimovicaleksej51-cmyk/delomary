@@ -108,7 +108,7 @@ import { scheduleGameCloseout, cancelGameCloseout, stripCloseoutFields, setManua
 import { toAmount, addRoomPayouts, roomPaidSessions, ROOM_PAY_PER_SESSION } from '../_finance.js';
 import { businessToday, businessDateTime, todayISO as businessTodayISO } from '../_time.js';
 import { escapeTgHtml, dateTimeBlock, formatDateRu, urgencyLead, tgPhoneLine } from '../_telegram.js';
-import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, setRoomCallStatus, ROOM_CALL_STATUSES, cancelRoomCloseout, uniqueRoomRecords, roomSourceOf, ROOM_SOURCES } from '../_rooms.js';
+import { listRoomBookings, cancelRoomBooking, roomCancelTelegramText, validateRoomRequest, reserveRoomHours, roomBookingTelegramText, setRoomCloseout, setRoomCallStatus, ROOM_CALL_STATUSES, cancelRoomCloseout, uniqueRoomRecords, roomSourceOf, ROOM_SOURCES, rescheduleRoomBooking, roomRescheduleTelegramText } from '../_rooms.js';
 
 // Was 3 (just enough buffer for very recent ACTIVE bookings) until
 // 22.09.2026 — with the new "Проведённые" tab (see admin.html/staff.html),
@@ -453,6 +453,24 @@ export default async function handler(req, res) {
       await sendTelegram(roomCancelTelegramText(record), 'room cancel');
       const roomBookings = await listRoomBookings();
       return res.status(200).json({ ok: true, roomBookings });
+    }
+
+    // 18.11.2026: перенос брони комнаты на другую дату/время (гость и цена сохраняются).
+    //   { action:'rescheduleRoomBooking', dateISO, bookingId, toDateISO, toStartTime, sessions?, recalcPrice?, sendSms? }
+    if (action === 'rescheduleRoomBooking') {
+      const out = await rescheduleRoomBooking({
+        dateISO: body.dateISO, bookingId: body.bookingId, toDateISO: body.toDateISO,
+        toStartTime: typeof body.toStartTime === 'string' ? body.toStartTime.trim() : '',
+        sessions: body.sessions, recalcPrice: body.recalcPrice === true,
+      });
+      if (!out.ok) return res.status(out.status || 500).json({ error: out.error });
+      await sendTelegram(roomRescheduleTelegramText(out.record, out.from), 'room reschedule');
+      let sms = null;
+      if (body.sendSms !== false && !out.record.technical && out.record.phone && out.record.dateISO >= businessTodayISO()) {
+        sms = await sendAdminRoomSms(out.record);
+      }
+      const roomBookings = await listRoomBookings();
+      return res.status(200).json({ ok: true, booking: out.record, roomBookings, sms });
     }
 
     // 09.10.2026: сверка по комнате — состоялась ли, сколько денег, как оплатили,

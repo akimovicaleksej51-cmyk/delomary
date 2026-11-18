@@ -59,6 +59,7 @@ import { formatDateRu } from '../_telegram.js';
 import { kv } from '../_kv.js';
 import { getClientIp, checkRateLimit, recordFailedAttempt, clearAttempts, retryAfterMinutesLabel, safeEqual } from '../_ratelimit.js';
 import { todayISO } from '../_time.js';
+import { sendDailySummary, summaryDateNow, SUMMARY_RECIPIENTS } from '../_summary.js';
 
 function checkAuth(req) {
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -113,6 +114,17 @@ export default async function handler(req, res) {
       try { body = JSON.parse(body); } catch { body = {}; }
     }
     body = body || {};
+
+    // 18.11.2026: прислать сводку за день в Telegram прямо сейчас (кнопка в «Кассе»)
+    if (body.action === 'sendSummary') {
+      const dateISO = summaryDateNow();
+      const out = await sendDailySummary(dateISO);
+      if (!out.ok) {
+        const who = out.missing && out.missing.length ? `@${out.missing.join(', @')} ещё не написал(а) боту /start — бот не может писать первым.` : '';
+        return res.status(out.missing && out.missing.length ? 409 : 502).json({ error: [who, ...(out.errors || [])].filter(Boolean).join(' ') || 'Не удалось отправить сводку.' });
+      }
+      return res.status(200).json({ ok: true, dateISO, sent: out.sent, recipients: SUMMARY_RECIPIENTS });
+    }
 
     if (body.action === 'addCashout') {
       const cleanDateISO = isValidDateISO(body.dateISO) ? body.dateISO : '';

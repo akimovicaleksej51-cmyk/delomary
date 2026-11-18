@@ -26,6 +26,7 @@
 //                    see scheduleReminder() in api/_reminders.js, whose
 //                    `destination` now points at
 //                    /api/internal-jobs?job=reminder.
+//   ?job=summary   — 18.11.2026: вечерняя сводка за день в Telegram (Vercel Cron).
 //   ?job=closeout  — was api/telegram-closeout.js. The URL QStash calls
 //                    exactly CLOSEOUT_LEAD_MINUTES after one specific game
 //                    started — see scheduleGameCloseout() in
@@ -43,6 +44,7 @@ import { kv, kvPipeline, pairsToObject } from './_kv.js';
 import { scheduleReminder, resolveActorUsernamesForSlotSync } from './_reminders.js';
 import { scheduleGameCloseout, sweepMissedCloseouts, runCloseoutForBooking } from './_closeout.js';
 import { businessToday } from './_time.js';
+import { sendDailySummary, summaryDateNow } from './_summary.js';
 
 function isoDate(d) {
   const y = d.getFullYear();
@@ -308,8 +310,24 @@ async function handleCloseout(req, res) {
 }
 
 // ============================================================
+// ============================================================
+// job=summary — 18.11.2026: вечерняя сводка за день Наташе в Telegram
+// (api/_summary.js). Vercel Cron раз в сутки (vercel.json, 21:00 UTC =
+// 00:00–00:59 по Минску) — итоги только что закончившегося дня. Не чаще
+// одного раза в день (повторный вызов ничего не отправит).
+async function handleSummary(req, res) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const dateISO = summaryDateNow();
+  const out = await sendDailySummary(dateISO, { once: true });
+  return res.status(200).json({ ok: out.ok, dateISO, skipped: !!out.skipped, sent: out.sent, missing: out.missing, errors: out.errors });
+}
+
 export default async function handler(req, res) {
   const job = req.query && req.query.job;
+  if (job === 'summary') return handleSummary(req, res);
   if (job === 'reminder') return handleReminder(req, res);
   if (job === 'closeout') return handleCloseout(req, res);
   return handleSweep(req, res); // job=sweep, or no job param at all

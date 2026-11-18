@@ -497,6 +497,86 @@ export async function cancelRoomBooking(dateISO, bookingId) {
   return record;
 }
 
+// 18.11.2026: перенос брони комнаты (из админки). Гость, телефон, источник,
+// комментарий, прозвон и цена сохраняются; меняются дата и время начала.
+// Число сеансов — прежнее, если не передали другое. Цену можно пересчитать
+// по тарифу новой даты (галочка в админке), иначе она остаётся как была.
+// Бронь со сверкой не переносится — сначала сверку надо сбросить.
+// Возвращает { ok:true, record, from } или { ok:false, status, error }.
+export async function rescheduleRoomBooking({ dateISO, bookingId, toDateISO, toStartTime, sessions, recalcPrice = false }) {
+  if (!isRealCalendarDate(dateISO) || typeof bookingId !== 'string' || !bookingId) return { ok: false, status: 400, error: 'Некорректный запрос.' };
+  if (!isRealCalendarDate(toDateISO)) return { ok: false, status: 400, error: 'Некорректная новая дата.' };
+  const fromKey = roomKey(dateISO);
+  const raw = await kv('hgetall', fromKey);
+  if (!Array.isArray(raw)) return { ok: false, status: 503, error: 'База данных не отвечает — попробуйте ещё раз.' };
+  const oldFields = [];
+  let old = null, oldValue = '';
+  for (let i = 0; i < raw.length - 1; i += 2) {
+    try {
+      const rec = JSON.parse(raw[i + 1]);
+      if (rec && rec.bookingId === bookingId) { oldFields.push(raw[i]); if (!old) { old = rec; oldValue = raw[i + 1]; } }
+    } catch { /* skip */ }
+  }
+  if (!old) return { ok: false, status: 404, error: 'Бронь не найдена — возможно, её уже отменили или перенесли.' };
+  if (old.closeout && old.closeout.done) return { ok: false, status: 409, error: 'По этой брони уже проведена сверка — сначала сбросьте сверку, потом переносите.' };
+
+  const hours = Number(sessions) || Number(old.sessions || old.hours) || 1;
+  const starts = roomStartsFor(toDateISO);
+  if (!starts.includes(toStartTime)) return { ok: false, status: 400, error: 'Некорректное время начала.' };
+  if (!Number.isInteger(hours) || hours < 1 || starts.indexOf(toStartTime) + hours > starts.length) {
+    return { ok: false, status: 400, error: 'Столько сеансов с этого времени не помещается в день.' };
+  }
+  if (toDateISO > lastBookableISO()) return { ok: false, status: 400, error: `Брони комнаты открыты на ${ROOM_DAYS_AHEAD} дней вперёд — эта дата пока дальше.` };
+  if (toDateISO < windowDates(-31, 1)[0]) return { ok: false, status: 400, error: 'Перенести можно не раньше, чем на месяц назад.' };
+  if (toDateISO === dateISO && toStartTime === old.startTime && hours === Number(old.sessions || old.hours)) {
+    return { ok: false, status: 400, error: 'Новое время совпадает с текущим.' };
+  }
+
+  const record = {
+    ...old,
+    dateISO: toDateISO,
+    startTime: toStartTime,
+    endTime: endTimeFor(toStartTime, hours, toDateISO),
+    hours,
+    sessions: hours,
+    times: roomCells(toStartTime, hours, toDateISO),
+    rate: roomRateFor(toDateISO),
+    rescheduledFrom: { dateISO, startTime: old.startTime, endTime: old.endTime, sessions: Number(old.sessions || old.hours) || 0, price: old.price },
+    rescheduledAt: new Date().toISOString(),
+  };
+  if (!old.technical) {
+    const parts = roomPriceParts(toDateISO, toStartTime, hours);
+    record.gapExtra = parts.extra;
+    if (recalcPrice) record.price = parts.total;
+  }
+  delete record.closeout;
+
+  // Сначала освобождаем старые ячейки (на тот же день новое время может
+  // пересекаться со старым), потом занимаем новые. Не получилось — возвращаем
+  // старые ячейки на место.
+  await kv('hdel', fromKey, ...oldFields);
+  const reserved = await reserveRoomHours(record);
+  if (!reserved.ok || reserved.unreserved) {
+    const args = [];
+    oldFields.forEach((f) => { args.push(f, oldValue); });
+    await kv('hset', fromKey, ...args);
+    if (reserved.unreserved) return { ok: false, status: 503, error: 'База данных не подключена — бронь не перенесена.' };
+    return { ok: false, status: reserved.status || 409, error: reserved.error || 'Это время уже занято — выберите другое.' };
+  }
+  return { ok: true, record, from: old };
+}
+
+export function roomRescheduleTelegramText(record, from) {
+  const fields = [
+    `Было: <b>${escapeTgHtml(formatDateRu(from.dateISO))}, ${escapeTgHtml(from.startTime)}–${escapeTgHtml(from.endTime)}</b>`,
+    `Стало: <b>${escapeTgHtml(formatDateRu(record.dateISO))}, ${escapeTgHtml(record.startTime)}–${escapeTgHtml(record.endTime)}</b> (${sessionsWordRu(record.hours)})`,
+    record.name && !record.technical ? `Имя: ${escapeTgHtml(record.name)}` : null,
+    record.phone ? tgPhoneLine(record.phone) : null,
+    !record.technical ? (Number(record.price) !== Number(from.price) ? `Цена: ${record.price} Br (было ${from.price} Br)` : `Цена: ${record.price} Br`) : null,
+  ].filter((l) => l !== null).join('\n');
+  return `${(record.technical ? 'Техническая бронь Loony Room перенесена' : 'Бронь Loony Room перенесена').toUpperCase()}\n\n${fields}`;
+}
+
 export function roomCancelTelegramText(record, via = '') {
   const fields = [
     `Дата: <b>${escapeTgHtml(formatDateRu(record.dateISO))}</b>`,
