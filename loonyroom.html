@@ -243,6 +243,7 @@
   .dday:disabled small{text-decoration:line-through;}
 
   .hint{font-size:15.5px; color:var(--muted); margin:-6px 0 16px;}
+  .hint .hint-key{color:var(--yellow); font-weight:800; white-space:nowrap;}
   .hours{display:grid; grid-template-columns:repeat(auto-fill, minmax(112px,1fr)); gap:10px;}
   .hour{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:72px; padding:8px 4px; border-radius:var(--r-sm); border:1.5px solid var(--line); background:var(--card-2); color:var(--paper); cursor:pointer; font-family:var(--sans); transition:border-color .15s, background .15s;}
   .hour .h-time{font-family:var(--head); font-weight:600; font-size:20px; line-height:1.2;}
@@ -681,7 +682,7 @@
 
         <div class="rb-step">
           <div class="step-title"><span class="n">2</span>Время <span class="sub" id="hoursDayLabel"></span></div>
-          <p class="hint">Нажмите на первый и последний сеанс — выделится весь промежуток.</p>
+          <p class="hint"><b class="hint-key">1 сеанс = 1 час.</b> Нажмите на первый и последний сеанс — выделится весь промежуток.</p>
           <div id="hoursWrap"><div class="empty">Сначала выберите день</div></div>
           <div class="legend"><span><i></i>свободно</span><span><i class="l-sel"></i>выбрано</span><span><i class="l-off"></i>занято</span></div>
         </div>
@@ -959,8 +960,9 @@
       if (inSel) cls.push('sel');
       if (inSel && sel.a !== sel.b && i !== sel.a && i !== sel.b) cls.push('mid');
       html += '<button type="button" class="' + cls.join(' ') + '" data-i="' + i + '"' + (tk || cl ? ' disabled' : '') +
-        ' aria-pressed="' + (inSel ? 'true' : 'false') + '" aria-label="' + t + '–' + endOf(t, 1) + (tk ? ', занято' : cl ? ', онлайн-бронь закрыта' : '') + '">' +
-        '<span class="h-time">' + t + '</span><small>' + (tk ? 'занято' : cl ? 'закрыто' : 'до ' + endOf(t, 1)) + '</small></button>';
+        ' aria-pressed="' + (inSel ? 'true' : 'false') + '" aria-label="Сеанс в ' + t + (tk ? ', занято' : cl ? ', онлайн-бронь закрыта' : '') + '">' +
+        // 18.11.2026: на кнопке только время начала сеанса, без «до скольки»
+        '<span class="h-time">' + t + '</span>' + (tk ? '<small>занято</small>' : cl ? '<small>закрыто</small>' : '') + '</button>';
     });
     html += '</div>';
     wrap.innerHTML = html;
